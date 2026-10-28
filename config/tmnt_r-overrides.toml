@@ -1,0 +1,5 @@
+# Manual analysis fixes for TMNT_r.xex (TMNT_Final_r.dll, title 584109D2)
+
+[functions]
+# Tail-branch target that analysis left outside any function.
+0x876CF8AC = {}  # b from 0x876CF8FC

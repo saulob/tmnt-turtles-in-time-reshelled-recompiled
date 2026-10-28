@@ -1,0 +1,20 @@
+diff --git a/src/system/runtime.cpp b/src/system/runtime.cpp
+index c10694c..d85444a 100644
+--- a/src/system/runtime.cpp
++++ b/src/system/runtime.cpp
+@@ -236,9 +236,12 @@ X_STATUS Runtime::Setup(const rex::PPCImageInfo& image_info, RuntimeConfig confi
+     REXSYS_DEBUG("Registered {} recompiled functions ({} duplicates, {} rejected)", count,
+                  duplicates, rejected);
+     if (rejected > 0) {
+-      REXSYS_ERROR("PPCImageInfo registration: {} func_mappings entries rejected", rejected);
+-      Shutdown();
+-      return X_STATUS_UNSUCCESSFUL;
++      // Non-fatal: out-of-code-range synthetic stubs (e.g. GoldenEye's
++      // 0x830E0xxx dead branch targets) can't be registered in the guest
++      // function table but must not brick runtime setup -- they are only ever
++      // reached by direct host tail-calls, never via the dispatch table.
++      REXSYS_WARN("PPCImageInfo registration: {} func_mappings entries rejected (non-fatal)",
++                  rejected);
+     }
+   }
+ 

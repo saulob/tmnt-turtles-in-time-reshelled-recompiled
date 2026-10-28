@@ -1,0 +1,48 @@
+# Local game files and generated output
+/game/
+/generated/
+/build/
+/build-release/
+/dist/
+/out/
+
+# Player data created when the program runs from a source folder
+user_data/
+user_data.migrating/
+
+# Downloaded ReXGlue SDK
+/tools/rexglue/
+
+# Logs, dumps and binaries
+*.log
+*.dmp
+*.pdb
+*.ilk
+*.obj
+*.exe
+
+# Visual Studio
+.vs/
+[Bb]in/
+[Oo]bj/
+ipch/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+
+# CMake and local build artifacts
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+cmake-build-*/
+
+# Python
+__pycache__/
+
+# Local AI agent instructions
+CLAUDE.md
+.claude/

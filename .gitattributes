@@ -1,0 +1,11 @@
+# rexglue codegen rewrites the manifest with LF endings on every run.
+tmnt_turtles_in_time_reshelled_manifest.toml text eol=lf
+
+# Scripts and files that run or are read on Linux.
+*.sh text eol=lf
+packaging/linux/AppRun text eol=lf
+packaging/linux/*.desktop text eol=lf
+
+# The runtime patches are applied with git apply on both platforms.
+patches/rexglue-sdk/* text eol=lf
+patches/appimage-runtime/* text eol=lf

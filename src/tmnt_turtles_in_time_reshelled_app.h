@@ -1,0 +1,301 @@
+#pragma once
+
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <optional>
+
+#include <rex/cvar.h>
+#include <rex/filesystem.h>
+#include <rex/input/input_system.h>
+#include <rex/logging.h>
+#include <rex/rex_app.h>
+#include <rex/runtime.h>
+#include <rex/version.h>
+#include <rex/system/kernel_state.h>
+#include <rex/ui/flags.h>
+#include <rex/ui/windowed_app_context.h>
+
+#include "achievements_overlay.h"
+#include "active_log.h"
+#include "aspect_ratio.h"
+#include "diagnostics.h"
+#include "frame_counter.h"
+#include "game_files.h"
+#include "guest_functions.h"
+#include "input_summary.h"
+#include "internal_render_scale.h"
+#include "launcher.h"
+#include "log_filter.h"
+#include "log_path.h"
+#include "modal_dialog.h"
+#include "platform.h"
+#include "port_version.h"
+#include "session_log.h"
+#include "settings.h"
+#include "system_info.h"
+#include "trg/game_helpers.h"
+#include "user_data.h"
+#include "window_host.h"
+
+class TurtlesInTimeReshelledApp : public rex::ReXApp {
+ public:
+  using rex::ReXApp::ReXApp;
+
+  static std::unique_ptr<rex::ui::WindowedApp> Create(rex::ui::WindowedAppContext& ctx) {
+    tmnt::SetApplicationId();
+    tmnt::InstallGuestFunctionTable(PPCImageConfig.func_mappings);
+    return std::unique_ptr<TurtlesInTimeReshelledApp>(
+        new TurtlesInTimeReshelledApp(ctx, "tmnt_turtles_in_time_reshelled", PPCImageConfig));
+  }
+
+ protected:
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    shipped_config_ = paths.config_path;
+    const std::filesystem::path port_folder = tmnt::PortFolder();
+    if (paths.game_data_root.empty()) {
+      paths.game_data_root = port_folder / "game";
+    }
+    ChooseUserData(paths, port_folder);
+    if (const auto inherited =
+            tmnt::TakeInheritedSessionLog({port_folder / "logs", paths.user_data_root / "logs"})) {
+      rex::cvar::SetFlagFromCommandLine("log_file", tmnt::Utf8(*inherited));
+      tmnt::InstallCrashReports();
+    }
+    // ReXGlue writes its logs beside the executable, which is read-only inside an AppImage.
+    const bool appimage = port_folder != rex::filesystem::GetExecutableFolder();
+    if (appimage && rex::cvar::GetFlagByName("log_file").empty()) {
+      const std::filesystem::path logs = tmnt::LogsFolder(port_folder, paths.user_data_root, {}, appimage);
+      if (const std::filesystem::path file = tmnt::NextLogFile(logs, "tmnt_turtles_in_time_reshelled"); !file.empty()) {
+        rex::cvar::SetFlagByName("log_file", tmnt::Utf8(file));
+      }
+    }
+  }
+
+  bool SetupPresentation() override {
+    if (rex::ReXApp::SetupPresentation()) {
+      return true;
+    }
+    REXLOG_WARN("Graphics unavailable; opening the launcher without graphics");
+    tmnt::RunLauncherWithoutGraphics(DescribeGameFiles());
+    return false;
+  }
+
+  void OnPostInitLogging() override {
+    tmnt::InitializeProcessUptime();
+    tmnt::InstallCrashReports();
+    const tmnt::UserDataMessage message = tmnt::DescribeUserData(user_data_);
+    if (message.warning) {
+      REXLOG_WARN("{}", message.text);
+    } else {
+      REXLOG_INFO("{}", message.text);
+    }
+    tmnt::LoadPlayerSettings(tmnt::PlayerSettingsPath(user_data_root()));
+    tmnt::ApplyDetailedLogging();
+    tmnt::InstallSessionLogCleanup();
+    const tmnt::ApplicationIdentity identity{
+        .product = "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled",
+        .version = tmnt::PortVersion(),
+        .build_config = tmnt::BuildConfigurationName(),
+        .architecture = tmnt::ArchitectureName(),
+        .sdk = REXGLUE_VERSION_STRING,
+        .backend = tmnt::GraphicsBackendName(),
+    };
+    REXLOG_INFO("{}", tmnt::FormatApplicationVersion(identity));
+    REXLOG_INFO("{}", tmnt::FormatBuildIdentity(identity));
+    REXLOG_INFO("{}", tmnt::GameFilesLogText(tmnt::CheckGameFiles(game_data_root())));
+    tmnt::ApplyGraphicsAdapter();
+  }
+
+  void OnConfigureFonts(ImFontAtlas* atlas) override {
+    tmnt::LoadLauncherFonts(atlas, window() ? float(window()->GetDpi()) / float(window()->GetMediumDpi()) : 1.0f);
+  }
+
+  void OnDpiScaleChanged(float scale) override {
+    tmnt::UpdateLauncherFonts(imgui_drawer(), immediate_drawer(), scale);
+  }
+
+  void OnPreSetup(rex::RuntimeConfig&) override {
+    game_settings_.Capture(tmnt::PlayerSettingsPath(user_data_root()), shipped_config_);
+    show_launcher_ = tmnt::ShouldShowLauncher(game_data_root());
+    if (show_launcher_) {
+      tmnt::PrepareLauncherWindow();
+    }
+    game_settings_.MarkWindowCreated();
+  }
+
+  std::optional<rex::PathConfig> OnFinalizePaths(const rex::PathConfig& defaults,
+                                                 std::function<void(rex::PathConfig)> resume) override {
+    if (window()) {
+      window()->SetTitle(kWindowTitle);
+    }
+    tmnt::ApplyWindowIcon();
+    game_settings_.CaptureLateRegistered();
+    if (!show_launcher_ && tmnt::ShiftHeldAfterWindowOpened()) {
+      show_launcher_ = true;
+    }
+    if (!show_launcher_) {
+      tmnt::ApplyMultisampling();
+      tmnt::ApplyPlayerNames();
+      tmnt::ApplyAspectRatio();
+      tmnt::ApplyInternalRenderPath();
+      return defaults;
+    }
+    if (!imgui_drawer()) {
+      game_settings_.Apply();
+      return defaults;
+    }
+    REXLOG_INFO("Launcher shown");
+    tmnt::LauncherCallbacks callbacks;
+    callbacks.play = [this, resume, defaults] {
+      app_context().CallInUIThreadDeferred([this, resume, defaults] {
+        game_settings_.Apply();
+        tmnt::ApplyDetailedLogging();
+        resume(defaults);
+      });
+    };
+    callbacks.window_changed = [this] { return game_settings_.WindowChanged(); };
+    callbacks.restart = [this] {
+      if (!tmnt::RelaunchSelf(L"--tmnt_skip_launcher=true")) {
+        return false;
+      }
+      app_context().CallInUIThreadDeferred([] {
+        REXLOG_INFO("Restarted in a new window; hard-exiting this process.");
+        rex::FlushLogging();
+        std::_Exit(0);
+      });
+      return true;
+    };
+    callbacks.quit = [this] { app_context().CallInUIThreadDeferred([this] { app_context().QuitFromUIThread(); }); };
+    callbacks.window_handle = [this] { return window() ? window()->GetNativeWindowHandle() : nullptr; };
+    callbacks.window_fullscreen = [this] { return window() && window()->IsFullscreen(); };
+    callbacks.set_window_fullscreen = [this](bool fullscreen) {
+      if (window()) {
+        window()->SetFullscreen(fullscreen);
+      }
+    };
+    const std::filesystem::path port_folder = tmnt::PortFolder();
+    const std::filesystem::path logs_dir =
+        tmnt::LogsFolder(port_folder, defaults.user_data_root, tmnt::ActiveLogFile(),
+                        port_folder != rex::filesystem::GetExecutableFolder());
+    tmnt::ShowLauncher(imgui_drawer(),
+                      {defaults.game_data_root, defaults.user_data_root,
+                       tmnt::PlayerSettingsPath(defaults.user_data_root), logs_dir, user_data_.outcome,
+                       immediate_drawer()},
+                      game_settings_, std::move(callbacks));
+    return std::nullopt;
+  }
+
+  void LaunchModule() override {
+    const int monitor = game_settings_.GetInt("monitor", std::atoi(rex::cvar::GetFlagByName("monitor").c_str()));
+    tmnt::StartupWindowInfo startup_window;
+    startup_window.fullscreen = window() != nullptr && window()->IsFullscreen();
+    startup_window.selected_width = game_settings_.GetInt(
+        "window_width", std::atoi(rex::cvar::GetFlagByName("window_width").c_str()));
+    startup_window.selected_height = game_settings_.GetInt(
+        "window_height", std::atoi(rex::cvar::GetFlagByName("window_height").c_str()));
+    startup_window.configured_width = window() != nullptr ? int(window()->GetDesiredLogicalWidth())
+                                                          : startup_window.selected_width;
+    startup_window.configured_height = window() != nullptr ? int(window()->GetDesiredLogicalHeight())
+                                                           : startup_window.selected_height;
+    const tmnt::WindowSize drawable = CurrentDrawableSize(window());
+    startup_window.output_width = drawable.width;
+    startup_window.output_height = drawable.height;
+    startup_window.controller = tmnt::ControllerSummary();
+    tmnt::LogStartupDiagnostics(game_settings_, tmnt::MonitorForSetting(monitor), monitor, game_data_root(),
+                               startup_window);
+    ReXApp::LaunchModule();
+  }
+
+  void OnPostSetup() override {
+    REXLOG_INFO("{}", tmnt::DescribeInternalRenderResolution(
+                          std::max(1, std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str())),
+                          std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()),
+                          tmnt::GuestWidth(tmnt::ParseAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio")))));
+#if defined(_WIN32)
+    REXLOG_INFO("Scheduling: {}", trg::TuneProcessScheduling());
+#endif
+    AttachWindowHost(window(), app_context(), [this] {
+      rex::ui::ImGuiDrawer* drawer = imgui_drawer();
+      return drawer && drawer->GetIO().WantCaptureMouse;
+    });
+    if (window()) {
+      tmnt::CheckWindowDisplay(window()->GetNativeWindowHandle(), REXCVAR_GET(monitor));
+    }
+    if (window() && imgui_drawer()) {
+      tmnt::CreateFrameCounter(imgui_drawer());
+      CreateCursorSync(imgui_drawer());
+      tmnt::ModalDialog::AttachEscapeKey(window());
+    }
+  }
+
+  void OnShutdown() override {
+    // ReXApp destroys the window before the runtime; the input drivers must detach while it still exists.
+    if (auto* input = runtime() ? runtime()->input_system() : nullptr) {
+      input->Shutdown();
+    }
+    tmnt::ModalDialog::DetachEscapeKey();
+    delete achievements_;
+    DetachWindowHost();
+    REXLOG_INFO("{}", tmnt::FormatCleanExit(tmnt::ProcessUptimeText()));
+  }
+
+  // Window close is a hard exit: the base TerminateTitle would call StopTitleThreads and wait on guest
+  // threads that are still running guest code. The OS reclaims the process.
+  void OnClosing(rex::ui::UIEvent&) override {
+    REXLOG_INFO("Window closing, hard-exiting process.");
+    tmnt::PrepareHardExit();
+    std::_Exit(0);
+  }
+
+  // F7 toggles the achievements overlay. The overlay is owned here, not by ReXApp.
+  std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay() override {
+    if (achievements_) {
+      achievements_->RequestClose();
+    } else {
+      OpenAchievements();
+    }
+    return nullptr;
+  }
+
+ private:
+  tmnt::GraphicsFallbackInfo DescribeGameFiles() const {
+    switch (tmnt::CheckGameFiles(game_data_root()).state) {
+      case tmnt::GameFiles::kReady:
+        return {tmnt::Utf8(game_data_root()), "Ready", true};
+      case tmnt::GameFiles::kUnsupported:
+        return {tmnt::Utf8(game_data_root()), "Unsupported version", false};
+      default:
+        return {tmnt::Utf8(game_data_root()), "Setup required", false};
+    }
+  }
+
+  // The cache folder ReXGlue derived from the system root follows the user data root unless it was set explicitly.
+  void ChooseUserData(rex::PathConfig& paths, const std::filesystem::path& port_folder) {
+    user_data_ = tmnt::SelectUserData({port_folder, paths.user_data_root, !REXCVAR_GET(user_data_root).empty()});
+    if (user_data_.root == paths.user_data_root) {
+      return;
+    }
+    paths.user_data_root = user_data_.root;
+    if (REXCVAR_GET(cache_root).empty()) {
+      paths.cache_root = user_data_.root / "cache";
+    }
+  }
+
+  void OpenAchievements() {
+    if (achievements_ || tmnt::ModalDialog::AnyOpen() || !runtime() || !runtime()->kernel_state() || !imgui_drawer() ||
+        !immediate_drawer()) {
+      return;
+    }
+    achievements_ = new tmnt::AchievementsOverlay(imgui_drawer(), immediate_drawer(), runtime(), &achievements(),
+                                                 [this] { achievements_ = nullptr; });
+  }
+
+  tmnt::GameSettings game_settings_;
+  tmnt::AchievementsOverlay* achievements_ = nullptr;
+  std::filesystem::path shipped_config_;
+  tmnt::UserDataSelection user_data_;
+  bool show_launcher_ = false;
+};

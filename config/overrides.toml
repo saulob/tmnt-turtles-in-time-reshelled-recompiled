@@ -1,0 +1,13 @@
+# Manual analysis fixes for default.xex (title 584109D2)
+
+[functions]
+# Tail-branch targets that analysis left outside any function.
+0x8235C450 = {}  # b from 0x823B0698
+0x825100C8 = {}  # b from 0x82A7A5A0
+0x82515FB0 = {}  # b from 0x824BCA60
+0x826F2D68 = {}  # b from 0x826F2D74
+0x8271E070 = {}  # b from 0x8270506C
+0x8278A910 = {}  # b from 0x82757EB0
+# Shared tail of sub_824DFED4 and sub_824DFF94 (identical code folding); beq from both reaches
+# mid-body of sub_824DFF94 at 0x824DFFE4, which codegen can't goto across a function boundary.
+0x824DFFE4 = {}  # beq from 0x824DFF94 and 0x824DFED4

@@ -1,0 +1,12 @@
+Development-only tool: dump-xex-image.cpp decrypts and decompresses a Turtles XEX into
+game/analysis/*.image.bin for tools/find-missing-functions.py. It is never built into the
+game or the launcher and ships in no release.
+
+rijndael-alg-fst.c/h       Public domain. Vincent Rijmen, Antoon Bosselaers, Paulo Barreto.
+TinySHA1.hpp                ISC-style permissive license. Copyright (c) 2012-22 Saurav Mohapatra.
+mspack/ (libmspack lzxd.c   GNU Lesser General Public License v2.1. Copyright (C) 2003-2023
+and headers)                 Stuart Caie. Full text in mspack/COPYING.LIB.
+
+All four are also vendored, unmodified, inside the ReXGlue SDK itself (thirdparty/crypto,
+thirdparty/libmspack), which already performs the same decrypt/decompress step during codegen;
+this tool reimplements that one step standalone so it can run without the full SDK/runtime.

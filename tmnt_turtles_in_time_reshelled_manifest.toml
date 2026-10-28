@@ -1,0 +1,20 @@
+[project]
+name = "tmnt_turtles_in_time_reshelled"
+sdk_version = "0.10.0"
+game_root = "game/extracted"
+
+[entrypoint]
+file_path = "game/extracted/default.xex"
+out_directory_path = "generated/default"
+includes = ["config/overrides.toml", "config/discovered-functions.toml"]
+
+# Guest CRT setjmp/longjmp pair. Codegen must emit ppc_setjmp/ppc_longjmp so a
+# restored context resumes at the setjmp site instead of returning to the host caller.
+setjmp_address = 0x825141A0
+longjmp_address = 0x82513E80
+
+[[modules]]
+guest_path = "tmnt_r.xex"
+file_path = "game/extracted/TMNT_r.xex"
+out_directory_path = "generated/tmnt_r"
+includes = ["config/tmnt_r-overrides.toml", "config/tmnt_r-discovered-functions.toml"]

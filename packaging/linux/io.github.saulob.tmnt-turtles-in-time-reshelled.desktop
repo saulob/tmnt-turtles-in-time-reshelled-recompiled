@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Turtles in Time Re-Shelled Recompiled
+Comment=Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, native PC port
+Exec=tmnt_turtles_in_time_reshelled
+Icon=tmnt_turtles_in_time_reshelled
+Categories=Game;
+Terminal=false
+StartupWMClass=io.github.saulob.tmnt-turtles-in-time-reshelled
