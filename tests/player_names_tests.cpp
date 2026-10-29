@@ -161,6 +161,7 @@ void TestSdkValues() {
   CHECK(tmnt::SdkPlayerName(p1, "Saulo") == "Saulo");
   CHECK(p1.send_default && !p2.send_default);
   CHECK(tmnt::SdkPlayerName(p2, "Guest") == "Guest");
+  CHECK(tmnt::SdkPlayerName(p2, "jogador2") == "jogador2");
   CHECK(tmnt::SdkPlayerName(p1, "  Saulo ") == "Saulo");
   CHECK(tmnt::SdkPlayerName(p1, "Player 1") == "Player 1");
   CHECK(tmnt::SdkPlayerName(p1, "") == "Player 1");

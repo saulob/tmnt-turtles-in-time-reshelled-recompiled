@@ -19,6 +19,7 @@
 #include <rex/ui/windowed_app_context.h>
 
 #include "achievements_overlay.h"
+#include "achievement_menu.h"
 #include "active_log.h"
 #include "aspect_ratio.h"
 #include "diagnostics.h"
@@ -28,10 +29,13 @@
 #include "input_summary.h"
 #include "internal_render_scale.h"
 #include "launcher.h"
+#include "live_fix.h"
+#include "local_stats.h"
 #include "log_filter.h"
 #include "log_path.h"
 #include "modal_dialog.h"
 #include "platform.h"
+#include "player_names.h"
 #include "port_version.h"
 #include "session_log.h"
 #include "settings.h"
@@ -214,6 +218,24 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
                           std::max(1, std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str())),
                           std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()),
                           tmnt::GuestWidth(tmnt::ParseAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio")))));
+    if (runtime() && runtime()->kernel_state() && runtime()->input_system()) {
+      tmnt::InstallAchievementMenu({
+          .open = [this] { app_context().CallInUIThreadDeferred([this] { OpenAchievements(); }); },
+          .close = [this] { app_context().CallInUIThreadDeferred([this] { RequestCloseAchievements(); }); },
+      });
+      static_cast<rex::input::InputSystem*>(runtime()->input_system())
+          ->SetActiveCallback([this] {
+            if (tmnt::AchievementMenuHoldsInput()) return true;
+            return !tmnt::ModalDialog::AnyOpen() && (!imgui_drawer() || !imgui_drawer()->GetIO().WantCaptureMouse);
+          });
+      if (auto* kernel = runtime()->kernel_state(); kernel->user_profile()) {
+        const auto* profile = kernel->user_profile();
+        tmnt::live::Install({
+            .stats_file = tmnt::StatsFilePath(std::filesystem::absolute(user_data_root()), kernel->title_id()),
+            .user = {profile->xuid(), rex::cvar::GetFlagByName(tmnt::kPlayerNames[0].sdk_key)},
+        });
+      }
+    }
 #if defined(_WIN32)
     REXLOG_INFO("Scheduling: {}", trg::TuneProcessScheduling());
 #endif
@@ -237,7 +259,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       input->Shutdown();
     }
     tmnt::ModalDialog::DetachEscapeKey();
-    delete achievements_;
+    CloseAchievements();
     DetachWindowHost();
     REXLOG_INFO("{}", tmnt::FormatCleanExit(tmnt::ProcessUptimeText()));
   }
@@ -290,7 +312,28 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       return;
     }
     achievements_ = new tmnt::AchievementsOverlay(imgui_drawer(), immediate_drawer(), runtime(), &achievements(),
-                                                 [this] { achievements_ = nullptr; });
+                                                  [this] {
+                                                    achievements_ = nullptr;
+                                                    tmnt::SetAchievementMenuOpen(false);
+                                                  });
+    tmnt::SetAchievementMenuOpen(true);
+  }
+
+  void CloseAchievements() {
+    if (!achievements_) {
+      tmnt::SetAchievementMenuOpen(false);
+      return;
+    }
+    if (achievements_->Closing()) {
+      return;
+    }
+    delete achievements_;
+  }
+
+  void RequestCloseAchievements() {
+    if (achievements_) {
+      achievements_->RequestClose();
+    }
   }
 
   tmnt::GameSettings game_settings_;
