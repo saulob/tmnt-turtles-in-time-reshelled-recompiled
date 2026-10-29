@@ -11,6 +11,7 @@
 #include <rex/ui/style.h>
 
 #include "launcher.h"
+#include "achievement_menu.h"
 #include "overlay_rules.h"
 
 namespace tmnt {
@@ -116,13 +117,6 @@ bool DrawCloseButton(const rex::ui::AchievementsStyle& style, float row_y) {
   return clicked;
 }
 
-float ScrollAxis(const ImGuiIO& io) {
-  const auto analog = [&io](ImGuiKey key) { return io.KeysData[key - ImGuiKey_NamedKey_BEGIN].AnalogValue; };
-  const bool up = ImGui::IsKeyDown(ImGuiKey_GamepadDpadUp) || ImGui::IsKeyDown(ImGuiKey_UpArrow);
-  const bool down = ImGui::IsKeyDown(ImGuiKey_GamepadDpadDown) || ImGui::IsKeyDown(ImGuiKey_DownArrow);
-  return ScrollDirection(up, down, analog(ImGuiKey_GamepadLStickUp) - analog(ImGuiKey_GamepadLStickDown));
-}
-
 }  // namespace
 
 AchievementsOverlay::AchievementsOverlay(rex::ui::ImGuiDrawer* drawer, rex::ui::ImmediateDrawer* immediate_drawer,
@@ -131,7 +125,9 @@ AchievementsOverlay::AchievementsOverlay(rex::ui::ImGuiDrawer* drawer, rex::ui::
     : ModalDialog(drawer),
       achievements_(achievements),
       icon_cache_(immediate_drawer, runtime),
-      closed_(std::move(closed)) {}
+      closed_(std::move(closed)) {
+  SetGamepadCloseEnabled(false);
+}
 
 AchievementsOverlay::~AchievementsOverlay() {
   if (closed_) closed_();
@@ -164,7 +160,7 @@ void AchievementsOverlay::DrawContent(ImGuiIO& io) {
     const float hint_size = ImGui::GetFontSize() * kHintScale;
     ImGui::BeginChild("##achlist", ImVec2(0.0f, -(hint_size + 2.0f * style.item_spacing.y + kHintPadding * 0.5f)),
                       false);
-    if (const float axis = ScrollAxis(io); axis != 0.0f) {
+    if (const float axis = AchievementMenuScrollAxis(); axis != 0.0f) {
       const float target = ImGui::GetScrollY() + axis * kScrollPixelsPerSecond * io.DeltaTime;
       ImGui::SetScrollY(std::clamp(target, 0.0f, ImGui::GetScrollMaxY()));
     }

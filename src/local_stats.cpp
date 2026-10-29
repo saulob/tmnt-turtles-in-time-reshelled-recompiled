@@ -187,7 +187,7 @@ RecordResult LocalStats::Record(uint64_t xuid, uint32_t view, const ViewStats& s
   if (user == stats_.end() && stats_.size() >= kMaxUsers) return RecordResult::kUnchanged;
   if (user != stats_.end()) {
     const auto existing = user->second.find(view);
-    if (existing != user->second.end() && existing->second == stats) return RecordResult::kUnchanged;
+    if (existing != user->second.end() && existing->second.rating >= stats.rating) return RecordResult::kUnchanged;
     if (existing == user->second.end() && user->second.size() >= kMaxViewsPerUser) return RecordResult::kUnchanged;
   }
   stats_[xuid][view] = stats;
@@ -196,7 +196,7 @@ RecordResult LocalStats::Record(uint64_t xuid, uint32_t view, const ViewStats& s
 
 bool LocalStats::Save() const {
   std::string text =
-      "# Offline stats for the local player: the latest submission per user and view. No Xbox Live.\n"
+      "# Offline stats for the local player: the best submission per user and view. No Xbox Live.\n"
       "version = 1\n";
   char section[64];
   for (const auto& [xuid, views] : stats_) {

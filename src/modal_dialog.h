@@ -27,10 +27,14 @@ class ModalDialog : public rex::ui::ImGuiDialog {
   static void DetachEscapeKey();
 
   void RequestClose() { close_.Request(); }
+  bool Closing() const { return close_.requested(); }
 
  protected:
   explicit ModalDialog(rex::ui::ImGuiDrawer* drawer);
   ~ModalDialog() override;
+
+  // The achievements overlay reads B from the game's controller and closes itself.
+  void SetGamepadCloseEnabled(bool enabled) { gamepad_close_ = enabled; }
 
   virtual void DrawContent(ImGuiIO& io) = 0;
 
@@ -46,6 +50,7 @@ class ModalDialog : public rex::ui::ImGuiDialog {
   ImGuiConfigFlags saved_nav_flags_ = 0;
   ImGuiBackendFlags saved_has_gamepad_ = 0;
   bool started_ = false;
+  bool gamepad_close_ = true;
   CloseGate close_;
 };
 

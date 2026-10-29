@@ -176,6 +176,7 @@ get_directory_property(TMNT_TRG_VERSION DIRECTORY "${_trg_patched_dir}" DEFINITI
 set(TMNT_SOURCES
     src/main.cpp
     src/achievement_alias.cpp
+    src/achievement_menu.cpp
     src/achievements_overlay.cpp
     src/active_log.cpp
     src/crash_report.cpp
@@ -191,6 +192,9 @@ set(TMNT_SOURCES
     src/launcher.cpp
     src/launcher_achievements.cpp
     src/legacy_settings.cpp
+    src/live_fix.cpp
+    src/live_stats.cpp
+    src/local_stats.cpp
     src/log_filter.cpp
     src/log_path.cpp
     src/modal_dialog.cpp
@@ -313,6 +317,8 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
+    target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp)
+    target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
 
@@ -587,6 +593,21 @@ if(NOT WIN32)
     set_target_properties(tmnt_log_filter_tests PROPERTIES BUILD_RPATH "$ORIGIN")
 endif()
 
+
+# Achievements menu gate tests (B close consumes input, scroll, hold state),
+# not part of the default build: cmake --build <dir> --target tmnt_achievement_menu_tests
+add_executable(tmnt_achievement_menu_tests EXCLUDE_FROM_ALL tests/achievement_menu_tests.cpp)
+target_include_directories(tmnt_achievement_menu_tests PRIVATE src)
+
+# Offline leaderboard tests (local stats file, guest results buffers, enumerators),
+# not part of the default build: cmake --build <dir> --target tmnt_live_tests
+add_executable(tmnt_live_tests EXCLUDE_FROM_ALL
+    tests/live_tests.cpp
+    src/live_stats.cpp
+    src/local_stats.cpp
+)
+target_include_directories(tmnt_live_tests PRIVATE src)
+target_compile_definitions(tmnt_live_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # User data tests (portable root and migration), not part of the default build:
 # cmake --build <dir> --target tmnt_user_data_tests

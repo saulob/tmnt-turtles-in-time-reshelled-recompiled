@@ -56,8 +56,14 @@ need attention at first boot.
 - **Aspect Ratio.** Only the generic video mode and letterbox are applied; non-16:9 output is unverified.
 - **Render base.** The 1280×720 base used by the Render resolution labels and diagnostics comes from the template.
 - **FPS counter.** Counts every `VdSwap`; whether the game repeats presents is unknown.
-- **Achievements.** The F7 overlay and the launcher page read the title XDBF through ReXGlue; nothing calls the
-  template's achievement-0 alias, and `ArcadeInfo.xml` numbers the achievements from 1.
+- **Achievements.** Unlocks and their persistence are ReXGlue's: the title XDBF supplies the 12 names, descriptions, icons and 200
+  gamerscore, and `achievements\584109D2.toml` holds the unlock state. The game's `XamShowAchievementsUI` wrapper is bridged to the
+  project's local overlay, which also handles controller input while it is open.
+- **Leaderboards.** The game's leaderboard page uses a local store at `584109D2\live\stats.toml`. Only the local player's own
+  submitted score is answered, as rank 1; there are no remote players, friends or global rankings. The scripts are
+  compiled into `TMNT_r.xex` and hooked there (`src/live_hooks_tmnt_r.cpp`): the local profile counts as signed in to
+  Xbox Live only while the leaderboard page, its sign-in check and the leaderboard, single-player and local-multiplayer
+  proceed events run. Game loading and session code keep the original local/offline answer.
 - **Runtime patches.** Patch behaviour measured in Hard Corps has not been re-measured here
   ([rexglue-runtime-patch.md](rexglue-runtime-patch.md)).
 

@@ -38,8 +38,8 @@ struct ViewStats {
   bool operator==(const ViewStats&) const = default;
 };
 
-// The latest submission per user and leaderboard view. The game decides what is worth submitting; the store keeps
-// it. Changes reach the disk before Record returns.
+// The best submission per user and leaderboard view. The game decides what is worth submitting; the store keeps
+// the highest rating so a lower run can never replace a better one.
 class LocalStats {
  public:
   static constexpr uint32_t kMaxUsers = 8;

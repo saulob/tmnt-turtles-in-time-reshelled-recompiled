@@ -10,7 +10,6 @@ namespace tmnt {
 
 constexpr float kOverlayViewportFraction = 0.7f;
 constexpr float kOverlayViewportMargin = 16.0f;
-constexpr float kStickDeadzone = 0.25f;
 
 // Window size along one axis: about 70% of the viewport, clamped to [min_size, max_size] and kept inside it.
 inline float FitWindowExtent(float viewport, float min_size, float max_size) {
@@ -37,15 +36,6 @@ inline AchievementSummary Summarize(const std::vector<uint32_t>& gamerscores, co
     }
   }
   return summary;
-}
-
-// Direction the list scrolls from the D-pad and the left stick: -1 up .. 1 down. The D-pad wins over the stick.
-inline float ScrollDirection(bool dpad_up, bool dpad_down, float stick_y) {
-  if (dpad_up != dpad_down) return dpad_up ? -1.0f : 1.0f;
-  const float magnitude = stick_y < 0.0f ? -stick_y : stick_y;
-  if (magnitude <= kStickDeadzone) return 0.0f;
-  const float amount = std::min(1.0f, (magnitude - kStickDeadzone) / (1.0f - kStickDeadzone));
-  return stick_y > 0.0f ? -amount : amount;
 }
 
 // A button that is never reported released (a controller unplugged as the dialog closes) cannot block the game forever.

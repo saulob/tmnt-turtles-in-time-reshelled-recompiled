@@ -16,6 +16,15 @@ TurtlesInTimeReshelled\
         cache\                  ReXGlue's shader cache
 ```
 
+Leaderboard scores are kept at `584109D2\live\stats.toml` under `user_data`; only the local player's submitted best score is stored.
+
+## Offline Xbox Live data
+
+This port is local and offline. It has no Xbox Live service, Microsoft account, remote leaderboard, friends, matchmaking
+or online multiplayer. Leaderboard requests are answered from the local stats file, and player display names come from the
+launcher settings without changing the profile, XUID or save identity. The game's original warning about scores not being
+updated to Xbox Live leaderboards describes a service this port does not provide.
+
 The layout inside `user_data` is ReXGlue's own, unchanged: only its root moved. Copying the whole program folder to
 another PC carries saves, achievements, DLC and settings with it. `user_data` is created the first time it is
 needed and is never part of a release download. `game` stays separate and is not player data. Logs stay in `logs` next to

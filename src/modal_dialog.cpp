@@ -83,7 +83,7 @@ void ModalDialog::OnDraw(ImGuiIO& io) {
   }
   gamepad_.Update(io);
   TrackPressedKeys();
-  if (!close_.requested() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
+  if (gamepad_close_ && !close_.requested() && ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
     close_.Request();
   }
   if (close_.requested()) {
