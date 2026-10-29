@@ -33,6 +33,7 @@
 
 #include "aspect_ratio.h"
 #include "cursor_input.h"
+#include "frame_limiter.h"
 #include "input_activity.h"
 #include "settings.h"
 #include "window_title.h"
@@ -299,6 +300,9 @@ GuestFrameStats GetGuestFrameStats() {
 
 // Named like the SDK's export, so REX_EXTERN would call this hook again: the original is called by its entry point.
 REX_HOOK_RAW(__imp__VdSwap) {
+  // The game's present returns as soon as the swap is queued, so the console's vertical blank is what
+  // limits it to one frame per refresh: the wait goes here, before the game produces the next frame.
+  tmnt::PaceGuestFrame();
   rex::ppc::HostToGuestFunction<rex::kernel::xboxkrnl::VdSwap_entry>(ctx, base);
   CountGuestFrame();
 }

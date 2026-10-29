@@ -787,3 +787,22 @@ Taken from the reference ports after the v0.10.0 baseline; each applies unchange
 - **0064.** Implement `KeSaveFloatingPointState` / `KeRestoreFloatingPointState` as silent success instead of logging stubs. From Crackdown (0004).
 - **0065.** Decode UTF-8 path cvars with `rex::to_path` before resolving runtime roots. From Crackdown (0009).
 - **0066.** Treat rejected out-of-range function registrations as a warning instead of aborting runtime setup. From GoldenEye 007.
+
+## Second batch: audio mix, XMA context words and code generator (0067 to 0076)
+
+Ported from Crackdown and Marvel Ultimate Alliance Recompiled, which carry them over the same v0.10.0 code. 0067 to 0072 are runtime patches, 0073 to 0076 change the code generator, so `rexglue.exe` is now built from the patches too (Release only, installed in `tools\rexglue\win-amd64\bin`, part of the runtime fingerprint) and `tools\codegen.ps1` regenerates `generated\` with it. `tools\build.ps1` runs `codegen.ps1` when `generated\codegen.stamp` does not match the installed `rexglue.exe`, the manifest and its configs.
+
+- **0067.** Excluded channels (weight 0, such as the LFE of the default stereo fold) are skipped in the 5.1 mix instead of multiplied, so a NaN or infinity in a channel the mix does not use cannot turn the whole output into NaN. Crackdown 0004, Marvel 0069.
+- **0068.** XMA context words are updated with a masked compare-and-swap instead of storing a stale copy of the whole context. Crackdown 0007, Marvel 0058.
+- **0069.** XMA context words are loaded with acquire semantics, and the loop subframe fields get their real layout. Crackdown 0050, Marvel 0059.
+- **0070.** The SDL callback returns the queue credit and the buffer when `SDL_PutAudioStreamData` fails, so a device error cannot shrink the queue for good. Marvel 0060.
+- **0071.** The audio worker spaces the guest render callbacks just under the 5.33 ms frame duration; `audio_callback_pacing` (default on). Crackdown 0051, Marvel 0102.
+- **0072.** `XamUserWriteProfileSettings` no longer calls `memcpy` on the null data of an empty vector, and `UserProfile::Setting` has a virtual destructor. Marvel 0142 (rexglue-sdk#503).
+- **0073.** `vpkd3d128` reads a copy of its source when the destination is the same register. Crackdown 0005.
+- **0074.** `vrsqrtefp` is the bit-exact VMX estimate (Xenia Canary's table) instead of an exact `1/sqrt`. Crackdown 0052.
+- **0075.** `vmaddfp`/`vnmsubfp` round once, and `vmsum3fp128`/`vmsum4fp128` sum in double and round once, like the hardware. Crackdown 0095, with `<cmath>` added to the generated precompiled header.
+- **0076.** `vpkuwus`/`vpkuhus` pack through the temporary when the destination aliases a source. Marvel 0095 (official ReXGlue `6319e23`).
+- **0077.** `XamUserWriteProfileSettings` takes the data type from the setting id when the guest leaves the type byte unset, so the title's `0x63E83FFF/E/D` profile blobs are stored instead of dropped as "Unimplemented data type 114".
+- **0078.** `XamUserReadProfileSettings` reports an unset (or stored but empty) title-specific setting with source 1 (default) instead of 0, and a stored one with 2. The title treats any source other than 1 as profile data present, so the never-written `0x63E83FFF` blob looked valid and supplied music and sound-effect volumes of 0.
+
+Not ported: Marvel's packet-continuity rewrite of the XMA decoder (0137), the sync/atomic fences of the code generator (Marvel 0094, 0096, 0097), `gpu_allow_invalid_fetch_constants` and the vertex-fetch clamps (the game does not need them so far), and the HDR output of Geometry Wars 2.

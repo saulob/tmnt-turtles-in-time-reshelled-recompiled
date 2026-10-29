@@ -1,0 +1,23 @@
+XamUserWriteProfileSettings takes the data type from the setting id (top nibble) for title-specific ids and when the type byte is not a valid
+UserProfile::Setting::Type. The guest title builds X_USER_PROFILE_SETTING with only the id, size and pointer, and real
+XAM derives the type from the id, so a garbage type byte (114 in the TMNT log) dropped its 0x63E83FFF/E/D binary profile
+blobs as "Unimplemented data type" while the call still returned success.
+
+diff --git a/src/kernel/xam/xam_user.cpp b/src/kernel/xam/xam_user.cpp
+index d2edbf0..78b78f5 100644
+--- a/src/kernel/xam/xam_user.cpp
++++ b/src/kernel/xam/xam_user.cpp
+@@ -333,6 +333,13 @@ u32 XamUserWriteProfileSettings_entry(u32 title_id, u32 user_index, u32 setting_
+     const X_USER_PROFILE_SETTING& setting = settings[n];
+ 
+     auto setting_type = static_cast<UserProfile::Setting::Type>(setting.data.type);
++    const bool title_specific = (uint32_t(setting.setting_id) & 0x3F00) == 0x3F00;
++    if (title_specific || (setting.data.type > uint8_t(UserProfile::Setting::Type::DATETIME) &&
++                           setting_type != UserProfile::Setting::Type::UNSET)) {
++      // The setting id holds the data type in its top nibble; the title never sets the type byte.
++      setting_type =
++          static_cast<UserProfile::Setting::Type>((uint32_t(setting.setting_id) >> 28) & 0xF);
++    }
+     if (setting_type == UserProfile::Setting::Type::UNSET) {
+       continue;
+     }

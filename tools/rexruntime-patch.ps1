@@ -1,16 +1,28 @@
 # Shared by build.ps1, build-patched-rexruntime.ps1 and package-release.ps1: the pinned ReXGlue baseline, the
-# runtime and GPU plugin patches (those for Windows; the Linux ones are for build-patched-rexruntime.sh), the check
-# that an SDK folder holds the files built from them, and the check that a build folder holds the SDK's files.
+# runtime, GPU plugin and code generator patches (those for Windows; the Linux ones are for build-patched-rexruntime.sh),
+# the check that an SDK folder holds the files built from them, and the check that a build folder holds the SDK's files.
 
 $RuntimePatchDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'patches\rexglue-sdk'
 $RuntimeStampName = 'rexruntime-patch.txt'
 $RuntimeFiles = @('bin/rexruntime.dll', 'bin/rexruntimerd.dll', 'lib/rexruntime.lib', 'lib/rexruntimerd.lib',
-                  'bin/rexgpu-xenos.dll', 'bin/rexgpu-xenosrd.dll')
+                  'bin/rexgpu-xenos.dll', 'bin/rexgpu-xenosrd.dll', 'bin/rexglue.exe')
 # How the patched files are built; part of the fingerprint, so changing them invalidates the installed files.
 $RuntimePlatform = 'windows'
 $RuntimeBuildFlags = '-march=x86-64-v2'
 $RuntimeBuildTargets = @('rexruntime', 'rexgpu-xenos')
+# The code generator runs beside the Release runtime, so it is built for Release only.
+$RuntimeReleaseOnlyTargets = @('rexglue')
 $RuntimeBuildConfigs = @('RelWithDebInfo', 'Release')
+
+# The generated code depends on the installed (patched) rexglue.exe, the manifest and the configs it includes;
+# codegen.ps1 records this hash in generated\codegen.stamp and build.ps1 regenerates when it differs.
+$CodegenStampPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'generated\codegen.stamp'
+function Get-CodegenInputsSha256 {
+    $root = Split-Path $PSScriptRoot -Parent
+    $files = @('tools\rexglue\win-amd64\bin\rexglue.exe', 'tmnt_turtles_in_time_reshelled_manifest.toml', 'config\overrides.toml',
+               'config\discovered-functions.toml', 'config\tmnt_r-overrides.toml', 'config\tmnt_r-discovered-functions.toml')
+    return Get-TextSha256 (($files | ForEach-Object { "$_ $(Get-FileSha256 (Join-Path $root $_))" }) -join "`n")
+}
 
 # Release profile-guided optimization of the GPU plugin (patch 0056): used when the project's profile exists.
 function Get-RuntimePgo {
@@ -93,7 +105,7 @@ function Get-RuntimeInputsSha256 {
     $lines = @("sdk_version=$($baseline.SDK_VERSION)", "sdk_tag=$($baseline.SDK_TAG)", "sdk_commit=$($baseline.SDK_COMMIT)",
                "platform=$RuntimePlatform", "compiler=$(Get-RuntimeCompiler)",
                "build_flags=$RuntimeBuildFlags", "build_pgo=$((Get-RuntimePgo).Mode)", "build_targets=$($RuntimeBuildTargets -join ',')",
-               "build_configs=$($RuntimeBuildConfigs -join ',')")
+               "release_only_targets=$($RuntimeReleaseOnlyTargets -join ',')", "build_configs=$($RuntimeBuildConfigs -join ',')")
     $lines += @(Get-RuntimePatchFiles | ForEach-Object { "patch $($_.Name) $(Get-FileSha256 $_.FullName)" })
     return Get-TextSha256 ($lines -join "`n")
 }
@@ -106,6 +118,7 @@ function Get-OfficialRuntimeHashes($Baseline) {
         'lib/rexruntimerd.lib'   = $Baseline.OFFICIAL_WIN_RUNTIME_RD_LIB_SHA256
         'bin/rexgpu-xenos.dll'   = $Baseline.OFFICIAL_WIN_GPU_SHA256
         'bin/rexgpu-xenosrd.dll' = $Baseline.OFFICIAL_WIN_GPU_RD_SHA256
+        'bin/rexglue.exe'        = $Baseline.OFFICIAL_WIN_REXGLUE_SHA256
     }
 }
 

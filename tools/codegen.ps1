@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Downloads the pinned ReXGlue SDK, checks game\extracted\default.xex and TMNT_r.xex and
+  Downloads the pinned ReXGlue SDK, builds its patched code generator, checks game\extracted\default.xex and TMNT_r.xex and
   generates the recompiled C++ sources into generated\default and generated	mnt_r.
 #>
 $ErrorActionPreference = 'Stop'
@@ -40,14 +40,20 @@ foreach ($name in $xexSha256.Keys) {
 }
 Write-Host "default.xex and TMNT_r.xex are the supported version."
 
+# The code generator is built with the patches in patches\rexglue-sdk (vector instruction semantics).
+. (Join-Path $PSScriptRoot 'rexruntime-patch.ps1')
+Update-PatchedRuntime (Join-Path $sdkDir 'win-amd64')
+
 New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
 Push-Location $root
 try {
     # rexglue logs to stderr; in Windows PowerShell 5.1 that would trip 'Stop', so judge by exit code.
     $ErrorActionPreference = 'Continue'
     $timer = [Diagnostics.Stopwatch]::StartNew()
-    & $rexglue codegen tmnt_turtles_in_time_reshelled_manifest.toml 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
+    # The module fingerprint excludes the code generator, so a patched one needs --ignore-stamp.
+    & $rexglue codegen --ignore-stamp tmnt_turtles_in_time_reshelled_manifest.toml 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log
     $exitCode = $LASTEXITCODE
     Write-Host ("codegen exit code {0} after {1:N1} s (log: {2})" -f $exitCode, $timer.Elapsed.TotalSeconds, $log)
     if ($exitCode -ne 0) { throw "codegen failed ($exitCode)" }
+    [IO.File]::WriteAllText($CodegenStampPath, (Get-CodegenInputsSha256), (New-Object Text.UTF8Encoding $false))
 } finally { Pop-Location; $ErrorActionPreference = 'Stop' }

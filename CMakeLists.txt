@@ -181,6 +181,8 @@ set(TMNT_SOURCES
     src/crash_report.cpp
     src/diagnostics.cpp
     src/frame_counter.cpp
+    src/frame_limiter.cpp
+    src/frame_wait.cpp
     src/game_files.cpp
     src/graphics_adapters.cpp
     src/guest_functions.cpp
@@ -373,6 +375,13 @@ target_link_libraries(tmnt_installer_tests PRIVATE Threads::Threads)
 add_executable(tmnt_frame_counter_tests EXCLUDE_FROM_ALL tests/frame_counter_tests.cpp)
 target_include_directories(tmnt_frame_counter_tests PRIVATE src)
 target_compile_definitions(tmnt_frame_counter_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Guest frame limiter tests, not part of the default build:
+# cmake --build <dir> --target tmnt_frame_limiter_tests
+add_executable(tmnt_frame_limiter_tests EXCLUDE_FROM_ALL tests/frame_limiter_tests.cpp src/frame_wait.cpp)
+target_include_directories(tmnt_frame_limiter_tests PRIVATE src)
+target_link_libraries(tmnt_frame_limiter_tests PRIVATE Threads::Threads)
+target_compile_definitions(tmnt_frame_limiter_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 
 

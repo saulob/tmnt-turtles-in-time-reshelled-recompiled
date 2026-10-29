@@ -19,5 +19,6 @@
 - With "Render resolution in title" on (`tmnt_show_render_resolution = true`, off by default), the title shows the render resolution between the name and the FPS: `Turtles in Time Re-Shelled Recompiled | 3360x1440 | FPS: 60.00`. That is the Render resolution chosen in Graphics, not the window size or the Internal render resolution.
 - Shows the plain title until the first frame is counted.
 - Shown in windowed mode. Still counted in fullscreen, where the title bar is hidden.
-- Source: the title's `VdSwap` call (hooked in `src/window_host.cpp`), so the value is the number of `VdSwap` calls per second. Whether Turtles in Time Re-Shelled presents a frame more than once is not known yet; every swap is counted.
+- Source: the title's `VdSwap` call (hooked in `src/window_host.cpp`), so the value is the number of `VdSwap` calls per second. The game has one `VdSwap` call site, in its present, so one call is one game frame; the runtime's overlays add no second swap.
 - The F2 counter reads the same sample.
+- The swap hook waits for the next vertical blank before the game's swap (`src/frame_limiter.cpp`), at the guest video mode's refresh rate (60 Hz), which is also the rate of ReXGlue's vblank timer. The console's present blocks the same way, so the counter reads 60 in gameplay.

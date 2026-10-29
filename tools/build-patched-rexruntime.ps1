@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
-  Builds ReXGlue's rexruntime and Xenos GPU plugin from the pinned v0.10.0 source with this project's patches
-  and installs them into tools\rexglue\win-amd64, replacing the stock RelWithDebInfo and Release files.
+  Builds ReXGlue's rexruntime, Xenos GPU plugin and rexglue code generator from the pinned v0.10.0 source with this
+  project's patches and installs them into tools\rexglue\win-amd64, replacing the stock RelWithDebInfo and Release
+  files and rexglue.exe.
 
 .DESCRIPTION
   The source is fetched from the official ReXGlue repository (network needed the first time) into -WorkDir,
@@ -140,7 +141,8 @@ function Install-PatchedRuntime {
         Invoke-Native 'ReXGlue configure' { cmake --preset win-amd64 "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" "-DREXGPU_PGO_USE=$((Get-RuntimePgo).Profile.Replace('\', '/'))" }
         $parallel = @(if ($Jobs -gt 0) { '--parallel'; $Jobs } else { '--parallel' })
         foreach ($config in $RuntimeBuildConfigs) {
-            Invoke-Native "ReXGlue build ($config)" { cmake --build out/build/win-amd64 --config $config --target $RuntimeBuildTargets @parallel }
+            $targets = if ($config -eq 'Release') { $RuntimeBuildTargets + $RuntimeReleaseOnlyTargets } else { $RuntimeBuildTargets }
+            Invoke-Native "ReXGlue build ($config)" { cmake --build out/build/win-amd64 --config $config --target $targets @parallel }
         }
     } finally { Pop-Location }
 

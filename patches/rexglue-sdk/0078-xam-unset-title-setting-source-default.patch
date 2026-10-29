@@ -1,0 +1,40 @@
+XamUserReadProfileSettings reports an unset title-specific setting with source 1 (default) instead of 0, and a stored
+empty title binary the same way. The title (TMNT) treats any source other than 1 as "profile data present", so the
+source 0 made a never-written 0x63E83FFF profile blob look valid: the zero-filled blob then supplied music and
+sound-effect volumes of 0 and the game muted everything at the first Start press. A stored title setting still reports 2,
+so an intentional volume of 0 is kept.
+
+diff --git a/src/kernel/xam/xam_user.cpp b/src/kernel/xam/xam_user.cpp
+index 78b78f5..b97811d 100644
+--- a/src/kernel/xam/xam_user.cpp
++++ b/src/kernel/xam/xam_user.cpp
+@@ -151,6 +151,20 @@ typedef struct {
+ } X_USER_READ_PROFILE_SETTINGS;
+ static_assert_size(X_USER_READ_PROFILE_SETTINGS, 8);
+ 
++// Titles tell a stored title-specific setting (source 2) from an unset one (source 1, default).
++uint32_t ProfileSettingSource(const UserProfile::Setting* setting) {
++  if (!setting) {
++    return 0;
++  }
++  if (!setting->is_title_specific()) {
++    return setting->is_set ? 1 : 0;
++  }
++  const bool empty_binary =
++      setting->type == UserProfile::Setting::Type::BINARY &&
++      static_cast<const UserProfile::BinarySetting*>(setting)->value.empty();
++  return setting->is_set && !empty_binary ? 2 : 1;
++}
++
+ // https://github.com/oukiar/freestyledash/blob/master/Freestyle/Tools/Generic/xboxtools.cpp
+ uint32_t XamUserReadProfileSettingsEx(uint32_t title_id, uint32_t user_index, uint32_t xuid_count,
+                                       be<uint64_t>* xuids, uint32_t setting_count,
+@@ -270,7 +284,7 @@ uint32_t XamUserReadProfileSettingsEx(uint32_t title_id, uint32_t user_index, ui
+     auto setting = user_profile->GetSetting(setting_id);
+ 
+     std::memset(out_setting, 0, sizeof(X_USER_PROFILE_SETTING));
+-    out_setting->from = !setting || !setting->is_set ? 0 : setting->is_title_specific() ? 2 : 1;
++    out_setting->from = ProfileSettingSource(setting);
+     if (xuids) {
+       out_setting->xuid = user_profile->xuid();
+     } else {

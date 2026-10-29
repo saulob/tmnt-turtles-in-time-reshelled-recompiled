@@ -75,6 +75,16 @@ if ($Config -eq 'Debug') {
     Update-PatchedRuntime $SdkRoot $Jobs
 }
 
+# The generated code comes from the patched code generator; regenerate it when that or its inputs changed.
+$CodegenCurrent = (Test-Path -LiteralPath $CodegenStampPath) -and
+    (Get-Content -LiteralPath $CodegenStampPath -Raw).Trim() -eq (Get-CodegenInputsSha256)
+if (-not $CodegenCurrent) {
+    Write-Host 'Generated code does not match the installed code generator, running tools\codegen.ps1...'
+    & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'codegen.ps1')
+    if ($LASTEXITCODE) { throw "tools\codegen.ps1 failed ($LASTEXITCODE)" }
+    if (-not (Test-Path (Join-Path $Root 'generated\default\sources.cmake'))) { throw 'tools\codegen.ps1 did not produce generated\default' }
+}
+
 $SavedEnv = [Environment]::GetEnvironmentVariables()
 try {
     # Keep MSYS2's gcc, cmake and ninja out of the build.
