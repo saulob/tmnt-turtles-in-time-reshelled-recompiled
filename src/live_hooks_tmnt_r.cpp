@@ -187,6 +187,31 @@ REX_HOOK_RAW(sub_875BA998) {
   __imp__sub_875BA998(ctx, base);
 }
 
+// StartMenuWorld_RegisterLocalPlayerInGame(joy_id, slot_id): warns a secondary controller without a console sign-in
+// that scores will not reach the Xbox Live leaderboards.
+REX_EXTERN(__imp__sub_876B6D08);
+REX_HOOK_RAW(sub_876B6D08) {
+  static FirstCall first_call("StartMenuWorld_RegisterLocalPlayerInGame");
+  first_call.Note();
+  LocalPlayerJoin joining;
+  __imp__sub_876B6D08(ctx, base);
+}
+
+// FireCommunicator_SendNotificationOverlayDefered(this, error_id in r4, joy_id, ...)
+REX_EXTERN(__imp__sub_875BA888);
+REX_HOOK_RAW(sub_875BA888) {
+  static FirstCall first_call("FireCommunicator_SendNotificationOverlayDefered");
+  first_call.Note();
+  if (DropsNotification(ctx.r4.u32)) {
+    static std::atomic<int> logged{0};
+    if (logged.fetch_add(1) < kMaxLoggedOverrides) {
+      REXLOG_INFO("[DEBUG_SAULO][Live] dropped LOC_NOTF_LEADERBRD_NOT_XLA for controller {}", ctx.r5.s32);
+    }
+    return;
+  }
+  __imp__sub_875BA888(ctx, base);
+}
+
 // SessionWorld_RequestWriteStatsAllValid: only InGameHUD_GoShowSummary calls it.
 REX_EXTERN(__imp__sub_875A6770);
 REX_HOOK_RAW(sub_875A6770) {

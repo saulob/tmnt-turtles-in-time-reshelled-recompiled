@@ -743,6 +743,40 @@ void TestLocalOnlineEvents() {
   CHECK(kFireEventSourceOffset == 8);
 }
 
+void TestLocalPlayerJoinNotification() {
+  std::printf("local join: only LOC_NOTF_LEADERBRD_NOT_XLA is dropped, only while a local player registers\n");
+  CHECK(kNotificationLeaderboardNotXla == 16);
+  CHECK(!DropsNotification(kNotificationLeaderboardNotXla));
+  {
+    LocalPlayerJoin joining;
+    CHECK(DropsNotification(kNotificationLeaderboardNotXla));
+    for (uint32_t id = 0; id < 64; ++id) {
+      if (id != kNotificationLeaderboardNotXla) CHECK(!DropsNotification(id));
+    }
+    {
+      LocalPlayerJoin nested;
+      CHECK(DropsNotification(kNotificationLeaderboardNotXla));
+    }
+    CHECK(DropsNotification(kNotificationLeaderboardNotXla));
+    CHECK(!LiveScopeActive());
+  }
+  CHECK(!DropsNotification(kNotificationLeaderboardNotXla));
+  bool other_thread_drops = true;
+  {
+    LocalPlayerJoin joining;
+    std::thread([&] { other_thread_drops = DropsNotification(kNotificationLeaderboardNotXla); }).join();
+  }
+  CHECK(!other_thread_drops);
+
+  const std::string module = ReadSource("live_hooks_tmnt_r.cpp");
+  const std::string join = Between(module, "REX_HOOK_RAW(sub_876B6D08)", "REX_EXTERN(__imp__sub_875BA888)");
+  CHECK(Contains(join, "LocalPlayerJoin joining;") && Contains(join, "__imp__sub_876B6D08(ctx, base);"));
+  CHECK(!Contains(join, "LiveScope") && !Contains(join, "ForcedImport"));
+  const std::string drop = Between(module, "REX_HOOK_RAW(sub_875BA888)", "REX_EXTERN(__imp__sub_875A6770)");
+  CHECK(Contains(drop, "DropsNotification(ctx.r4.u32)") && Contains(drop, "__imp__sub_875BA888(ctx, base);"));
+  CHECK(!Contains(module, "PlatformSession") && !Contains(module, "sub_876AE008) = "));
+}
+
 void TestHooksAreDirect() {
   std::printf("hooks: the TMNT_r functions are hooked directly, no call-site discrimination\n");
   const std::string module = ReadSource("live_hooks_tmnt_r.cpp");
@@ -750,7 +784,8 @@ void TestHooksAreDirect() {
   const char* hooked[] = {"REX_HOOK_RAW(sub_876AE008)", "REX_HOOK_RAW(sub_8759F858)", "REX_HOOK_RAW(sub_875A11B0)",
                           "REX_HOOK_RAW(sub_876AE720)",  "REX_HOOK_RAW(sub_876B75C0)", "REX_HOOK_RAW(sub_875BA998)",
                           "REX_HOOK_RAW(sub_875A6770)",  "REX_HOOK_RAW(sub_87599B80)", "REX_HOOK_RAW(sub_875BA650)",
-                          "REX_HOOK_RAW(sub_87520018)"};
+                          "REX_HOOK_RAW(sub_87520018)", "REX_HOOK_RAW(sub_876B6D08)",
+                          "REX_HOOK_RAW(sub_875BA888)"};
   for (const char* hook : hooked) CHECK(Contains(module, hook));
 
   // Leaderboard_SendDataToFire: a postcondition repair. The gate is the single line checked below; prove its
@@ -848,7 +883,9 @@ void TestHooksAreDirect() {
   std::ifstream cmake(std::filesystem::path(TMNT_SRC_DIR) / ".." / "CMakeLists.txt");
   std::ostringstream cmake_text;
   cmake_text << cmake.rdbuf();
-  CHECK(Contains(cmake_text.str(), "target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp)"));
+  const std::string tmnt_r_sources =
+      Between(cmake_text.str(), "target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE", ")");
+  CHECK(Contains(tmnt_r_sources, "src/live_hooks_tmnt_r.cpp"));
 
   const std::string achievements = ReadSource("achievement_menu.cpp");
   CHECK(Contains(achievements, "REX_HOOK_RAW(sub_826EDB50)"));
@@ -883,7 +920,7 @@ void TestHooksMatchTheShippedModule() {
 
   constexpr uint32_t kMflrR12 = 0x7D8802A6;
   const uint32_t entries[] = {0x876AE008, 0x8759F858, 0x875A11B0, 0x876AE720, 0x876B75C0,
-                              0x875BA998, 0x875A6770, 0x87599B80, 0x875BA650};
+                              0x875BA998, 0x875A6770, 0x87599B80, 0x875BA650, 0x876B6D08, 0x875BA888};
   for (uint32_t entry : entries) CHECK(word(entry) == kMflrR12);
   CHECK(word(0x87520018) == 0x3D60876E);  // lis r11,0x876E: the import table lookup
 
@@ -962,6 +999,7 @@ int main() {
   TestLocalProfileAccepted();
   TestForcedImport();
   TestLocalOnlineEvents();
+  TestLocalPlayerJoinNotification();
   TestHooksAreDirect();
   TestHooksMatchTheShippedModule();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);

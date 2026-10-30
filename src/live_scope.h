@@ -79,6 +79,20 @@ constexpr const char* LocalOnlineEventName(uint32_t event, uint32_t source) {
   return nullptr;
 }
 
+// LOC_NOTF_LEADERBRD_NOT_XLA, sent while a local player registers in game without a console sign-in.
+inline constexpr uint32_t kNotificationLeaderboardNotXla = 16;
+inline thread_local int t_local_player_join = 0;
+
+class LocalPlayerJoin {
+ public:
+  LocalPlayerJoin() { ++t_local_player_join; }
+  ~LocalPlayerJoin() { --t_local_player_join; }
+  LocalPlayerJoin(const LocalPlayerJoin&) = delete;
+  LocalPlayerJoin& operator=(const LocalPlayerJoin&) = delete;
+};
+
+inline bool DropsNotification(uint32_t id) { return t_local_player_join > 0 && id == kNotificationLeaderboardNotXla; }
+
 // Engine import indices used by the compiled scripts (sub_87520018).
 inline constexpr uint32_t kImportPlayerSignedIntoConsole = 1875;
 
