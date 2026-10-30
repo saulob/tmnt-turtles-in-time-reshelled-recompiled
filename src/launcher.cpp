@@ -1074,7 +1074,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
               "tmnt_show_render_resolution", false, "Off", "On");
     ui.Toggle("Frame counter", "Shows the game's frame rate in the corner. F2 toggles it while playing.",
               "tmnt_show_frame_counter", false, "Hidden", "Shown");
-    if (ui.Section("Player names", true)) {
+    if (ui.Section("Local player names", true)) {
       ui.Help(kPlayerNamesHelp);
       for (const PlayerNameSetting& player : kPlayerNames) {
         PlayerNameRow(ui, player);

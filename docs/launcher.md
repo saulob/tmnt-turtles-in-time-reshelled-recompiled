@@ -106,7 +106,7 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | Gameplay | Frame rate in title | `tmnt_show_fps` |
 | | Render resolution in title | `tmnt_show_render_resolution` |
 | | Frame counter | `tmnt_show_frame_counter` |
-| | Player 1, Player 2 | `tmnt_player_1_name`, `tmnt_player_2_name` |
+| | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
 | Controls | Keyboard | `mnk_mode` |
 | | Keyboard controls | `keybind_*` (one per action), reset by Keyboard defaults |
 | About | Detailed logging | `detailed_logging` |
@@ -157,9 +157,9 @@ Internal render resolution is the resolution the GPU draws the game at before th
 | Frame rate in title | `tmnt_show_fps` | `false` Off, `true` On (`true`) |
 | Render resolution in title | `tmnt_show_render_resolution` | `false` Off, `true` On (`false`) |
 | Frame counter | `tmnt_show_frame_counter` | `false` Hidden, `true` Shown (`false`) |
-| Player 1, Player 2 | `tmnt_player_1_name`, `tmnt_player_2_name` | up to 15 characters and 15 UTF-8 bytes (`Player 1`, `Player 2`) |
+| Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` | up to 15 characters and 15 UTF-8 bytes (`Player 1` .. `Player 4`) |
 
-- **Player names** change only the name the game shows for local players 1 and 2; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
+- **Local player names** change only the name the game shows for local players 1 to 4; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
 
 ### Page order
 

@@ -55,6 +55,10 @@ REXCVAR_DEFINE_STRING(tmnt_player_1_name, "Player 1", "TMNT",
                       "Name shown for local player 1; save data is not affected");
 REXCVAR_DEFINE_STRING(tmnt_player_2_name, "Player 2", "TMNT",
                       "Name shown for local player 2; save data is not affected");
+REXCVAR_DEFINE_STRING(tmnt_player_3_name, "Player 3", "TMNT",
+                      "Name shown for local player 3; save data is not affected");
+REXCVAR_DEFINE_STRING(tmnt_player_4_name, "Player 4", "TMNT",
+                      "Name shown for local player 4; save data is not affected");
 REXCVAR_DEFINE_INT32(tmnt_launcher_x, 0, "TMNT", "Launcher window left edge, written by the launcher");
 REXCVAR_DEFINE_INT32(tmnt_launcher_y, 0, "TMNT", "Launcher window top edge, written by the launcher");
 REXCVAR_DEFINE_INT32(tmnt_launcher_width, 0, "TMNT", "Launcher window restored width, written by the launcher");
@@ -91,6 +95,8 @@ std::vector<std::string> GameSettingKeys() {
       "mnk_mode",
       "tmnt_player_1_name",
       "tmnt_player_2_name",
+      "tmnt_player_3_name",
+      "tmnt_player_4_name",
   };
   for (const KeyboardAction& action : kKeyboardActions) {
     keys.emplace_back(action.key);

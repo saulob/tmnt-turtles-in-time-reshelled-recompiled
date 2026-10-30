@@ -17,11 +17,13 @@ struct PlayerNameSetting {
 };
 
 inline constexpr char kPlayerNameHint[] = "Up to 15 characters.";
-inline constexpr char kPlayerNamesHelp[] = "Changes the name shown in-game. Save data is not affected.";
+inline constexpr char kPlayerNamesHelp[] = "Names shown in Local Game. Online Game uses your Online name.";
 
-inline constexpr std::array<PlayerNameSetting, 2> kPlayerNames = {{
+inline constexpr std::array<PlayerNameSetting, 4> kPlayerNames = {{
     {"tmnt_player_1_name", "local_player_1_name", "Player 1", "Player 1", true},
     {"tmnt_player_2_name", "local_player_2_name", "Player 2", "Player 2", false},
+    {"tmnt_player_3_name", "local_player_3_name", "Player 3", "Player 3", false},
+    {"tmnt_player_4_name", "local_player_4_name", "Player 4", "Player 4", false},
 }};
 
 using PlayerNameResult = rex::system::xam::UserDisplayNameResult;

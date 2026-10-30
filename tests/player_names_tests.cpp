@@ -149,11 +149,18 @@ void TestEditGate() {
 
 void TestSdkValues() {
   std::printf("SDK values follow logical player 1 and 2\n");
-  CHECK(tmnt::kPlayerNames.size() == 2);
+  CHECK(tmnt::kPlayerNames.size() == 4);
   CHECK(std::string(tmnt::kPlayerNames[0].key) == "tmnt_player_1_name");
   CHECK(std::string(tmnt::kPlayerNames[1].key) == "tmnt_player_2_name");
   CHECK(std::string(tmnt::kPlayerNames[0].sdk_key) == "local_player_1_name");
   CHECK(std::string(tmnt::kPlayerNames[1].sdk_key) == "local_player_2_name");
+  CHECK(std::string(tmnt::kPlayerNames[2].key) == "tmnt_player_3_name");
+  CHECK(std::string(tmnt::kPlayerNames[3].key) == "tmnt_player_4_name");
+  CHECK(std::string(tmnt::kPlayerNames[2].sdk_key) == "local_player_3_name");
+  CHECK(std::string(tmnt::kPlayerNames[3].sdk_key) == "local_player_4_name");
+  CHECK(!tmnt::kPlayerNames[2].send_default && !tmnt::kPlayerNames[3].send_default);
+  CHECK(tmnt::SdkPlayerName(tmnt::kPlayerNames[3], "Donnie") == "Donnie");
+  CHECK(tmnt::SdkPlayerName(tmnt::kPlayerNames[2], "Player 3").empty());
   CHECK(std::string(tmnt::kPlayerNames[0].default_name) == "Player 1");
   CHECK(std::string(tmnt::kPlayerNames[1].default_name) == "Player 2");
   const auto& p1 = tmnt::kPlayerNames[0];
@@ -182,7 +189,9 @@ void TestSettingsAndLauncher() {
   CHECK(Has(settings, "REXCVAR_DEFINE_STRING(tmnt_player_2_name, \"Player 2\""));
   CHECK(Has(settings, "\"tmnt_player_1_name\","));
   CHECK(Has(settings, "\"tmnt_player_2_name\","));
-  CHECK(!Has(settings, "player_3") && !Has(settings, "player_4"));
+  CHECK(Has(settings, "REXCVAR_DEFINE_STRING(tmnt_player_3_name, \"Player 3\""));
+  CHECK(Has(settings, "REXCVAR_DEFINE_STRING(tmnt_player_4_name, \"Player 4\""));
+  CHECK(Has(settings, "\"tmnt_player_3_name\",") && Has(settings, "\"tmnt_player_4_name\","));
   CHECK(!Has(settings, "ssf2t_") && !Has(settings, "gw2_"));
   CHECK(Has(settings, "!IsValidPlayerName(name->second)"));
   CHECK(Has(settings, "name->second = player.default_name;"));
@@ -190,19 +199,18 @@ void TestSettingsAndLauncher() {
   CHECK(Has(ReadSource("tmnt_turtles_in_time_reshelled_app.h"), "tmnt::ApplyPlayerNames();"));
 
   const std::string launcher = ReadSource("launcher.cpp");
-  CHECK(Count(launcher, "ui.Section(\"Player names\"") == 1);
+  CHECK(Count(launcher, "ui.Section(\"Local player names\"") == 1);
   const size_t gameplay = launcher.find("static void PageGameplay");
   const size_t achievements = launcher.find("void PageAchievements");
   const size_t controls = launcher.find("static void PageControls");
-  const size_t names = launcher.find("ui.Section(\"Player names\"");
+  const size_t names = launcher.find("ui.Section(\"Local player names\"");
   CHECK(gameplay < names && names < achievements);
   CHECK(controls > achievements);
-  CHECK(launcher.find("ui.Section(\"Player names\"", controls) == std::string::npos);
+  CHECK(launcher.find("ui.Section(\"Local player names\"", controls) == std::string::npos);
   CHECK(Has(launcher, "ui.Help(kPlayerNamesHelp);"));
-  CHECK(std::string(tmnt::kPlayerNamesHelp) == "Changes the name shown in-game. Save data is not affected.");
+  CHECK(std::string(tmnt::kPlayerNamesHelp) == "Names shown in Local Game. Online Game uses your Online name.");
   CHECK(Has(launcher, "ImGuiInputTextFlags_CallbackEdit"));
   CHECK(Has(launcher, "AcceptUserDisplayNameEdit"));
-  CHECK(!Has(launcher, "player_3") && !Has(launcher, "player_4"));
   CHECK(!Has(launcher, "ssf2t_") && !Has(launcher, "gw2_"));
 }
 
