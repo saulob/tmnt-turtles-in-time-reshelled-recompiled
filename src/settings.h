@@ -55,6 +55,9 @@ void ApplyAspectRatio();
 // Sets the SDK's local player names from the launcher's Player names. Call with ApplyMultisampling.
 void ApplyPlayerNames();
 
+// Sets the SDK's user_language from the launcher's Language. Call with ApplyMultisampling.
+void ApplyLanguage();
+
 // Windows: makes the D3D12 render target path the host one when Internal render resolution is below 100%. Call
 // once the launcher choices are applied and before the command processor is created.
 void ApplyInternalRenderPath();

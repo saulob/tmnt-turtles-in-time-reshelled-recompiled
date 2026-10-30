@@ -36,6 +36,7 @@
 #include "imgui_gamepad.h"
 #include "internal_render_scale.h"
 #include "keybinds.h"
+#include "language.h"
 #include "launcher_achievements.h"
 #include "launcher_quit.h"
 #include "log_filter.h"
@@ -178,6 +179,14 @@ std::vector<trg::Option> AspectRatioOptions() {
   std::vector<trg::Option> options;
   for (const AspectRatioInfo& info : kAspectRatios) {
     options.push_back({info.key, info.label});
+  }
+  return options;
+}
+
+std::vector<trg::Option> LanguageOptions() {
+  std::vector<trg::Option> options;
+  for (const LanguageSetting& language : kLanguages) {
+    options.push_back({language.key, language.label});
   }
   return options;
 }
@@ -1067,6 +1076,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
   static void PageGameplay(trg::Ui& ui) {
+    ui.Combo("Language", kLanguageHelp, kLanguageSetting, kLanguageDefault, LanguageOptions());
     ui.Toggle("Frame rate in title",
               "Shows the game's frame rate in the window title: Turtles in Time Re-Shelled Recompiled | FPS: 60.00",
               "tmnt_show_fps", true, "Off", "On");

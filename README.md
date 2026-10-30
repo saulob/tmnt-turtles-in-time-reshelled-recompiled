@@ -41,8 +41,9 @@ with a long hexadecimal name and no extension; on an Xbox 360 drive it is in
 program and shows **Ready to play**. **Reinstall from package...** repairs the game files and keeps settings and saves.
 
 Pages: Play, Display (display mode, window size, monitor, aspect ratio, VSync), Graphics (graphics card, render
-resolution, internal render resolution, anti-aliasing, multisampling, texture filtering), Gameplay (frame rate and
-render resolution in the title, frame counter, player names), Achievements, Controls (keyboard on/off and bindings) and
+resolution, internal render resolution, anti-aliasing, multisampling, texture filtering), Gameplay (language, frame
+rate and render resolution in the title, frame counter, player names), Achievements, Controls (keyboard on/off and
+bindings) and
 About (versions, folders, settings file, detailed logging). Settings are saved to `user_data\settings.toml` next to the
 program. **F11** toggles borderless fullscreen for the launcher and for the game. Hold **Shift** while starting to show a
 launcher that was turned off. See [docs/launcher.md](docs/launcher.md).

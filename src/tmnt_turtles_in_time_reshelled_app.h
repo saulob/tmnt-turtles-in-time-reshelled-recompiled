@@ -143,6 +143,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (!show_launcher_) {
       tmnt::ApplyMultisampling();
       tmnt::ApplyPlayerNames();
+      tmnt::ApplyLanguage();
       tmnt::ApplyAspectRatio();
       tmnt::ApplyInternalRenderPath();
       return defaults;

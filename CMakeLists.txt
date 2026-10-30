@@ -415,6 +415,11 @@ add_executable(tmnt_player_names_tests EXCLUDE_FROM_ALL tests/player_names_tests
 target_include_directories(tmnt_player_names_tests PRIVATE src)
 target_compile_definitions(tmnt_player_names_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# Language tests, not part of the default build: cmake --build <dir> --target tmnt_language_tests
+add_executable(tmnt_language_tests EXCLUDE_FROM_ALL tests/language_tests.cpp)
+target_include_directories(tmnt_language_tests PRIVATE src)
+target_compile_definitions(tmnt_language_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # Multisampling setting tests, not part of the default build: cmake --build <dir> --target tmnt_multisampling_tests
 add_executable(tmnt_multisampling_tests EXCLUDE_FROM_ALL tests/multisampling_tests.cpp)
 target_include_directories(tmnt_multisampling_tests PRIVATE src)

@@ -103,7 +103,8 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Anti-aliasing | `swap_post_effect` |
 | | Multisampling | `tmnt_msaa_compatibility` |
 | | Texture filtering | `anisotropic_override` |
-| Gameplay | Frame rate in title | `tmnt_show_fps` |
+| Gameplay | Language | `tmnt_language` |
+| | Frame rate in title | `tmnt_show_fps` |
 | | Render resolution in title | `tmnt_show_render_resolution` |
 | | Frame counter | `tmnt_show_frame_counter` |
 | | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
@@ -154,11 +155,13 @@ Internal render resolution is the resolution the GPU draws the game at before th
 
 | Control | Cvar | Values (default) |
 | --- | --- | --- |
+| Language | `tmnt_language` | `en` English, `fr` French, `de` German, `it` Italian, `es` Spanish (`en`) |
 | Frame rate in title | `tmnt_show_fps` | `false` Off, `true` On (`true`) |
 | Render resolution in title | `tmnt_show_render_resolution` | `false` Off, `true` On (`false`) |
 | Frame counter | `tmnt_show_frame_counter` | `false` Hidden, `true` Shown (`false`) |
 | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` | up to 15 characters and 15 UTF-8 bytes (`Player 1` .. `Player 4`) |
 
+- **Language** is the only language setting the game has: a single text language for menus, the HUD and movie subtitles. There is no separate voice language, because the game has no spoken dialogue for any language — the archive (`Data\TMNT.bf`) has no audio files at all, and its seven Bink movies share one audio track with only their subtitles translated per language. The five options are exactly the languages with text banks in the archive (`00_French`, `01_English`, `05_German`, `06_Italian`, `07_Spanish` `UI_TextBank`/`ErrorTextBank`/`WaitingTextBank`/`MovieSubtitleBank`); no other language has banks. It is applied by setting ReXGlue's `user_language` to the Xbox `XLanguage` ID the game itself maps to that bank (English 1, French 4, German 3, Italian 6, Spanish 5) before the game boots: `default.xex` reads `user_language` once at startup via `ExGetXConfigSetting(XCONFIG_USER_LANGUAGE)` and switches its text-bank index from it, with no other runtime re-selection. An unknown or missing saved value falls back to English. The same `user_language` cvar already drives achievement name and description localization (`src/achievement_alias.cpp`), so no separate state was introduced.
 - **Local player names** change only the name the game shows for local players 1 to 4; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
 
 ### Page order
@@ -187,6 +190,5 @@ The About page ends with a **Diagnostics** section. The launcher and the game sh
 | Option | Reason |
 | --- | --- |
 | Frame rate choice, cheats, skip intro | Hard Corps engine hooks; Turtles needs its own analysis first. |
-| Language | The game imports `XGetLanguage`; the mapping from `user_language` is not verified. |
 | Deadzone, vibration, stick inversion, button remap | Would need Turtles-specific guest hooks. |
 | Present effect (FSR/CAS) | Not exposed by the template either. Needs a restart. |

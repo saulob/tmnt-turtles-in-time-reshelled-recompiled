@@ -24,6 +24,7 @@ namespace {
 constexpr std::string_view kEssentialInfo[] = {
     "Turtles in Time Re-Shelled port ",
     "Build:",
+    "Language:",
     "Launcher Display:",
     "Launcher Gameplay:",
     "Launcher Graphics:",

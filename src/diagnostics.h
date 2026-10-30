@@ -63,6 +63,7 @@ struct LauncherDisplayIdentity {
 };
 
 struct LauncherGameplayIdentity {
+  std::string language;
   std::string frame_rate_in_title;
   std::string render_resolution_in_title;
   std::string frame_counter;

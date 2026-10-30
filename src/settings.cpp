@@ -26,6 +26,7 @@
 #include "input_summary.h"
 #include "internal_render_scale.h"
 #include "keybinds.h"
+#include "language.h"
 #include "legacy_settings.h"
 #include "multisampling.h"
 #include "player_names.h"
@@ -49,6 +50,8 @@ REXCVAR_DEFINE_BOOL(tmnt_msaa_compatibility, false, "TMNT",
                     "native 2x MSAA misrenders (sets native_2x_msaa)");
 REXCVAR_DEFINE_STRING(tmnt_aspect_ratio, "16:9", "TMNT",
                       "Aspect ratio chosen in the launcher: 16:9, 16:10, 21:9, 32:9, 4:3 or 5:4");
+REXCVAR_DEFINE_STRING(tmnt_language, "en", "TMNT",
+                      "Text language: en, fr, de, it or es (sets user_language at start)");
 REXCVAR_DEFINE_STRING(tmnt_graphics_adapter, "auto", "TMNT",
                       "Graphics card: auto, or the index d3d12_adapter takes (applied at start)");
 REXCVAR_DEFINE_STRING(tmnt_player_1_name, "Player 1", "TMNT",
@@ -83,6 +86,7 @@ std::vector<std::string> GameSettingKeys() {
       kTearingSetting,
       "tmnt_graphics_adapter",
       "tmnt_aspect_ratio",
+      "tmnt_language",
       "resolution_scale",
       "tmnt_internal_render_scale",
       "swap_post_effect",
@@ -456,6 +460,7 @@ void GameSettings::Apply() const {
   ApplyInternalRenderPath();
   ApplyMultisampling();
   ApplyPlayerNames();
+  ApplyLanguage();
 }
 
 void ApplyAspectRatio() {
@@ -475,6 +480,12 @@ void ApplyPlayerNames() {
   for (const PlayerNameSetting& player : kPlayerNames) {
     rex::cvar::SetFlagByName(player.sdk_key, SdkPlayerName(player, rex::cvar::GetFlagByName(player.key)));
   }
+}
+
+void ApplyLanguage() {
+  const LanguageSetting& language = LanguageFor(rex::cvar::GetFlagByName(kLanguageSetting));
+  rex::cvar::SetFlagByName("user_language", std::to_string(language.xbox_language));
+  REXLOG_INFO("Language: {}", language.label);
 }
 
 void ApplyInternalRenderPath() {
@@ -534,6 +545,7 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
   diagnostics.launcher_display.aspect_ratio = InfoFor(aspect).label;
   diagnostics.launcher_display.vsync = selected_tearing ? "Off" : "On";
 
+  diagnostics.launcher_gameplay.language = LanguageFor(settings.Get("tmnt_language", kLanguageDefault)).label;
   diagnostics.launcher_gameplay.frame_rate_in_title = OnOff(settings.GetBool("tmnt_show_fps", true));
   diagnostics.launcher_gameplay.render_resolution_in_title =
       OnOff(settings.GetBool("tmnt_show_render_resolution", false));
