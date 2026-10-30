@@ -317,7 +317,8 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
-    target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp)
+    target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
+        src/title_bgm_level_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
@@ -598,6 +599,12 @@ endif()
 # not part of the default build: cmake --build <dir> --target tmnt_achievement_menu_tests
 add_executable(tmnt_achievement_menu_tests EXCLUDE_FROM_ALL tests/achievement_menu_tests.cpp)
 target_include_directories(tmnt_achievement_menu_tests PRIVATE src)
+
+# Title BGM level tests (saved music level parsing, hook source checks),
+# not part of the default build: cmake --build <dir> --target tmnt_title_bgm_level_tests
+add_executable(tmnt_title_bgm_level_tests EXCLUDE_FROM_ALL tests/title_bgm_level_tests.cpp)
+target_include_directories(tmnt_title_bgm_level_tests PRIVATE src)
+target_compile_definitions(tmnt_title_bgm_level_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Offline leaderboard tests (local stats file, guest results buffers, enumerators),
 # not part of the default build: cmake --build <dir> --target tmnt_live_tests
