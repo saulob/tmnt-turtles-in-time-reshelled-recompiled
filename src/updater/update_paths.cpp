@@ -51,10 +51,21 @@ bool SameComponent(const std::filesystem::path& left, const std::filesystem::pat
 #endif
 }
 
-bool IsReparsePoint(const std::filesystem::path& path) {
+// Only links (symbolic links, junctions) count: OneDrive and other cloud folders put reparse points on ordinary
+// files and folders.
+bool IsLinkReparsePoint([[maybe_unused]] const std::filesystem::path& path) {
 #if defined(_WIN32)
   const DWORD attributes = GetFileAttributesW(path.c_str());
-  return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+  if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0) {
+    return false;
+  }
+  WIN32_FIND_DATAW data;
+  const HANDLE find = FindFirstFileW(path.c_str(), &data);
+  if (find == INVALID_HANDLE_VALUE) {
+    return true;
+  }
+  FindClose(find);
+  return IsReparseTagNameSurrogate(data.dwReserved0);
 #else
   return false;
 #endif
@@ -183,12 +194,13 @@ bool IsSafeRelativePath(std::string_view path, std::string* reason) {
 }
 
 bool IsProtectedRelativePath(std::string_view normalized_path) {
-  static const std::array<const char*, 12> kProtectedNames = {
+  static const std::array<const char*, 14> kProtectedNames = {
       "game",   "user_data", "user_data.migrating", "logs",     "cache", "content",
-      "save",   "saves",     "dlc",                 "settings.toml", "settings.toml.bak", "584109d2"};
-  static const std::array<const char*, 17> kProtectedExtensions = {
+      "save",   "saves",     "dlc",                 "settings.toml", "settings.toml.bak", "584109d2",
+      "game-install-temp", "game-install-backup"};
+  static const std::array<const char*, 18> kProtectedExtensions = {
       ".xex", ".xsh", ".xpso", ".sav", ".log",  ".dmp", ".pdb", ".ilk", ".obj",
-      ".bak", ".tmp", ".zip",  ".appimage", ".7z", ".rar", ".tar", ".gz"};
+      ".bak", ".tmp", ".part", ".zip",  ".appimage", ".7z", ".rar", ".tar", ".gz"};
   static const std::array<const char*, 5> kProtectedFiles = {
       "default.xex", "arcadeinfo.xml", "nxeart", "tmnt.bf", "settings.toml"};
 
@@ -253,7 +265,7 @@ bool IsRegularFile(const std::filesystem::path& path) {
   if (ec || status.type() != std::filesystem::file_type::regular) {
     return false;
   }
-  return !IsReparsePoint(path);
+  return !IsLinkReparsePoint(path);
 }
 
 bool IsRunningAppImage(const std::filesystem::path& appimage, const std::filesystem::path& appdir,
@@ -300,11 +312,11 @@ bool HasReparseAncestor(const std::filesystem::path& path, const std::filesystem
     if (!std::filesystem::exists(status)) {
       continue;
     }
-    if (std::filesystem::is_symlink(status) || IsReparsePoint(current)) {
+    if (std::filesystem::is_symlink(status) || IsLinkReparsePoint(current)) {
       return true;
     }
   }
-  return IsReparsePoint(root);
+  return IsLinkReparsePoint(root);
 }
 
 }  // namespace trg::update

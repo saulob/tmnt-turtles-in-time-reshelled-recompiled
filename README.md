@@ -15,8 +15,8 @@
 
 ## What you need
 
-- Windows 10 or 11, 64-bit, and a DirectX 12 graphics card. Linux is planned but has a known blocker
-  ([docs/linux.md](docs/linux.md)).
+- Windows 10 or 11, 64-bit, and a DirectX 12 graphics card. Linux is planned: the build and packaging exist but have
+  not been run for this game ([docs/linux.md](docs/linux.md)).
 - **Your own Turtles in Time Re-Shelled Xbox Live Arcade package**, this exact game version:
 
 | | |

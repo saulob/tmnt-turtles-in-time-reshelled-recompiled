@@ -12,6 +12,7 @@
 #include <trg/platform.h>
 
 #include "updater/github_release.h"
+#include "updater/url_policy.h"
 #include "updater/version.h"
 
 namespace trg::update {
@@ -33,6 +34,8 @@ struct UpdateConfig {
   std::string current_version;
   std::string releases_url;
   std::string user_agent;
+  std::vector<std::string> allowed_hosts = GitHubReleaseHosts();
+  std::string download_url_prefix;
   UpdatePackageKind package_kind = UpdatePackageKind::kZip;
   std::function<std::string(const SemanticVersion&)> asset_name;
   std::function<std::string(const SemanticVersion&)> checksum_asset_name;
@@ -95,6 +98,7 @@ class UpdateController {
 
   void FinishCheck(trg::Task::State state, const std::string& error);
   void FinishDownload(trg::Task::State state, const std::string& error);
+  void FailCheck(std::string error, bool manual);
   void Fail(std::string error, RetryKind retry, bool check_failure);
   bool MakeWorkspace(std::string& error);
   void CleanupWorkspace();

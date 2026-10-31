@@ -15,6 +15,7 @@
 #include "updater/update_paths.h"
 #include "updater/update_platform.h"
 #include "updater/update_zip.h"
+#include "updater/url_policy.h"
 
 namespace trg::update {
 
@@ -41,6 +42,7 @@ trg::HttpOptions HttpOptionsFor(const UpdateConfig& config, int total_timeout_ms
   options.receive_timeout_ms = 30000;
   options.total_timeout_ms = total_timeout_ms;
   options.max_bytes = max_bytes;
+  options.allow_url = [hosts = config.allowed_hosts](const std::string& url) { return UrlHostAllowed(url, hosts); };
   options.headers = {
       {"Accept", "application/vnd.github+json"},
       {"X-GitHub-Api-Version", "2022-11-28"},
@@ -64,8 +66,8 @@ bool ReadTextFile(const std::filesystem::path& path, std::string& text, std::str
   return true;
 }
 
-bool IsHttpsUrl(std::string_view url) {
-  return url.rfind("https://", 0) == 0;
+bool IsAllowedDownload(const UpdateConfig& config, std::string_view url) {
+  return UrlAllowed(url, config.allowed_hosts, config.download_url_prefix);
 }
 
 void Log(const UpdateConfig& config, std::string_view text) {
@@ -177,7 +179,7 @@ void UpdateController::StartCheck(bool manual) {
         return error;
       }
     } else {
-      if (!IsHttpsUrl(config.releases_url)) {
+      if (!UrlHostAllowed(config.releases_url, config.allowed_hosts)) {
         return std::string("The update address is not secure.");
       }
       error = trg::HttpGet(config.releases_url, json, &task, HttpOptionsFor(config, kCheckTimeoutMs, kMaxReleaseJsonBytes));
@@ -210,7 +212,7 @@ void UpdateController::StartCheck(bool manual) {
     if (!asset) {
       return "The latest release does not include " + name + ".";
     }
-    if (!IsHttpsUrl(asset->download_url)) {
+    if (!IsAllowedDownload(config, asset->download_url)) {
       return std::string("The update package address is not secure.");
     }
     if (asset->size == 0 || asset->size > std::uint64_t(kMaxDownloadBytes)) {
@@ -221,7 +223,7 @@ void UpdateController::StartCheck(bool manual) {
       const std::string checksum_name = config.checksum_asset_name(release->version);
       if (!checksum_name.empty()) {
         if (const ReleaseAsset* found = FindAsset(*release, checksum_name); found) {
-          if (!IsHttpsUrl(found->download_url)) {
+          if (!IsAllowedDownload(config, found->download_url)) {
             return std::string("The checksum address is not secure.");
           }
           outcome->checksum_asset = *found;
@@ -233,19 +235,31 @@ void UpdateController::StartCheck(bool manual) {
   });
   if (!started) {
     task_kind_ = TaskKind::kNone;
-    Fail("The update check could not start.", RetryKind::kCheck, true);
+    snapshot_.manual_check = false;
+    FailCheck("The update check could not start.", manual);
   }
 }
 
+// The startup check fails quietly (offline, rate limited, assets not uploaded yet); only a requested one shows it.
+void UpdateController::FailCheck(std::string error, bool manual) {
+  if (manual) {
+    Fail(std::move(error), RetryKind::kCheck, true);
+    return;
+  }
+  snapshot_.state = UpdateState::kIdle;
+  Log(config_, "Update check failed: " + error);
+}
+
 void UpdateController::FinishCheck(trg::Task::State state, const std::string& error) {
+  const bool manual = snapshot_.manual_check;
   snapshot_.manual_check = false;
   const std::shared_ptr<CheckOutcome> outcome = std::move(check_outcome_);
   if (state == trg::Task::State::kFailed || state == trg::Task::State::kCancelled || !outcome) {
-    Fail(error.empty() ? "The update check failed." : error, RetryKind::kCheck, true);
+    FailCheck(error.empty() ? "The update check failed." : error, manual);
     return;
   }
   if (!outcome->release) {
-    Fail("The update check failed.", RetryKind::kCheck, true);
+    FailCheck("The update check failed.", manual);
     return;
   }
 
@@ -265,7 +279,8 @@ void UpdateController::FinishCheck(trg::Task::State state, const std::string& er
   checksum_asset_ = std::move(outcome->checksum_asset);
   snapshot_.state = UpdateState::kAvailable;
   snapshot_.latest_version = release_->version.ToString();
-  snapshot_.release_url = IsHttpsUrl(release_->html_url) ? release_->html_url : std::string();
+  snapshot_.release_url =
+      UrlHostAllowed(release_->html_url, config_.allowed_hosts) ? release_->html_url : std::string();
   snapshot_.asset_name = asset_->name;
   snapshot_.progress = -1.0f;
   snapshot_.error.clear();

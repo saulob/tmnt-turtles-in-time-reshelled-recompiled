@@ -28,6 +28,16 @@ $Cases = [ordered]@{
     'DEBUG_SAULO marker' = 'README.txt'
     'repository path'    = 'tmnt_turtles_in_time_reshelled.toml'
     'user profile path'  = 'tmnt_turtles_in_time_reshelled.toml'
+    'other user profile' = 'tmnt_turtles_in_time_reshelled.toml'
+    'repos path'         = 'tmnt_turtles_in_time_reshelled.toml'
+    'msys2 path'         = 'tmnt_turtles_in_time_reshelled.toml'
+    'UTF-16 user path'   = 'tmnt_turtles_in_time_reshelled.toml'
+    'UTF-16 marker'      = 'README.txt'
+    'Tracy client'       = 'TracyClient.dll'
+    'Python cache'       = 'assets\launcher\x.pyc'
+    'mixed-case xex'     = 'Default.XEX'
+    'nested xex'         = 'assets\launcher\module.xex'
+    'nested save'        = 'user_data\x.sav'
 }
 $Content = @{
     'Xbox package'       = 'LIVE'
@@ -35,13 +45,20 @@ $Content = @{
     'DEBUG_SAULO marker' = 'DEBUG_SAULO'
     'repository path'    = "cache_root = '$(Split-Path $PSScriptRoot -Parent)'"
     'user profile path'  = "cache_root = '$env:USERPROFILE'"
+    'other user profile' = "cache_root = 'D:\Users\Somebody\Documents'"
+    'repos path'         = "cache_root = 'E:\VisualStudio\repos\x'"
+    'msys2 path'         = "cache_root = 'C:\msys64\clang64'"
+}
+$Bytes = @{
+    'UTF-16 user path' = [Text.Encoding]::Unicode.GetBytes("cache_root = 'F:\Users\Somebody\Games'")
+    'UTF-16 marker'    = [Text.Encoding]::Unicode.GetBytes('DEBUG_SAULO')
 }
 $failures = 0
 try {
     foreach ($case in $Cases.Keys) {
         $stage = Join-Path $StageRoot ($case -replace '\W', '_')
         New-Item -ItemType Directory -Force (Join-Path $stage 'licenses') | Out-Null
-        foreach ($leaf in 'tmnt_turtles_in_time_reshelled.exe', 'trg-updater.exe', 'rexruntime.dll', 'rexgpu-xenos.dll', 'tmnt_turtles_in_time_reshelled.toml', 'README.txt', 'LICENSE',
+        foreach ($leaf in 'tmnt_turtles_in_time_reshelled.exe', 'tmnt_turtles_in_time_reshelled_TMNT_r.dll', 'trg-updater.exe', 'rexruntime.dll', 'rexgpu-xenos.dll', 'tmnt_turtles_in_time_reshelled.toml', 'README.txt', 'LICENSE',
             'licenses\ReXGlue-LICENSE.txt', 'licenses\THIRD-PARTY-LICENSES.txt', 'assets\launcher\header-art.png') {
             $file = Join-Path $stage $leaf
             New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
@@ -54,8 +71,12 @@ try {
                 New-Item -ItemType Directory -Force $target | Out-Null
             } else {
                 New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
-                $text = if ($Content.Contains($case)) { $Content[$case] } else { 'placeholder' }
-                Set-Content -LiteralPath $target -Value $text -NoNewline
+                if ($Bytes.Contains($case)) {
+                    [IO.File]::WriteAllBytes($target, $Bytes[$case])
+                } else {
+                    $text = if ($Content.Contains($case)) { $Content[$case] } else { 'placeholder' }
+                    Set-Content -LiteralPath $target -Value $text -NoNewline
+                }
             }
         }
         $global:LASTEXITCODE = 0

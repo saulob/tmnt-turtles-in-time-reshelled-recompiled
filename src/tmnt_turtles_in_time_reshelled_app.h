@@ -14,6 +14,7 @@
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
 #include <rex/version.h>
+#include <rex/system.h>
 #include <rex/system/kernel_state.h>
 #include <rex/ui/flags.h>
 #include <rex/ui/windowed_app_context.h>
@@ -27,6 +28,7 @@
 #include "game_files.h"
 #include "gamer_card.h"
 #include "gamer_card_overlay.h"
+#include "gpu_plugin_check.h"
 #include "guest_functions.h"
 #include "input_summary.h"
 #include "internal_render_scale.h"
@@ -81,6 +83,12 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   }
 
   bool SetupPresentation() override {
+    if (const std::string problem = tmnt::MissingGpuPluginMessage(rex::cvar::GetFlagByName("gpu_plugin"), shipped_config_);
+        !problem.empty()) {
+      REXLOG_ERROR("{}", problem);
+      rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, problem);
+      return false;
+    }
     if (rex::ReXApp::SetupPresentation()) {
       return true;
     }
@@ -101,6 +109,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     tmnt::LoadPlayerSettings(tmnt::PlayerSettingsPath(user_data_root()));
     tmnt::ApplyDetailedLogging();
     tmnt::InstallSessionLogCleanup();
+    tmnt::RemoveDiscardedSessionLogs();
     const tmnt::ApplicationIdentity identity{
         .product = "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled",
         .version = tmnt::PortVersion(),
@@ -277,6 +286,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   // threads that are still running guest code. The OS reclaims the process.
   void OnClosing(rex::ui::UIEvent&) override {
     REXLOG_INFO("Window closing, hard-exiting process.");
+    tmnt::DiscardSessionLogBeforeHardExit();
     tmnt::PrepareHardExit();
     std::_Exit(0);
   }

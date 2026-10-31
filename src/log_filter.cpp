@@ -1,6 +1,7 @@
 #include "log_filter.h"
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -87,7 +88,9 @@ class ExitMessageSink final : public spdlog::sinks::base_sink<std::mutex> {
     if (category == "core" && message == "Execution complete") {
       return;
     }
-    target_->log(msg);
+    if (target_->should_log(msg.level)) {
+      target_->log(msg);
+    }
   }
 
   void flush_() override { target_->flush(); }
@@ -169,6 +172,27 @@ void RebuildFileFilter() {
   ReplaceFileChain(file, top);
 }
 
+// spdlog offers no way to close a rotating sink's file while the logger registry keeps the sink alive.
+template <typename Tag, typename Tag::type Member>
+struct MemberAccess {
+  friend typename Tag::type Reach(Tag) { return Member; }
+};
+
+using RotatingSink = spdlog::sinks::rotating_file_sink_mt;
+
+struct FileHelperTag {
+  using type = spdlog::details::file_helper RotatingSink::*;
+  friend type Reach(FileHelperTag);
+};
+
+struct SinkMutexTag {
+  using type = std::mutex spdlog::sinks::base_sink<std::mutex>::*;
+  friend type Reach(SinkMutexTag);
+};
+
+template struct MemberAccess<FileHelperTag, &RotatingSink::file_helper_>;
+template struct MemberAccess<SinkMutexTag, &spdlog::sinks::base_sink<std::mutex>::mutex_>;
+
 }  // namespace
 
 spdlog::sink_ptr UnwrapLogSink(const spdlog::sink_ptr& sink) {
@@ -218,6 +242,18 @@ void ReleaseMinimalLogFilter() {
     ReplaceFileChain(file, file);
   }
   g_filter.reset();
+}
+
+bool CloseLogFile() {
+  const spdlog::sink_ptr sink = FindFileSink();
+  auto* file = dynamic_cast<RotatingSink*>(sink.get());
+  if (file == nullptr) {
+    return false;
+  }
+  file->set_level(spdlog::level::off);
+  std::lock_guard lock(file->*Reach(SinkMutexTag{}));
+  (file->*Reach(FileHelperTag{})).close();
+  return true;
 }
 
 }  // namespace tmnt

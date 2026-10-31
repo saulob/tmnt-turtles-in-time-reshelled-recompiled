@@ -1,0 +1,91 @@
+# The ReXGlue patches, applied in this order. Columns:
+#   file      the patch; NNNN-name.patch applies on both platforms, .windows.patch / .linux.patch on one
+#   platforms the platforms whose builds apply it
+#   targets   what it changes: rexruntime, rexgpu-xenos (a patch to a shared header changes every target that compiles it) or rexglue
+#   origin    reference (the patch set shared with the other recompilation projects), imported (taken from another
+#             project's later set), tmnt (written for this game)
+#   parity    shared (one patch, both platforms), pair:NNNN (the same change for the other backend), d3d12-specific /
+#             vulkan-specific / windows-specific / linux-specific (nothing to port), vulkan-candidate (generic idea whose
+#             Vulkan equivalent is not ported yet)
+# tools/test.ps1 checks this file against the patch files, the file names and docs/rexglue-runtime-patch.md.
+0001-physical-release-order.patch                          windows,linux  rexruntime               reference  shared
+0002-gpu-register-write-bulk-path.patch                    windows,linux  rexgpu-xenos             reference  shared
+0003-gpu-waits-and-submissions.patch                       windows,linux  rexgpu-xenos             reference  shared
+0004-gpu-draw-path.patch                                   windows,linux  rexgpu-xenos             reference  shared
+0005-render-target-transfer-performance.patch              windows,linux  rexgpu-xenos             reference  shared
+0006-cpu-timers-and-waits.patch                            windows,linux  rexruntime               reference  shared
+0007-render-target-stencil-regions.patch                   windows,linux  rexgpu-xenos             reference  shared
+0008-edram-dump-dirty-tiles.patch                          windows,linux  rexgpu-xenos             reference  shared
+0009-guest-fence-wake.patch                                windows,linux  rexgpu-xenos             reference  shared
+0010-renderdoc-detect-loaded-only.patch                    windows,linux  rexruntime               reference  shared
+0011-d3d12-submissions-and-occlusion.windows.patch         windows        rexgpu-xenos             reference  pair:0016
+0012-d3d12-render-target-transfers.windows.patch           windows        rexgpu-xenos             reference  pair:0017
+0013-d3d12-stencil-regions.windows.patch                   windows        rexgpu-xenos             reference  pair:0017
+0014-d3d12-edram-dump-dirty-tiles.windows.patch            windows        rexgpu-xenos             reference  pair:0018
+0015-windows-high-resolution-sleep.windows.patch           windows        rexruntime               reference  windows-specific
+0016-vulkan-submissions-and-occlusion.linux.patch          linux          rexgpu-xenos             reference  pair:0011
+0017-vulkan-render-target-transfers.linux.patch            linux          rexgpu-xenos             reference  pair:0012
+0018-vulkan-edram-dump-dirty-tiles.linux.patch             linux          rexgpu-xenos             reference  pair:0014
+0019-linux-command-thread-wait.linux.patch                 linux          rexgpu-xenos             reference  linux-specific
+0021-posix-wait-multiple-contention.linux.patch            linux          rexruntime               reference  linux-specific
+0022-resolve-copy-into-textures.patch                      windows,linux  rexgpu-xenos             reference  shared
+0023-d3d12-resolve-copy-into-textures.windows.patch        windows        rexgpu-xenos             reference  pair:0024
+0024-vulkan-resolve-copy-into-textures.linux.patch         linux          rexruntime,rexgpu-xenos  reference  pair:0023
+0025-wait-reg-mem-vblank-wake.patch                        windows,linux  rexruntime,rexgpu-xenos  reference  shared
+0026-vulkan-device-preference.patch                        windows,linux  rexruntime               reference  shared
+0027-d3d12-adapter-preference.windows.patch                windows        rexruntime               reference  pair:0026
+0028-msaa-2x-host-log.patch                                windows,linux  rexgpu-xenos             reference  shared
+0029-ui-repaint-with-guest-frames.patch                    windows,linux  rexruntime               reference  shared
+0030-resolve-deferred-writeback.patch                      windows,linux  rexgpu-xenos             reference  shared
+0031-d3d12-resolve-deferred-writeback.windows.patch        windows        rexgpu-xenos             reference  pair:0032
+0032-vulkan-resolve-deferred-writeback.linux.patch         linux          rexgpu-xenos             reference  pair:0031
+0033-stop-title-threads.patch                              windows,linux  rexruntime               reference  shared
+0034-spirv-texture-exp-adjust.linux.patch                  linux          rexgpu-xenos             reference  vulkan-specific
+0035-cache-vulkan-swapchain-paint-pipeline.linux.patch     linux          rexruntime               reference  vulkan-specific
+0036-internal-render-scale.patch                           windows,linux  rexgpu-xenos             reference  shared
+0037-d3d12-internal-render-scale.windows.patch             windows        rexgpu-xenos             reference  pair:0038
+0038-vulkan-internal-render-scale.linux.patch              linux          rexgpu-xenos             reference  pair:0037
+0039-lock-free-guest-clock.patch                           windows,linux  rexruntime               reference  shared
+0040-d3d12-transfer-short-circuit.windows.patch            windows        rexgpu-xenos             reference  vulkan-candidate
+0041-d3d12-sampler-memo.windows.patch                      windows        rexgpu-xenos             reference  d3d12-specific
+0042-shared-memory-fast-path.patch                         windows,linux  rexgpu-xenos             reference  shared
+0043-gpu-draw-state-memo.patch                             windows,linux  rexgpu-xenos             reference  shared
+0044-d3d12-async-submission.windows.patch                  windows        rexgpu-xenos             reference  d3d12-specific
+0045-imgui-mouse-cursors.patch                             windows,linux  rexruntime               reference  shared
+0046-sdl-video-failure-guidance.linux.patch                linux          rexruntime               reference  linux-specific
+0047-input-activity-callback.patch                         windows,linux  rexruntime               reference  shared
+0048-gpu-side-effect-free-register-ranges.patch            windows,linux  rexgpu-xenos             reference  shared
+0049-d3d12-host-threads-avoid-cpu0.windows.patch           windows        rexgpu-xenos             reference  windows-specific
+0050-draw-extent-scissor-signed-compare.patch              windows,linux  rexgpu-xenos             reference  shared
+0051-inline-bit-scan-forward.patch                         windows,linux  rexruntime,rexgpu-xenos  reference  shared
+0052-gpu-plugin-thinlto.windows.patch                      windows        rexgpu-xenos             reference  windows-specific
+0053-d3d12-unchanged-constant-writes.windows.patch         windows        rexgpu-xenos             reference  d3d12-specific
+0054-texture-cache-resolve-target-index.patch              windows,linux  rexgpu-xenos             reference  shared
+0055-d3d12-per-draw-loops.windows.patch                    windows        rexgpu-xenos             reference  vulkan-candidate
+0056-gpu-plugin-pgo.windows.patch                          windows        rexgpu-xenos             reference  windows-specific
+0057-local-user-display-names.patch                        windows,linux  rexruntime               reference  shared
+0058-fpscr-host-init.patch                                 windows,linux  rexruntime               imported   shared
+0059-kernel-release-object-leaks.patch                     windows,linux  rexruntime               imported   shared
+0060-filesystem-truncate-overwrites.patch                  windows,linux  rexruntime               imported   shared
+0061-xam-content-result-status.patch                       windows,linux  rexruntime               imported   shared
+0062-xam-enumerate-zero-count.patch                        windows,linux  rexruntime               imported   shared
+0063-xma-context-guards.patch                              windows,linux  rexruntime               imported   shared
+0064-kesave-restore-fpu-silent.patch                       windows,linux  rexruntime               imported   shared
+0065-utf8-path-cvars.patch                                 windows,linux  rexruntime               imported   shared
+0066-runtime-rejected-functions-nonfatal.patch             windows,linux  rexruntime               imported   shared
+0067-excluded-audio-channels.patch                         windows,linux  rexruntime               imported   shared
+0068-xma-context-word-updates.patch                        windows,linux  rexruntime               imported   shared
+0069-xma-context-loop-layout-acquire-loads.patch           windows,linux  rexruntime               imported   shared
+0070-sdl-audio-return-credit-on-failed-write.patch         windows,linux  rexruntime               imported   shared
+0071-audio-callback-pacing.patch                           windows,linux  rexruntime               imported   shared
+0072-xam-zero-size-profile-settings.patch                  windows,linux  rexruntime               imported   shared
+0073-vpkd3d128-in-place-source.patch                       windows,linux  rexglue                  imported   shared
+0074-vrsqrtefp-bit-exact-estimate.patch                    windows,linux  rexglue                  imported   shared
+0075-fused-vector-multiply-add.patch                       windows,linux  rexglue                  imported   shared
+0076-codegen-vpku-saturate-in-temp.patch                   windows,linux  rexglue                  imported   shared
+0077-xam-profile-setting-type-from-id.patch                windows,linux  rexruntime               imported   shared
+0078-xam-unset-title-setting-source-default.patch          windows,linux  rexruntime               imported   shared
+0079-d3d12-per-draw-vertex-buffer-residency.windows.patch  windows        rexgpu-xenos             imported   d3d12-specific
+0080-tmnt-aa838-stage-a-fix.windows.patch                  windows        rexgpu-xenos             tmnt       vulkan-candidate
+0081-rexglue-vertex-fetch-zero-stride.patch                windows,linux  rexgpu-xenos             tmnt       shared
+0082-posix-recompiled-module-library.linux.patch           linux          rexruntime               tmnt       linux-specific

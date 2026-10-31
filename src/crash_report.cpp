@@ -356,6 +356,8 @@ LONG WINAPI HandleUnhandledException(EXCEPTION_POINTERS* info) {
   if (g_log_path[0] != L'\0') {
     WriteReport(info);
   }
+  // Ends the process here: the default handler's ExitProcess would run DLL detach code in a faulted process.
+  TerminateProcess(GetCurrentProcess(), info->ExceptionRecord->ExceptionCode);
   return EXCEPTION_EXECUTE_HANDLER;
 }
 

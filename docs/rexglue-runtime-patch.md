@@ -13,7 +13,7 @@ else in the SDK is the stock release.
 
 The platform of a patch is in its file name: `NNNN-name.patch` applies on Windows and Linux, `NNNN-name.windows.patch`
 only on Windows and `NNNN-name.linux.patch` only on Linux. The numbers are unique and the patches are applied in name
-order. `tools/rexruntime-patch.ps1` and `tools/build-patched-rexruntime.sh` follow the same rule, reject a patch whose
+order. `patches/rexglue-sdk/patches.txt` lists every patch with its platforms, targets, origin and Windows/Linux parity class (`tools/test.ps1` checks it against the files and this page). `tools/rexruntime-patch.ps1` and `tools/build-patched-rexruntime.sh` follow the same rule, reject a patch whose
 name does not follow it and put only the patches of their platform in the fingerprint, so changing a Linux patch does
 not make the Windows runtime out of date, nor the other way round.
 
@@ -72,13 +72,38 @@ virtual function goes after all the others, and a new member must not move one t
 | [0048-gpu-side-effect-free-register-ranges](../patches/rexglue-sdk/0048-gpu-side-effect-free-register-ranges.patch) | both | GPU plugin | the register block copy of 0002 covers every range without write side effects, not only render state: everything but the shader constants, the scratch registers, `COHER_STATUS_HOST` and the gamma ramp ports |
 | [0049-d3d12-host-threads-avoid-cpu0](../patches/rexglue-sdk/0049-d3d12-host-threads-avoid-cpu0.windows.patch) | Windows | GPU plugin | `gpu_host_threads_avoid_cpu0`: the command processor and the submission thread run on the process's CPUs except 0 and 1 when it has at least 8 in one processor group |
 | [0050-draw-extent-scissor-signed-compare](../patches/rexglue-sdk/0050-draw-extent-scissor-signed-compare.patch) | both | GPU plugin | a negative scissor edge no longer counts as the 8192 "no scissor" case in the draw extent estimate |
-| [0051-inline-bit-scan-forward](../patches/rexglue-sdk/0051-inline-bit-scan-forward.windows.patch) | Windows | runtime, GPU plugin | `rex::bit_scan_forward` is inline in `math.h` instead of defined in the runtime DLL, so the GPU plugin's per-draw loops no longer call it through the import table; the runtime no longer exports it |
+| [0051-inline-bit-scan-forward](../patches/rexglue-sdk/0051-inline-bit-scan-forward.patch) | both | runtime, GPU plugin | `rex::bit_scan_forward` is inline in `math.h` instead of defined in the runtime DLL, so the GPU plugin's per-draw loops no longer call it through the import table; the runtime no longer exports it |
 | [0052-gpu-plugin-thinlto](../patches/rexglue-sdk/0052-gpu-plugin-thinlto.windows.patch) | Windows | GPU plugin | `rexgpu-xenos` builds with ThinLTO in Release (`/opt:lldlto=3`); Debug and RelWithDebInfo are unchanged |
 | [0053-d3d12-unchanged-constant-writes](../patches/rexglue-sdk/0053-d3d12-unchanged-constant-writes.windows.patch) | Windows | GPU plugin | `gpu_skip_unchanged_constant_writes` (on): float, bool, loop and fetch constants rewritten with their current values keep the uploaded constant buffers, the texture bindings and the sampler memo of 0041; vertex buffer residency is still reset on every fetch constant write |
-| [0054-texture-cache-resolve-target-index](../patches/rexglue-sdk/0054-texture-cache-resolve-target-index.windows.patch) | Windows | GPU plugin | the texture cache indexes its textures by base page, so `FindResolveCopyTargets` looks only at the textures on the resolve's page |
+| [0054-texture-cache-resolve-target-index](../patches/rexglue-sdk/0054-texture-cache-resolve-target-index.patch) | both | GPU plugin | the texture cache indexes its textures by base page, so `FindResolveCopyTargets` looks only at the textures on the resolve's page |
 | [0055-d3d12-per-draw-loops](../patches/rexglue-sdk/0055-d3d12-per-draw-loops.windows.patch) | Windows | GPU plugin | vertex buffer residency invalidated a 64-bit mask at a time, used float constants copied a run of consecutive constants per `memcpy`, stencil tile bits read and added in up to two contiguous runs |
 | [0056-gpu-plugin-pgo](../patches/rexglue-sdk/0056-gpu-plugin-pgo.windows.patch) | Windows | GPU plugin | `REXGPU_PGO_USE` names a merged profile for the Release `rexgpu-xenos`; `toolsexruntime-patch.ps1` sets it to `patchesexglue-sdk-pgoexgpu-xenos.profdata` when that file exists |
 | [0057-local-user-display-names](../patches/rexglue-sdk/0057-local-user-display-names.patch) | All | Kernel | `local_player_1_name` .. `local_player_4_name` set the name `XamUserGetName`, `XamUserGetGamerTag` and `XamUserGetSigninInfo` return for local users 0..3 (valid UTF-8, no control characters, at most 15 characters and 15 bytes; otherwise ignored). Users 1..3 only have a name when one is set. The profile directory and XUID come from `UserProfile::profile_id()`, not the display name |
+| [0058-fpscr-host-init](../patches/rexglue-sdk/0058-fpscr-host-init.patch) | All | runtime | host FP exception mask re-asserted in `FunctionDispatcher::Execute` and `ExecuteInterrupt` |
+| [0059-kernel-release-object-leaks](../patches/rexglue-sdk/0059-kernel-release-object-leaks.patch) | All | runtime | event, socket and completion-port objects released through `object_ref` |
+| [0060-filesystem-truncate-overwrites](../patches/rexglue-sdk/0060-filesystem-truncate-overwrites.patch) | All | runtime | overwrites truncate in place; the CRT file object is released |
+| [0061-xam-content-result-status](../patches/rexglue-sdk/0061-xam-content-result-status.patch) | All | runtime | XAM content results compared against `X_ERROR_SUCCESS` |
+| [0062-xam-enumerate-zero-count](../patches/rexglue-sdk/0062-xam-enumerate-zero-count.patch) | All | runtime | `XamEnumerate` zeroes `items_returned` on every path |
+| [0063-xma-context-guards](../patches/rexglue-sdk/0063-xma-context-guards.patch) | All | runtime | XMA context guards for partially consumed frames and empty output rings |
+| [0064-kesave-restore-fpu-silent](../patches/rexglue-sdk/0064-kesave-restore-fpu-silent.patch) | All | runtime | `KeSaveFloatingPointState` / `KeRestoreFloatingPointState` succeed silently |
+| [0065-utf8-path-cvars](../patches/rexglue-sdk/0065-utf8-path-cvars.patch) | All | runtime | UTF-8 path cvars decoded with `rex::to_path` |
+| [0066-runtime-rejected-functions-nonfatal](../patches/rexglue-sdk/0066-runtime-rejected-functions-nonfatal.patch) | All | runtime | rejected out-of-range function registrations warn instead of aborting setup |
+| [0067-excluded-audio-channels](../patches/rexglue-sdk/0067-excluded-audio-channels.patch) | All | runtime | excluded channels skipped in the 5.1 mix |
+| [0068-xma-context-word-updates](../patches/rexglue-sdk/0068-xma-context-word-updates.patch) | All | runtime | XMA context words updated with a masked compare-and-swap |
+| [0069-xma-context-loop-layout-acquire-loads](../patches/rexglue-sdk/0069-xma-context-loop-layout-acquire-loads.patch) | All | runtime | XMA context words loaded with acquire semantics |
+| [0070-sdl-audio-return-credit-on-failed-write](../patches/rexglue-sdk/0070-sdl-audio-return-credit-on-failed-write.patch) | All | runtime | the SDL audio callback returns its credit when a write fails |
+| [0071-audio-callback-pacing](../patches/rexglue-sdk/0071-audio-callback-pacing.patch) | All | runtime | `audio_callback_pacing` spaces guest render callbacks |
+| [0072-xam-zero-size-profile-settings](../patches/rexglue-sdk/0072-xam-zero-size-profile-settings.patch) | All | runtime | no `memcpy` of null data for empty profile settings |
+| [0073-vpkd3d128-in-place-source](../patches/rexglue-sdk/0073-vpkd3d128-in-place-source.patch) | All | code generator | `vpkd3d128` reads a copy of its source when the destination aliases it |
+| [0074-vrsqrtefp-bit-exact-estimate](../patches/rexglue-sdk/0074-vrsqrtefp-bit-exact-estimate.patch) | All | code generator | `vrsqrtefp` is the bit-exact VMX estimate |
+| [0075-fused-vector-multiply-add](../patches/rexglue-sdk/0075-fused-vector-multiply-add.patch) | All | code generator | `vmaddfp`/`vnmsubfp`/`vmsum*fp128` round once like the hardware |
+| [0076-codegen-vpku-saturate-in-temp](../patches/rexglue-sdk/0076-codegen-vpku-saturate-in-temp.patch) | All | code generator | `vpkuwus`/`vpkuhus` pack through a temporary when the destination aliases a source |
+| [0077-xam-profile-setting-type-from-id](../patches/rexglue-sdk/0077-xam-profile-setting-type-from-id.patch) | All | runtime | profile setting data type taken from the setting id when the type byte is unset |
+| [0078-xam-unset-title-setting-source-default](../patches/rexglue-sdk/0078-xam-unset-title-setting-source-default.patch) | All | runtime | unset title settings report source 1 (default) |
+| [0079-d3d12-per-draw-vertex-buffer-residency](../patches/rexglue-sdk/0079-d3d12-per-draw-vertex-buffer-residency.windows.patch) | Windows | GPU plugin | vertex buffer residency deduplicated within one draw (D3D12) |
+| [0080-tmnt-aa838-stage-a-fix](../patches/rexglue-sdk/0080-tmnt-aa838-stage-a-fix.windows.patch) | Windows | GPU plugin | the cyan turtle flicker fix: packed output byte 1 forced to 0 on AA838 Stage A (D3D12 only; the Vulkan equivalent is deferred) |
+| [0081-rexglue-vertex-fetch-zero-stride](../patches/rexglue-sdk/0081-rexglue-vertex-fetch-zero-stride.patch) | both | GPU plugin | legal stride-0 vertex fetches no longer assert in `Shader::GatherVertexFetchInformation` |
+| [0082-posix-recompiled-module-library](../patches/rexglue-sdk/0082-posix-recompiled-module-library.linux.patch) | Linux | runtime | the recompiled `TMNT_r` module library is loaded as `lib<name>.so` beside the executable, since `dlopen` completes no prefix or suffix |
 
 Pins: [patches/rexglue-sdk/baseline.env](../patches/rexglue-sdk/baseline.env) holds the tag, the commit and the stock
 file hashes.
@@ -119,8 +144,15 @@ backend. A "not needed" is a statement about the platform, not about the API it 
 | Register runs without side effects copied as a block (0048) | common | common |
 | Host GPU threads kept off CPUs 0 and 1 (0049) | 0049 | not applicable: Linux interrupt placement is not assumed |
 | Draw extent estimate with a negative scissor (0050) | common | common |
-| Inline `bit_scan_forward`, resolve target page index, per-draw loops (0051, 0054, 0055) | Windows only | not ported: portable code, not validated by a Linux build |
+| Inline `bit_scan_forward` (0051), resolve target page index (0054) | 0051, 0054 | 0051, 0054 (common code: every texture-cache mutation is in the common base cache) |
+| Per-draw loops (0055) | 0055 | not applicable: D3D12 command processor only; a Vulkan equivalent needs profiling on Linux |
 | Unchanged constant writes skipped (0053) | 0053 | not applicable: D3D12 command processor only |
+| Transfer pass skipped for a draw with no transfers (0040) | 0040 | deferred: Vulkan candidate, needs profiling on Linux |
+| Sampler parameter memo (0041), vertex buffer residency per draw (0079) | 0041, 0079 | not applicable: D3D12 command processor structures |
+| Cyan turtle flicker fix, AA838 Stage A (0080) | 0080 (D3D12 DXBC translator) | deferred: Vulkan candidate; the flicker may still show on Linux |
+| Legal stride-0 vertex fetches (0081) | 0081 (common translator) | 0081 (common translator) |
+| Recompiled module library found by `dlopen` (0082) | not applicable: `LoadLibrary` completes the name | 0082 |
+| ThinLTO and PGO of the GPU plugin (0052, 0056) | 0052, 0056 | not applicable: Windows toolchain options; the Linux plugin build is not LTO-tuned |
 
 The POSIX wait on several handles (`WaitMultiple` in `threading_posix.cpp`) polls with 1 ms sleeps; Windows waits in the
 kernel. 0021 only removes its spin on lock contention; the polling stays, since a notification scheme across the
@@ -764,9 +796,9 @@ Not ported from Crackdown's set, and why: the command processor read-pointer and
 
 Ported from Crackdown's pull request 13 (head `7a90c373`), the same ReXGlue v0.10.0 code; they apply unchanged after 0050. The measured gain in that project (about 30 percent less command processor CPU time per draw, with its own profile) says nothing about this game; none of it was measured here.
 
-- **0051.** Windows only until a Linux build checks it.
+- **0051.** Applies on both platforms: the Vulkan plugin calls `bit_scan_forward` in its per-draw paths too, and the change is portable C++ (`std::countr_zero`).
 - **0053.** Skips only work derived from the constants; the fetch-constant write still calls `InvalidateVertexBufferResidency`, because the game may rewrite vertex data at the same address. `gpu_skip_unchanged_constant_writes` (hot reload) turns it off.
-- **0054.** Windows only until a Linux build checks it.
+- **0054.** Applies on both platforms: the index lives in the common texture cache, whose `textures_` map is only changed there, and the Vulkan resolve copy (0024) calls the same `FindResolveCopyTargets`.
 - **0055.** Same rendering semantics as the loops it replaces.
 - **Not ported:** the `SetEdramTilesDirty` dirty-range memo that PR 13 first had; it caused lighting flicker in Crackdown and was removed from the final PR.
 

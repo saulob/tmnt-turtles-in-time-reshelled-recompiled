@@ -17,6 +17,7 @@
 #include "updater/update_job.h"
 #include "updater/update_paths.h"
 #include "updater/update_zip.h"
+#include "updater/url_policy.h"
 #include "updater/version.h"
 
 using namespace trg::update;
@@ -477,6 +478,42 @@ void TestAppImageTarget() {
   CHECK(!IsRunningAppImage(appimage, root / "not-a-mount", program));
 }
 
+void TestUrlPolicy() {
+  std::printf("url policy\n");
+  const std::vector<std::string> hosts = GitHubReleaseHosts();
+  const std::string prefix = "https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/download/";
+  CHECK(UrlHostAllowed("https://api.github.com/repos/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest", hosts));
+  CHECK(UrlHostAllowed("https://release-assets.githubusercontent.com/github-production-release-asset/1?sig=a", hosts));
+  CHECK(UrlHostAllowed("https://objects.githubusercontent.com/x", hosts));
+  CHECK(UrlHostAllowed("HTTPS://GitHub.com:443/saulob", hosts));
+  CHECK(!UrlHostAllowed("http://github.com/saulob", hosts));
+  CHECK(!UrlHostAllowed("https://example.com/github.com", hosts));
+  CHECK(!UrlHostAllowed("https://github.com.example.com/x", hosts));
+  CHECK(!UrlHostAllowed("https://github.com@example.com/x", hosts));
+  CHECK(!UrlHostAllowed("https://github.com:8443/x", hosts));
+  CHECK(!UrlHostAllowed("https://github.com\\@example.com/x", hosts));
+  CHECK(!UrlHostAllowed("https://", hosts));
+  CHECK(!UrlHostAllowed("https://github.com/x", {}));
+
+  CHECK(UrlAllowed(prefix + "v0.5.0/TurtlesInTimeReshelled-v0.5.0-windows-x64.zip", hosts, prefix));
+  CHECK(!UrlAllowed("https://github.com/someone/else/releases/download/v1/TurtlesInTimeReshelled-v1-windows-x64.zip",
+                    hosts, prefix));
+  CHECK(!UrlAllowed("https://objects.githubusercontent.com/TurtlesInTimeReshelled-v0.5.0-windows-x64.zip", hosts,
+                    prefix));
+
+  // Every redirect hop goes back through the policy instead of being followed by WinHTTP or curl.
+  const std::string patch = ReadFile(std::string(TMNT_SRC_DIR) + "/../patches/trg-launcher/0003-download-allowed-urls.patch");
+  CHECK(patch.find("+  std::function<bool(const std::string& url)> allow_url;") != std::string::npos);
+  CHECK(patch.find("WINHTTP_OPTION_REDIRECT_POLICY_NEVER") != std::string::npos);
+  CHECK(patch.find("--max-redirs 0") != std::string::npos);
+  CHECK(patch.find("if (!options.allow_url(current)) {") != std::string::npos);
+  const std::string controller = ReadFile(std::string(TMNT_SRC_DIR) + "/updater/update_controller.cpp");
+  CHECK(controller.find("options.allow_url = ") != std::string::npos);
+  CHECK(controller.find("IsHttpsUrl") == std::string::npos);
+  const std::string config = ReadFile(std::string(TMNT_SRC_DIR) + "/update_config.cpp");
+  CHECK(config.find("config.download_url_prefix = kDownloadUrlPrefix;") != std::string::npos);
+}
+
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   TestVersions();
@@ -486,6 +523,7 @@ int main() {
   TestJobs();
   TestRollback();
   TestPackagingNames();
+  TestUrlPolicy();
   TestPaths();
   TestAppImageTarget();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);

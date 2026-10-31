@@ -8,12 +8,16 @@ The Linux build uses the same code as the Windows build: ReXGlue SDK 0.10.0's Li
 plugin's Vulkan backend, both built with the project's patches, and the same TRG launcher. It ships as one
 AppImage, which is also the Steam Deck build.
 
-**Known blocker:** the game's code is split between `default.xex` and the module `TMNT_r.xex`, which is recompiled into
-its own shared library (`libtmnt_turtles_in_time_reshelled_TMNT_r.so`). ReXGlue 0.10.0 opens that library with
-`dlopen("tmnt_turtles_in_time_reshelled_TMNT_r")`, without the `lib` prefix, the `.so` suffix or a folder, so on Linux it
-is not expected to be found when the game loads the module. Windows resolves the same name to
-`tmnt_turtles_in_time_reshelled_TMNT_r.dll` next to the program. A runtime patch or a renamed library is needed before
-the Linux build can run the game.
+**The module library.** The game's code is split between `default.xex` and the module `TMNT_r.xex`, which is recompiled
+into its own shared library (`libtmnt_turtles_in_time_reshelled_TMNT_r.so`). ReXGlue 0.10.0 opens it with
+`dlopen("tmnt_turtles_in_time_reshelled_TMNT_r")`, without the `lib` prefix or the `.so` suffix, which `LoadLibrary`
+completes on Windows but `dlopen` does not. The Linux-only patch `0082-posix-recompiled-module-library` makes the runtime
+look for `lib<name>.so` beside the executable first. It applies cleanly to the pinned SDK source, but no Linux build of
+this game has been made or run yet, so the Linux build stays unconfirmed until it has.
+
+The Direct3D 12 fix for the cyan turtle flicker (`0080`) has no Vulkan counterpart yet, so the flicker may still show on
+Linux. The Vulkan equivalents of `0040` and `0055` are deferred too (`patches/rexglue-sdk/patches.txt`, parity
+`vulkan-candidate`).
 
 The AppImage FUSE fallback (the image unpacks itself and runs from there when it cannot be mounted) is part of the
 inherited runtime ([Steam Beta and the AppImage](#steam-beta-and-the-appimage)).
@@ -23,7 +27,7 @@ inherited runtime ([Steam Beta and the AppImage](#steam-beta-and-the-appimage)).
 - 64-bit x86 Linux (x86_64) with glibc 2.31 or newer, such as Ubuntu 20.04 or later (`ldd --version` shows it)
 - A Vulkan driver (Mesa RADV on a Steam Deck and most AMD and Intel PCs)
 - An X11 or Wayland desktop (the runtime loads `libX11`, `libX11-xcb`, `libxcb` and `libwayland-client`)
-- `zenity` or `kdialog` for the package picker, and `xdg-open` for the About page's folder buttons
+- The desktop file chooser portal (`xdg-desktop-portal`), `zenity` or `kdialog` for the package picker, and `xdg-open` for the About page's folder buttons
 - Your own Turtles in Time Re-Shelled Xbox Live Arcade package (see the README for the exact version)
 
 The AppImage carries the C++ runtime of its build machine (GCC 13 or newer). It is used only when the system's own copy
@@ -121,7 +125,16 @@ unzip or python3, binutils, the GCC 13 or newer C++ runtime and headers, and the
 (`libx11-6`, `libx11-xcb1`, `libxcb1`, `libwayland-client0`), which the SDK's `rexglue` code generator loads.
 
 The AppImage needs the glibc of the machine that built it, so releases are built on Ubuntu 20.04 (glibc 2.31). The
-script warns when the build machine's glibc is newer and stops if any packaged library needs more than 2.31.
+script stops on any other host (`TMNT_ALLOW_UNSUPPORTED_HOST=1` skips only that check) and runs
+`tools/check-glibc-baseline.sh` on the AppDir and again on the finished, extracted AppImage. The checker recognises ELF files
+by their magic bytes, fails on a `GLIBC_` symbol above 2.31 or a bundled glibc runtime library, prints the highest `GLIBC`,
+`GLIBCXX` and `CXXABI` version of every file, and fails when the bundled `libstdc++` provides less than another file needs.
+The same scan (forbidden names and types, Xbox packages, `DEBUG_SAULO`, local folders as text and as UTF-16, RenderDoc and
+Vulkan layer files, RPATH/RUNPATH, debug sections of the program and the module library, the exact file list) runs on both.
+`tools/package-linux.sh --verify-only FILE` runs the scan, the runtime check and the glibc check on an existing AppImage.
+
+`tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, packaging inputs,
+hygiene); it builds and launches nothing.
 `tools/setup-linux-build-env.sh` prepares a clean Ubuntu 20.04 machine for it, as root: clang 20 from
 [apt.llvm.org](https://apt.llvm.org), the GCC 13 runtime from the `ubuntu-toolchain-r/test` PPA, CMake 3.31.8 and the
 SDK's build dependencies. libdecor 0.2.2 and PipeWire 0.3.48 are not packaged for 20.04, so the script builds them

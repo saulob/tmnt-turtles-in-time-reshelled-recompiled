@@ -15,6 +15,11 @@ void InstallSessionLogCleanup();
 void FinalizeSessionLog();
 
 // Flushes before a hard exit. Loggers stay alive: a thread still running may log until the process ends.
+// The same policy for the window close, where guest threads still log: logging stays up, and on Windows, where the
+// open log cannot be deleted, the next start removes it.
+void DiscardSessionLogBeforeHardExit();
+void RemoveDiscardedSessionLogs();
+
 void PrepareHardExit();
 
 // The launcher and the game share one normal log. A relaunch hands the active log to the next

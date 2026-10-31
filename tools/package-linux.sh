@@ -4,6 +4,7 @@
 #
 #   tools/package-linux.sh            incremental Release build, then package
 #   tools/package-linux.sh --clean    clean Release build first
+#   tools/package-linux.sh --verify-only FILE    check a finished AppImage (runtime, contents, glibc) without building
 #   tools/package-linux.sh --out-dir DIR    write the AppImage and its .sha256 to DIR instead of dist (test builds)
 #
 # Needs clang-20, clang++-20, lld-20, cmake 3.25+, ninja, rsync, git, wget or curl, unzip or python3, binutils and the
@@ -32,10 +33,12 @@ APPIMAGETOOL_VERSION=1.9.1
 APPIMAGETOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
 
 CLEAN=0
+VERIFY_ONLY=
 OUT_DIR="$ROOT/dist"
 while [ $# -gt 0 ]; do
   case "$1" in
     --clean) CLEAN=1 ;;
+    --verify-only) [ $# -ge 2 ] || { echo "--verify-only needs an AppImage" >&2; exit 2; }; VERIFY_ONLY="$(realpath -m "$2")"; shift ;;
     --out-dir) [ $# -ge 2 ] || { echo "--out-dir needs a folder" >&2; exit 2; }; OUT_DIR="$(realpath -m "$2")"; shift ;;
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
@@ -59,6 +62,99 @@ APP_ID="$(sed -nE 's/^[[:space:]]*constexpr char kApplicationId\[\] = "([^"]+)";
   fail "src/platform.cpp must declare kApplicationId exactly once, as a dotted name on one line (found: '$APP_ID')"
 [ -f "$ROOT/packaging/linux/$APP_ID.desktop" ] || fail "packaging/linux/$APP_ID.desktop is missing: the desktop file is named after kApplicationId"
 NAME="TurtlesInTimeReshelledRecompiled-v$VERSION-x86_64"
+
+BIN_NAME=tmnt_turtles_in_time_reshelled
+EXPECTED=".DirIcon
+AppRun
+tmnt_turtles_in_time_reshelled.png
+$APP_ID.desktop
+usr/bin/assets/launcher/header-art.png
+usr/bin/tmnt_turtles_in_time_reshelled
+usr/bin/tmnt_turtles_in_time_reshelled.toml
+usr/bin/librexgpu-xenos.so
+usr/bin/librexruntime.so
+usr/bin/libtmnt_turtles_in_time_reshelled_TMNT_r.so
+usr/lib/libgcc_s.so.1
+usr/lib/libstdc++.so.6
+usr/share/doc/tmnt_turtles_in_time_reshelled/LICENSE
+usr/share/doc/tmnt_turtles_in_time_reshelled/ReXGlue-LICENSE.txt
+usr/share/doc/tmnt_turtles_in_time_reshelled/THIRD-PARTY-LICENSES-LINUX.txt
+usr/share/doc/tmnt_turtles_in_time_reshelled/THIRD-PARTY-LICENSES.txt
+usr/share/doc/tmnt_turtles_in_time_reshelled/libstdc++-copyright.txt
+usr/share/icons/hicolor/128x128/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/16x16/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/24x24/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/256x256/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/32x32/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/48x48/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/512x512/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/64x64/apps/tmnt_turtles_in_time_reshelled.png
+usr/share/icons/hicolor/scalable/apps/tmnt_turtles_in_time_reshelled.svg"
+
+# Everything that must not be released, in an AppDir or in the AppImage extracted back out. The extra arguments are
+# local folders whose names must not appear in any file, as text or as UTF-16.
+scan_appdir() {  # appdir label [local paths...]
+  local appdir="$1" label="$2" item rel base path utf16 f rpath missing actual problems=0
+  shift 2
+  problem() { echo "  $*" >&2; problems=$((problems + 1)); }
+  while IFS= read -r -d '' item; do
+    rel="${item#"$appdir"/}"
+    base="$(basename "$item")"
+    case "${base,,}" in
+      default.xex | tmnt_r.xex | tmnt.bf | data | game | game-install-temp | game-install-backup | user_data | user_data.migrating | content | cache | logs | \
+        settings.toml | settings.toml.bak | arcadeinfo.xml | nxeart | 584109d2) problem "forbidden name: $rel" ;;
+      *.xex | *.xexp | *.log | *.dmp | *.pdb | *.debug | *.xsh | *.xpso | *.bak | *.tmp | *.sav | *.invalid | *.pyc | *~ | settings.toml.*) problem "forbidden file type: $rel" ;;
+    esac
+    case "${base,,}" in
+      *renderdoc* | *vklayer* | *.json | implicit_layer.d | explicit_layer.d) problem "RenderDoc or Vulkan layer file: $rel" ;;
+    esac
+    [ -L "$item" ] && problem "symbolic link: $rel"
+    if [ -f "$item" ]; then
+      case "$(head -c 4 "$item" | tr -d '\0')" in LIVE | PIRS | "CON " | XEX2) problem "Xbox 360 package or executable: $rel" ;; esac
+      for path in "$@"; do
+        grep -qaF "$path" "$item" && problem "local path in file: $rel ($path)"
+        utf16="$(printf '%s' "$path" | od -An -tx1 | tr -d ' \n' | sed 's/../\x&\x00/g')"
+        LC_ALL=C grep -qaP "$utf16" "$item" && problem "UTF-16 local path in file: $rel ($path)"
+      done
+      grep -qaF DEBUG_SAULO "$item" && problem "DEBUG_SAULO in file: $rel"
+      [ "$(head -c 2 "$item")" = MZ ] && problem "Windows binary: $rel"
+    fi
+  done < <(find "$appdir" -mindepth 1 -print0)
+  actual="$(cd "$appdir" && find . ! -type d | sed 's|^\./||' | LC_ALL=C sort)"
+  [ "$actual" = "$EXPECTED" ] || { problem "unexpected contents:"; diff <(echo "$EXPECTED") <(echo "$actual") >&2 || true; }
+  grep -qxF "StartupWMClass=$APP_ID" "$appdir/$APP_ID.desktop" || problem "StartupWMClass in $APP_ID.desktop is not $APP_ID"
+  grep -qxF "Exec=$BIN_NAME" "$appdir/$APP_ID.desktop" || problem "Exec in $APP_ID.desktop is not $BIN_NAME"
+  grep -qaF "$APP_ID" "$appdir/usr/bin/$BIN_NAME" || problem "the program does not contain the application id $APP_ID"
+  for f in $BIN_NAME libtmnt_turtles_in_time_reshelled_TMNT_r.so librexruntime.so librexgpu-xenos.so; do
+    if readelf -d "$appdir/usr/bin/$f" | grep -i renderdoc >/dev/null; then problem "$f links RenderDoc"; fi
+    case "$f" in "$BIN_NAME" | libtmnt_*) if readelf -S -W "$appdir/usr/bin/$f" | grep -F ' .debug_' >/dev/null; then problem "$f holds debug sections"; fi ;; esac
+    rpath="$(readelf -d "$appdir/usr/bin/$f" | sed -n 's/.*R\(UN\)\?PATH.*\[\(.*\)\]/\2/p')"
+    case "$f" in
+      "$BIN_NAME") [ "$rpath" = '$ORIGIN' ] || problem "$f RPATH/RUNPATH is '$rpath', not \$ORIGIN" ;;
+      *) case "$rpath" in '' | '$ORIGIN' | '$ORIGIN:$ORIGIN/../lib') ;; *) problem "$f RPATH/RUNPATH is '$rpath'" ;; esac ;;
+    esac
+  done
+  missing="$(LD_LIBRARY_PATH="$appdir/usr/lib" ldd "$appdir/usr/bin/$BIN_NAME" | grep 'not found' || true)"
+  [ -z "$missing" ] || problem "unresolved libraries: $missing"
+  [ "$problems" = 0 ] || fail "the $label holds files that must not be released"
+  echo "  $label clean"
+}
+
+if [ -n "$VERIFY_ONLY" ]; then
+  [ -f "$VERIFY_ONLY" ] || fail "missing $VERIFY_ONLY"
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT
+  bash "$ROOT/tools/build-appimage-runtime.sh" --check "$VERIFY_ONLY"
+  cp "$VERIFY_ONLY" "$TMP/verify.AppImage"
+  chmod +x "$TMP/verify.AppImage"
+  (cd "$TMP" && ./verify.AppImage --appimage-extract >/dev/null)
+  scan_appdir "$TMP/squashfs-root" "extracted AppImage" "$ROOT" "$WORK" "$HOME"
+  bash "$ROOT/tools/check-glibc-baseline.sh" --max "$MAX_GLIBC" "$TMP/verify.AppImage" "$TMP/squashfs-root" ||
+    fail "the AppImage does not meet the glibc $MAX_GLIBC baseline"
+  echo "Verified $VERIFY_ONLY"
+  exit 0
+fi
+
 echo "Turtles in Time Re-Shelled Recompiled $VERSION - Linux AppImage (local only)"
 SOURCE="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 if CHANGES="$(git -C "$ROOT" status --porcelain 2>/dev/null)"; then
@@ -78,8 +174,12 @@ clang++-20 --version | sed -n 1p
 cmake --version | sed -n 1p
 HOST_GLIBC="$(getconf GNU_LIBC_VERSION | cut -d' ' -f2)"
 echo "glibc $HOST_GLIBC"
-[ "$(printf '%s\n' "$MAX_GLIBC" "$HOST_GLIBC" | sort -V | tail -1)" = "$MAX_GLIBC" ] ||
-  echo "WARNING: this AppImage will need glibc $HOST_GLIBC; release builds use Ubuntu 20.04 (glibc $MAX_GLIBC)" >&2
+if ! grep -q '^VERSION_ID="20.04"' /etc/os-release || [ "$HOST_GLIBC" != "$MAX_GLIBC" ]; then
+  [ "${TMNT_ALLOW_UNSUPPORTED_HOST:-0}" = 1 ] ||
+    fail "release builds need Ubuntu 20.04 (glibc $MAX_GLIBC), see docs/linux.md; TMNT_ALLOW_UNSUPPORTED_HOST=1 skips this check but not the glibc check on the files"
+  echo "WARNING: unsupported build host" >&2
+fi
+bash "$ROOT/tools/check-glibc-baseline.sh" --self-test
 
 echo "== Inputs"
 [ -f "$ROOT/generated/default/sources.cmake" ] || fail "generated/default is missing (run tools/codegen.ps1 first)"
@@ -195,72 +295,10 @@ find "$THEME" -type f -exec chmod 644 {} +
 bash "$PATCHED" --check "$SDK" --staged "$APPDIR/usr/bin" || fail "the AppDir does not hold the patched ReXGlue libraries"
 
 echo "== Release check"
-problems=0
-problem() { echo "  $*" >&2; problems=$((problems + 1)); }
-while IFS= read -r -d '' item; do
-  rel="${item#"$APPDIR"/}"
-  base="$(basename "$item")"
-  case "$base" in
-    default.xex | TMNT_r.xex | TMNT.bf | Data | game | game-install-temp | game-install-backup | user_data | user_data.migrating | content | cache | logs | \
-      settings.toml | settings.toml.bak | ArcadeInfo.xml | nxeart | 584109D2) problem "forbidden name: $rel" ;;
-    *.xex | *.log | *.dmp | *.pdb | *.xsh | *.xpso | *.bak | *.tmp | *.sav) problem "forbidden file type: $rel" ;;
-  esac
-  case "${base,,}" in
-    *renderdoc* | *vklayer* | *.json | implicit_layer.d | explicit_layer.d) problem "RenderDoc or Vulkan layer file: $rel" ;;
-  esac
-  [ -L "$item" ] && problem "symbolic link: $rel"
-  if [ -f "$item" ]; then
-    case "$(head -c 4 "$item" | tr -d '\0')" in LIVE | PIRS | "CON ") problem "Xbox 360 package: $rel" ;; esac
-    for path in "$ROOT" "$WORK" "$HOME"; do
-      grep -qaF "$path" "$item" && problem "local path in file: $rel ($path)"
-    done
-    [ "$(head -c 2 "$item")" = MZ ] && problem "Windows binary: $rel"
-  fi
-done < <(find "$APPDIR" -mindepth 1 -print0)
-EXPECTED=".DirIcon
-AppRun
-tmnt_turtles_in_time_reshelled.png
-$APP_ID.desktop
-usr/bin/assets/launcher/header-art.png
-usr/bin/tmnt_turtles_in_time_reshelled
-usr/bin/tmnt_turtles_in_time_reshelled.toml
-usr/bin/librexgpu-xenos.so
-usr/bin/librexruntime.so
-usr/bin/libtmnt_turtles_in_time_reshelled_TMNT_r.so
-usr/lib/libgcc_s.so.1
-usr/lib/libstdc++.so.6
-usr/share/doc/tmnt_turtles_in_time_reshelled/LICENSE
-usr/share/doc/tmnt_turtles_in_time_reshelled/ReXGlue-LICENSE.txt
-usr/share/doc/tmnt_turtles_in_time_reshelled/THIRD-PARTY-LICENSES-LINUX.txt
-usr/share/doc/tmnt_turtles_in_time_reshelled/THIRD-PARTY-LICENSES.txt
-usr/share/doc/tmnt_turtles_in_time_reshelled/libstdc++-copyright.txt
-usr/share/icons/hicolor/128x128/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/16x16/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/24x24/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/256x256/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/32x32/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/48x48/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/512x512/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/64x64/apps/tmnt_turtles_in_time_reshelled.png
-usr/share/icons/hicolor/scalable/apps/tmnt_turtles_in_time_reshelled.svg"
-ACTUAL="$(cd "$APPDIR" && find . ! -type d | sed 's|^\./||' | LC_ALL=C sort)"
-[ "$ACTUAL" = "$EXPECTED" ] || { problem "unexpected AppDir contents:"; diff <(echo "$EXPECTED") <(echo "$ACTUAL") >&2 || true; }
-grep -qxF "StartupWMClass=$APP_ID" "$APPDIR/$APP_ID.desktop" || problem "StartupWMClass in $APP_ID.desktop is not $APP_ID"
-grep -qaF "$APP_ID" "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled" || problem "the program does not contain the application id $APP_ID"
-for f in tmnt_turtles_in_time_reshelled libtmnt_turtles_in_time_reshelled_TMNT_r.so librexruntime.so librexgpu-xenos.so; do
-  if readelf -d "$APPDIR/usr/bin/$f" | grep -i renderdoc >/dev/null; then problem "$f links RenderDoc"; fi
-done
-readelf -d "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled" | grep -q 'R.*PATH.*\[\$ORIGIN\]' || problem "the program's RPATH is not \$ORIGIN"
-missing="$(ldd "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled" | grep 'not found' || true)"
-[ -z "$missing" ] || problem "unresolved libraries: $missing"
-[ "$problems" = 0 ] || fail "the AppDir holds files that must not be released"
-echo "  clean"
-for f in usr/bin/tmnt_turtles_in_time_reshelled usr/bin/libtmnt_turtles_in_time_reshelled_TMNT_r.so usr/bin/librexruntime.so usr/bin/librexgpu-xenos.so usr/lib/libstdc++.so.6 usr/lib/libgcc_s.so.1; do
-  glibc="$(readelf --dyn-syms -W "$APPDIR/$f" | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -1)"
-  echo "  $f needs $glibc"
-  [ "$(printf '%s\n' "${glibc#GLIBC_}" "$MAX_GLIBC" | sort -V | tail -1)" = "$MAX_GLIBC" ] ||
-    fail "$f needs $glibc, above the glibc $MAX_GLIBC baseline"
-done
+scan_appdir "$APPDIR" "AppDir" "$ROOT" "$WORK" "$HOME"
+
+echo "== glibc $MAX_GLIBC baseline (AppDir)"
+bash "$ROOT/tools/check-glibc-baseline.sh" --max "$MAX_GLIBC" "$APPDIR" || fail "the AppDir does not meet the glibc $MAX_GLIBC baseline"
 
 echo "== AppImage"
 TOOLS="$WORK/tools/appimage"
@@ -277,6 +315,14 @@ rm -f "$OUT"
 ARCH=x86_64 "$TOOL" --appimage-extract-and-run --no-appstream --runtime-file "$RUNTIME" "$APPDIR" "$OUT" >/dev/null
 chmod 755 "$OUT"
 bash "$ROOT/tools/build-appimage-runtime.sh" --check "$OUT"
+
+echo "== glibc $MAX_GLIBC baseline (AppImage)"
+CHECK="$(mktemp -d)"
+trap 'rm -rf "$CHECK"' EXIT
+(cd "$CHECK" && "$OUT" --appimage-extract >/dev/null)
+scan_appdir "$CHECK/squashfs-root" "extracted AppImage" "$ROOT" "$WORK" "$HOME" || { rm -f "$OUT"; exit 1; }
+bash "$ROOT/tools/check-glibc-baseline.sh" --max "$MAX_GLIBC" "$OUT" "$CHECK/squashfs-root" ||
+  { rm -f "$OUT"; fail "the AppImage does not meet the glibc $MAX_GLIBC baseline"; }
 (cd "$OUT_DIR" && sha256sum "$NAME.AppImage" > "$NAME.sha256")
 
 echo

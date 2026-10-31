@@ -551,6 +551,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     const std::string picked = trg::BrowseForFile("Select your Turtles in Time Re-Shelled Xbox Live Arcade package",
                                                   {{"Xbox Live Arcade package", "*"}});
     if (picked.empty()) {
+      if (trg::FileDialogUnavailable()) {
+        launcher_->SetStatus("Could not open the file picker. Install xdg-desktop-portal, zenity, or kdialog.", 8.0);
+      }
       return;
     }
     install_failure_.clear();
@@ -804,6 +807,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     const std::string picked = trg::BrowseForFile("Select a Turtles in Time Re-Shelled DLC package",
                                                   {{"Xbox 360 package", "*"}});
     if (picked.empty()) {
+      if (trg::FileDialogUnavailable()) {
+        launcher_->SetStatus("Could not open the file picker. Install xdg-desktop-portal, zenity, or kdialog.", 8.0);
+      }
       return;
     }
     dlc_failure_.clear();

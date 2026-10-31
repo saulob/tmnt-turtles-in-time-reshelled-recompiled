@@ -18,6 +18,8 @@ namespace {
 
 constexpr const char* kReleasesUrl =
     "https://api.github.com/repos/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest";
+constexpr const char* kDownloadUrlPrefix =
+    "https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/download/";
 
 std::optional<std::string> Environment(const char* name) {
 #if defined(_WIN32)
@@ -57,7 +59,8 @@ std::vector<std::string> RestartArguments() {
   std::vector<std::string> arguments = trg::update::CurrentProcessArguments();
   arguments.erase(std::remove_if(arguments.begin(), arguments.end(),
                                  [](const std::string& argument) {
-                                   return argument.rfind("--tmnt_skip_launcher", 0) == 0;
+                                   return argument.rfind("--tmnt_skip_launcher", 0) == 0 ||
+                                          argument == "--tmnt_launcher" || argument.rfind("--tmnt_launcher=", 0) == 0;
                                  }),
                   arguments.end());
   arguments.emplace_back("--tmnt_launcher=true");
@@ -73,6 +76,7 @@ trg::update::UpdateConfig MakeUpdateConfig(const std::filesystem::path& install_
   trg::update::UpdateConfig config;
   config.current_version = PortVersion();
   config.releases_url = kReleasesUrl;
+  config.download_url_prefix = kDownloadUrlPrefix;
   config.user_agent = "TurtlesInTimeReshelled-Updater/" + PortVersion();
   config.install_dir = install_dir;
   config.restart_arguments = RestartArguments();

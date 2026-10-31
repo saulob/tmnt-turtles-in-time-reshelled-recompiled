@@ -45,7 +45,7 @@ $ForbiddenNames = @('default.xex', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'gam
     'user_data.migrating', 'content', 'cache', 'logs', 'settings.toml', 'settings.toml.bak', 'ArcadeInfo.xml', 'nxeart', '584109D2',
     'vulkan-1.dll')
 $ForbiddenPatterns = @('*.xex', '*.log', '*.dmp', '*.pdb', '*.debug', '*.xsh', '*.xpso', '*.bak', '*.tmp', '*.sav', 'trg-update-*',
-    'VkLayer_*', 'renderdoc*')
+    'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*')
 # First bytes of an Xbox 360 package or executable.
 $ForbiddenMagic = @('LIVE', 'PIRS', 'CON ', 'XEX2')
 
@@ -58,18 +58,34 @@ $LocalPaths = foreach ($path in @($Root, $env:USERPROFILE) | Where-Object { $_ }
     }
 }
 
+# Any user profile folder, Visual Studio repository folder or MSYS2 folder; matched against the file text with the NUL
+# bytes removed, so UTF-16 text is found too.
+$LocalPathRegexes = @(
+    '[A-Za-z]:[\\/]Users[\\/][^\\/\x00-\x1f"<>|*?]+',
+    '[\\/]VisualStudio[\\/]repos[\\/]',
+    '[A-Za-z]:[\\/]msys64'
+) | ForEach-Object { [regex]::new($_, 'IgnoreCase') }
+$MarkerNeedles = @('DEBUG_SAULO', $Latin1.GetString([Text.Encoding]::Unicode.GetBytes('DEBUG_SAULO')))
+
 function Test-ReleaseFolder([string]$Dir) {
     $problems = New-Object System.Collections.Generic.List[string]
     if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { throw "Not a folder: $Dir" }
     $base = (Resolve-Path -LiteralPath $Dir).Path.TrimEnd('\')
     foreach ($item in Get-ChildItem -LiteralPath $base -Recurse -Force) {
         $relative = $item.FullName.Substring($base.Length + 1)
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $problems.Add("reparse point: $relative") }
         if (-not $item.PSIsContainer) {
             $text = $Latin1.GetString([IO.File]::ReadAllBytes($item.FullName))
             foreach ($path in $LocalPaths) {
                 if ($text.IndexOf($path, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $problems.Add("local path in file: $relative"); break }
             }
-            if ($text.IndexOf('DEBUG_SAULO', [StringComparison]::Ordinal) -ge 0) { $problems.Add("DEBUG_SAULO marker in file: $relative") }
+            $stripped = $text.Replace([string][char]0, '')
+            foreach ($regex in $LocalPathRegexes) {
+                if ($regex.IsMatch($stripped)) { $problems.Add("user or repository path in file: $relative"); break }
+            }
+            foreach ($marker in $MarkerNeedles) {
+                if ($text.IndexOf($marker, [StringComparison]::Ordinal) -ge 0) { $problems.Add("DEBUG_SAULO marker in file: $relative"); break }
+            }
             if ($item.Length -ge 4 -and ($ForbiddenMagic -contains $text.Substring(0, 4))) { $problems.Add("Xbox 360 package or executable: $relative") }
         }
         if ($ForbiddenNames -contains $item.Name) { $problems.Add("forbidden name: $relative") }

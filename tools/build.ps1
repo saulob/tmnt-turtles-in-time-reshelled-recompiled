@@ -38,7 +38,7 @@ $XexSha256 = @{
     'TMNT_r.xex'  = 'C6C19BD1D3DE0C0AF3651DE201E8CAC47D9C380C03060734F6F649E83EE89DD9'
 }
 
-$VsRoot = 'C:\Program Files\Microsoft Visual Studio\18\Community'
+$VsRoot = Get-VisualStudioRoot
 $VsDevCmd = Join-Path $VsRoot 'Common7\Tools\VsDevCmd.bat'
 $LlvmBin = Join-Path $VsRoot 'VC\Tools\Llvm\x64\bin'
 $Clang = Join-Path $LlvmBin 'clang.exe'

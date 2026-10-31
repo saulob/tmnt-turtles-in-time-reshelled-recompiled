@@ -292,6 +292,54 @@ void TestSessionLifecycle(const std::filesystem::path& dir) {
   CHECK(tmnt::ActiveLogFile().empty());
 }
 
+void TestHardExitDiscard(const std::filesystem::path& dir) {
+  std::printf("a window close discards a Minimal log without shutting logging down\n");
+  const std::filesystem::path closed = dir / "tmnt_turtles_in_time_reshelled_801.log";
+  const std::filesystem::path crashed = dir / "tmnt_turtles_in_time_reshelled_802.log";
+  const std::filesystem::path next = dir / "tmnt_turtles_in_time_reshelled_803.log";
+  const std::filesystem::path previous = dir / "tmnt_turtles_in_time_reshelled_804.log";
+  const std::filesystem::path unrelated = dir / "notes.log";
+  WriteText(closed, "normal session\n");
+  WriteText(crashed, "run started\nCRASH REPORT\n");
+  WriteText(next, "next session\n");
+  WriteText(previous, "previous session\n");
+  WriteText(unrelated, "unrelated\n");
+  SetDetailedLogging(false);
+
+  rex::cvar::SetFlagByName("log_file", closed.string());
+  tmnt::DiscardSessionLogBeforeHardExit();
+  rex::cvar::SetFlagByName("log_file", crashed.string());
+  tmnt::DiscardSessionLogBeforeHardExit();
+  CHECK(std::filesystem::exists(crashed));
+  CHECK(!std::filesystem::exists(crashed.string() + ".discard"));
+  CHECK(!std::filesystem::exists(closed));
+  CHECK(!std::filesystem::exists(closed.string() + ".discard"));
+
+  const std::filesystem::path marked = dir / "tmnt_turtles_in_time_reshelled_805.log";
+  WriteText(marked, "marked by an older build\n");
+  WriteText(marked.string() + ".discard", "");
+  WriteText(next.string() + ".discard", "");
+  WriteText(unrelated.string() + ".discard", "");
+
+  rex::cvar::SetFlagByName("log_file", next.string());
+  tmnt::RemoveDiscardedSessionLogs();
+  CHECK(!std::filesystem::exists(marked));
+  CHECK(!std::filesystem::exists(marked.string() + ".discard"));
+  CHECK(std::filesystem::exists(crashed));
+  CHECK(std::filesystem::exists(next));
+  CHECK(std::filesystem::exists(previous));
+  CHECK(std::filesystem::exists(unrelated));
+  CHECK(!std::filesystem::exists(next.string() + ".discard"));
+
+  SetDetailedLogging(true);
+  WriteText(closed, "normal session\n");
+  rex::cvar::SetFlagByName("log_file", closed.string());
+  tmnt::DiscardSessionLogBeforeHardExit();
+  CHECK(std::filesystem::exists(closed));
+  CHECK(!std::filesystem::exists(closed.string() + ".discard"));
+  rex::cvar::SetFlagByName("log_file", "");
+}
+
 void TestMissingAndRepeatedFinalization() {
   std::printf("a missing active log and a repeated finalization are harmless\n");
   SetDetailedLogging(false);
@@ -475,6 +523,17 @@ int RunChildMode(const std::wstring& mode, const std::filesystem::path& dir) {
     tmnt::PrepareHardExit();
     std::_Exit(0);
   }
+  if (mode == L"window-close" || mode == L"window-close-held") {
+    [[maybe_unused]] HANDLE held = INVALID_HANDLE_VALUE;
+    if (mode == L"window-close-held") {
+      held = CreateFileW(tmnt::ActiveLogFile().c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                         OPEN_EXISTING, 0, nullptr);
+    }
+    tmnt::DiscardSessionLogBeforeHardExit();
+    REXLOG_WARN("straggler warning after window close");
+    rex::FlushLogging();
+    std::_Exit(0);
+  }
   if (mode == L"straggler") {
     tmnt::PrepareHardExit();
     REXLOG_WARN("straggler warning after hard exit preparation");
@@ -561,6 +620,26 @@ void TestChildProcesses(const std::filesystem::path& root) {
   std::filesystem::create_directories(straggler);
   CHECK(RunChild(L"--child straggler \"" + straggler.wstring() + L"\"") == 0);
   CHECK(Has(ReadText(OnlyLog(straggler)), "straggler warning after hard exit preparation"));
+
+  const std::filesystem::path window_close = root / "child_window_close";
+  std::filesystem::create_directories(window_close);
+  const std::filesystem::path previous_log = window_close / "tmnt_turtles_in_time_reshelled_900.log";
+  const std::filesystem::path unrelated = window_close / "notes.txt";
+  WriteText(previous_log, "previous session\n");
+  WriteText(unrelated, "unrelated\n");
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    CHECK(RunChild(L"--child window-close " + std::wstring(L"\"") + window_close.wstring() + L"\"") == 0);
+    CHECK(CountLogs(window_close) == 1);
+    CHECK(!AnyFile(window_close, "", ".discard"));
+  }
+  CHECK(std::filesystem::exists(previous_log));
+  CHECK(std::filesystem::exists(unrelated));
+
+  const std::filesystem::path window_close_held = root / "child_window_close_held";
+  std::filesystem::create_directories(window_close_held);
+  CHECK(RunChild(L"--child window-close-held \"" + window_close_held.wstring() + L"\"") == 0);
+  CHECK(AnyFile(window_close_held, "", ".log"));
+  CHECK(AnyFile(window_close_held, "", ".discard"));
 
   const std::filesystem::path delete_fail = root / "child_delete_fail";
   std::filesystem::create_directories(delete_fail);
@@ -683,7 +762,8 @@ void TestWiring() {
   CHECK(Has(session, "BeginSessionLogHandoff"));
   CHECK(Has(session, "TakeInheritedSessionLog"));
   CHECK(!Has(session, "remove_all"));
-  CHECK(!Has(session, "directory_iterator"));
+  CHECK(Has(session, "RemoveDiscardedSessionLogs"));
+  CHECK(Has(session, "IsSessionLogName"));
 
   const std::string diagnostics = ReadSource("diagnostics.cpp");
   CHECK(Has(diagnostics, "Runtime configuration:"));
@@ -697,6 +777,8 @@ void TestWiring() {
   CHECK(Has(app, "tmnt::ApplyDetailedLogging();"));
   CHECK(Has(app, "tmnt::InstallSessionLogCleanup();"));
   CHECK(Has(app, "tmnt::PrepareHardExit();"));
+  CHECK(Has(app, "tmnt::DiscardSessionLogBeforeHardExit();"));
+  CHECK(Has(app, "tmnt::RemoveDiscardedSessionLogs();"));
   CHECK(Has(app, "tmnt::TakeInheritedSessionLog({"));
   CHECK(Has(app, "void LaunchModule() override"));
   CHECK(Has(app, "tmnt::LogStartupDiagnostics("));
@@ -747,6 +829,7 @@ int main() {
   TestSettingValue(dir);
   TestCrashReportIndependent();
   TestSessionLifecycle(dir);
+  TestHardExitDiscard(dir);
   TestMissingAndRepeatedFinalization();
 #if defined(_WIN32)
   TestInheritedSessionValidation(dir);

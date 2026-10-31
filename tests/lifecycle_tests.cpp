@@ -57,6 +57,7 @@ void TestHostWindowCloseHardExits() {
   const std::string app = ReadSource("tmnt_turtles_in_time_reshelled_app.h");
   CHECK(Has(app, "void OnClosing(rex::ui::UIEvent&) override"));
   const std::string body = FunctionBody(app, "void OnClosing(");
+  CHECK(Has(body, "tmnt::DiscardSessionLogBeforeHardExit();"));
   CHECK(Has(body, "tmnt::PrepareHardExit();"));
   CHECK(Has(body, "std::_Exit(0);"));
   CHECK(!Has(body, "ShutdownLogging"));
@@ -107,6 +108,7 @@ void TestSessionLogFinalizationWiring() {
 
   const std::string closing =
       Between(app, "void OnClosing(", "std::unique_ptr<rex::ui::ImGuiDialog> CreateAchievementsOverlay");
+  CHECK(Has(closing, "tmnt::DiscardSessionLogBeforeHardExit();"));
   CHECK(Has(closing, "tmnt::PrepareHardExit();"));
   CHECK(Has(closing, "std::_Exit(0);"));
   CHECK(!Has(closing, "FinalizeSessionLog"));

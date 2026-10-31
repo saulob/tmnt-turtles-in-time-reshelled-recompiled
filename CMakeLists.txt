@@ -28,10 +28,13 @@ set(TMNT_TRG_LAUNCHER_DIR "$ENV{TMNT_TRG_LAUNCHER_DIR}" CACHE PATH
 # binary directory; the submodule checkout must stay at the pinned revision.
 set(TMNT_TRG_LAUNCHER_REVISION "b384a28c712c9320eea8f9d50639dec49981b6c1")
 set(TMNT_TRG_LAUNCHER_PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/patches/trg-launcher")
-set(TMNT_TRG_LAUNCHER_PATCH_STAMP_VERSION 1)
+set(TMNT_TRG_LAUNCHER_PATCH_STAMP_VERSION 2)
 file(GLOB _trg_patch_names CONFIGURE_DEPENDS RELATIVE "${TMNT_TRG_LAUNCHER_PATCH_DIR}"
     "${TMNT_TRG_LAUNCHER_PATCH_DIR}/*.patch")
 list(SORT _trg_patch_names)
+if(NOT _trg_patch_names)
+    message(FATAL_ERROR "TRG Launcher: ${TMNT_TRG_LAUNCHER_PATCH_DIR} holds no patches")
+endif()
 # The glob dependency only tracks added or removed files; list the patches as
 # configure dependencies too so editing one triggers a reconfigure.
 foreach(_trg_patch_name IN LISTS _trg_patch_names)
@@ -107,13 +110,13 @@ function(tmnt_prepare_patched_trg_launcher source_dir output_dir require_pinned)
     foreach(_patch_name IN LISTS _trg_patch_names)
         set(_patch "${TMNT_TRG_LAUNCHER_PATCH_DIR}/${_patch_name}")
         execute_process(COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${_ceiling}"
-                        "${GIT_EXECUTABLE}" -C "${output_dir}" apply --check "${_patch}"
+                        "${GIT_EXECUTABLE}" -C "${output_dir}" apply --check --ignore-whitespace "${_patch}"
                         RESULT_VARIABLE _can_apply ERROR_VARIABLE _apply_error)
         if(NOT _can_apply EQUAL 0)
             message(FATAL_ERROR "TRG Launcher: ${_patch} does not apply to ${source_dir} (${_apply_error}); the patch and the source revision are out of sync.")
         endif()
         execute_process(COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${_ceiling}"
-                        "${GIT_EXECUTABLE}" -C "${output_dir}" apply "${_patch}"
+                        "${GIT_EXECUTABLE}" -C "${output_dir}" apply --ignore-whitespace "${_patch}"
                         RESULT_VARIABLE _apply_result)
         if(NOT _apply_result EQUAL 0)
             message(FATAL_ERROR "TRG Launcher: failed to apply ${_patch}")
@@ -368,13 +371,19 @@ if(WIN32)
     unset(_tmnt_app_compile_defs)
 endif()
 
-# The runtime reads its cvars from <exe dir>/tmnt_turtles_in_time_reshelled.toml.
-add_custom_command(TARGET tmnt_turtles_in_time_reshelled POST_BUILD
+# The runtime reads its cvars from <exe dir>/tmnt_turtles_in_time_reshelled.toml. A POST_BUILD step only runs when the
+# program relinks, so the file is a build output of its own: editing the source alone stages it again.
+set(TMNT_STAGED_TOML "${CMAKE_CURRENT_BINARY_DIR}/tmnt_turtles_in_time_reshelled.toml")
+add_custom_command(
+    OUTPUT "${TMNT_STAGED_TOML}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/config/tmnt_turtles_in_time_reshelled.toml"
-        "$<TARGET_FILE_DIR:tmnt_turtles_in_time_reshelled>"
+        "${TMNT_STAGED_TOML}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/config/tmnt_turtles_in_time_reshelled.toml"
     VERBATIM
 )
+add_custom_target(tmnt_turtles_in_time_reshelled_toml ALL DEPENDS "${TMNT_STAGED_TOML}")
+add_dependencies(tmnt_turtles_in_time_reshelled tmnt_turtles_in_time_reshelled_toml)
 
 add_custom_command(TARGET tmnt_turtles_in_time_reshelled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -444,6 +453,10 @@ add_executable(tmnt_multisampling_tests EXCLUDE_FROM_ALL tests/multisampling_tes
 target_include_directories(tmnt_multisampling_tests PRIVATE src)
 target_compile_definitions(tmnt_multisampling_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# GPU plugin startup check tests, not part of the default build: cmake --build <dir> --target tmnt_gpu_plugin_check_tests
+add_executable(tmnt_gpu_plugin_check_tests EXCLUDE_FROM_ALL tests/gpu_plugin_check_tests.cpp)
+target_include_directories(tmnt_gpu_plugin_check_tests PRIVATE src)
+
 # Aspect Ratio tests, not part of the default build: cmake --build <dir> --target tmnt_aspect_ratio_tests
 add_executable(tmnt_aspect_ratio_tests EXCLUDE_FROM_ALL tests/aspect_ratio_tests.cpp)
 target_include_directories(tmnt_aspect_ratio_tests PRIVATE src)
@@ -503,6 +516,11 @@ if(WIN32)
     target_link_libraries(tmnt_graphics_adapter_tests PRIVATE dxgi d3d12)
 endif()
 target_compile_definitions(tmnt_graphics_adapter_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Linux file picker backends (portal, zenity, kdialog) of the patched TRG Launcher, not part of the default build:
+# cmake --build <dir> --target tmnt_file_dialog_tests
+add_executable(tmnt_file_dialog_tests EXCLUDE_FROM_ALL tests/file_dialog_tests.cpp "${_trg_patched_dir}/src/file_dialog.cpp")
+target_include_directories(tmnt_file_dialog_tests PRIVATE "${_trg_patched_dir}/include")
 
 # Relaunch tests, not part of the default build: cmake --build <dir> --target tmnt_relaunch_tests
 add_executable(tmnt_relaunch_tests EXCLUDE_FROM_ALL tests/relaunch_tests.cpp)
@@ -751,3 +769,13 @@ if(UNIX AND NOT APPLE)
     )
     set_target_properties(tmnt_renderdoc_detect_tests PROPERTIES BUILD_RPATH "$ORIGIN")
 endif()
+
+# Every test program in one target, not part of the default build: cmake --build <dir> --target tmnt_runtime_tests.
+# tools/test.ps1 -CppTests <dir> builds it and runs each program.
+get_property(_tmnt_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+add_custom_target(tmnt_runtime_tests)
+foreach(_tmnt_target IN LISTS _tmnt_all_targets)
+    if(_tmnt_target MATCHES "^tmnt_.+_tests$")
+        add_dependencies(tmnt_runtime_tests ${_tmnt_target})
+    endif()
+endforeach()

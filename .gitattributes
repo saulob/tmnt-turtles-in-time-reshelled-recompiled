@@ -9,3 +9,6 @@ packaging/linux/*.desktop text eol=lf
 # The runtime patches are applied with git apply on both platforms.
 patches/rexglue-sdk/* text eol=lf
 patches/appimage-runtime/* text eol=lf
+
+# The TRG Launcher patches apply with git apply --ignore-whitespace on both platforms.
+patches/trg-launcher/* text eol=lf

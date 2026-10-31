@@ -212,9 +212,9 @@ bool ValidateStaging(const std::filesystem::path& staging, const std::vector<std
       return false;
     }
     const std::filesystem::path relative = it->path().lexically_relative(staging);
-    const std::string path = Utf8Path(relative);
+    std::string path;
     std::string reason;
-    if (!IsSafeRelativePath(path, &reason)) {
+    if (!NormalizeRelativePath(Utf8Path(relative), path, &reason)) {
       error = "The update staging folder contains an unsafe path (" + reason + ").";
       return false;
     }
@@ -269,8 +269,8 @@ std::vector<std::string> ListStagingFiles(const std::filesystem::path& staging, 
     if (!std::filesystem::is_regular_file(status) || std::filesystem::is_symlink(status)) {
       continue;
     }
-    const std::string path = Utf8Path(it->path().lexically_relative(staging));
-    if (!IsSafeRelativePath(path) || IsProtectedRelativePath(path)) {
+    std::string path;
+    if (!NormalizeRelativePath(Utf8Path(it->path().lexically_relative(staging)), path) || IsProtectedRelativePath(path)) {
       error = "The update staging folder contains an unsafe path.";
       return {};
     }
