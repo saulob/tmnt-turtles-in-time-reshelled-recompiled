@@ -89,3 +89,6 @@
 0080-tmnt-aa838-stage-a-fix.windows.patch                  windows        rexgpu-xenos             tmnt       vulkan-candidate
 0081-rexglue-vertex-fetch-zero-stride.patch                windows,linux  rexgpu-xenos             tmnt       shared
 0082-posix-recompiled-module-library.linux.patch           linux          rexruntime               tmnt       linux-specific
+0083-recompiled-module-unload-key.patch                 windows,linux  rexruntime               tmnt       shared
+0084-heap-release-failure-address.patch                 windows,linux  rexruntime               tmnt       shared
+0085-xex-load-keeps-heap-regions.patch                  windows,linux  rexruntime               tmnt       shared

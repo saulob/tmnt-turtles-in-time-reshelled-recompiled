@@ -725,6 +725,25 @@ if(NOT WIN32)
     set_target_properties(tmnt_physical_heap_stress PROPERTIES BUILD_RPATH "$ORIGIN")
 endif()
 
+# Recompiled module teardown bookkeeping test (no runtime), not part of the default build:
+# cmake --build <dir> --target tmnt_module_teardown_tests
+add_executable(tmnt_module_teardown_tests EXCLUDE_FROM_ALL tests/module_teardown_tests.cpp)
+target_compile_definitions(tmnt_module_teardown_tests PRIVATE
+    TMNT_PATCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/patches/rexglue-sdk")
+
+# Guest heap release rules test, not part of the default build: cmake --build <dir> --target tmnt_heap_release_tests
+add_executable(tmnt_heap_release_tests EXCLUDE_FROM_ALL tests/heap_release_tests.cpp)
+target_link_libraries(tmnt_heap_release_tests PRIVATE rex::runtime)
+add_custom_command(TARGET tmnt_heap_release_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:rex::runtime>"
+        "$<TARGET_FILE_DIR:tmnt_heap_release_tests>"
+    VERBATIM
+)
+if(NOT WIN32)
+    set_target_properties(tmnt_heap_release_tests PROPERTIES BUILD_RPATH "$ORIGIN")
+endif()
+
 # Exit Game shutdown order test, not part of the default build: cmake --build <dir> --target tmnt_shutdown_order_tests
 add_executable(tmnt_shutdown_order_tests EXCLUDE_FROM_ALL tests/shutdown_order_tests.cpp)
 target_link_libraries(tmnt_shutdown_order_tests PRIVATE rex::runtime)

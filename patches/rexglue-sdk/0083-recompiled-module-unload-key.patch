@@ -1,0 +1,71 @@
+Unloads a recompiled module's library by the key it was wired under. UnloadUserModule looked the module up in the
+manifest by its absolute VFS path (\Device\Harddisk0\Partition1\TMNT_r.xex), which never equals the manifest guest path
+(tmnt_r.xex), so the function table, the module registration and the library stayed behind and ~KernelState reported
+"recompiled libraries still loaded after module sweep". The module now carries the key LoadUserModule wired it under.
+
+diff --git a/include/rex/system/user_module.h b/include/rex/system/user_module.h
+index 49c7696..d8ebaeb 100644
+--- a/include/rex/system/user_module.h
++++ b/include/rex/system/user_module.h
+@@ -59,6 +59,10 @@ class UserModule : public XModule {
+   bool is_executable() const { return processor_module_->is_executable(); }
+   bool is_dll_module() const { return is_dll_module_; }
+ 
++  // Manifest key of the recompiled library this module runs on; empty once it is unwired.
++  const std::string& recompiled_key() const { return recompiled_key_; }
++  void set_recompiled_key(std::string key) { recompiled_key_ = std::move(key); }
++
+   uint32_t entry_point() const { return entry_point_; }
+   uint32_t stack_size() const { return stack_size_; }
+ 
+@@ -96,6 +100,7 @@ class UserModule : public XModule {
+ 
+   std::string name_;
+   std::string path_;
++  std::string recompiled_key_;
+ 
+   uint32_t guest_xex_header_ = 0;
+   ModuleFormat module_format_ = kModuleFormatUndefined;
+diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
+index 80fda47..192d1ce 100644
+--- a/src/system/kernel_state.cpp
++++ b/src/system/kernel_state.cpp
+@@ -795,6 +795,7 @@ object_ref<UserModule> KernelState::LoadUserModule(const std::string_view raw_na
+           auto lib_it = module_libraries_.find(lib_key);
+           assert_true(lib_it != module_libraries_.end());
+           lib_it->second = std::move(library_local);
++          module->set_recompiled_key(lib_key);
+           wired_recomp = true;
+         }
+       }
+@@ -853,9 +854,10 @@ void KernelState::UnloadUserModule(const object_ref<UserModule>& module, bool ca
+   {
+     auto global_lock = global_critical_region_.Acquire();
+ 
+-    auto recomp = FindRecompiledModule(module->path());
+-    if (recomp) {
+-      const std::string& key = recomp->guest_path;
++    // module->path() is the absolute VFS path, which never matches the manifest's guest path.
++    const std::string key = module->recompiled_key();
++    if (!key.empty()) {
++      module->set_recompiled_key({});
+       auto cleared_range = function_dispatcher_->UnregisterModule(key);
+       if (cleared_range) {
+         for (auto& km : kernel_modules_) {
+@@ -863,12 +865,10 @@ void KernelState::UnloadUserModule(const object_ref<UserModule>& module, bool ca
+         }
+       }
+ 
+-      if (!recomp->shared_lib_name.empty()) {
+-        auto lib_it = module_libraries_.find(key);
+-        if (lib_it != module_libraries_.end()) {
+-          deferred_unload_libraries_.push_back(std::move(lib_it->second));
+-          module_libraries_.erase(lib_it);
+-        }
++      auto lib_it = module_libraries_.find(key);
++      if (lib_it != module_libraries_.end()) {
++        deferred_unload_libraries_.push_back(std::move(lib_it->second));
++        module_libraries_.erase(lib_it);
+       }
+     }
+ 

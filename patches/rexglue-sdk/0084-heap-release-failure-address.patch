@@ -1,0 +1,16 @@
+BaseHeap::Release names the address and the heap it refused, so a bad release can be traced to its owner.
+
+diff --git a/src/system/xmemory.cpp b/src/system/xmemory.cpp
+index 5e53d78..8d334b0 100644
+--- a/src/system/xmemory.cpp
++++ b/src/system/xmemory.cpp
+@@ -1592,7 +1592,8 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
+   uint32_t base_page_number = (base_address - heap_base_) >> page_size_shift_;
+   auto base_page_entry = page_table_[base_page_number];
+   if (base_page_entry.base_address != base_page_number) {
+-    REXSYS_ERROR("BaseHeap::Release failed because address is not a region start");
++    REXSYS_ERROR("BaseHeap::Release failed because {:08X} is not a region start (heap {:08X})",
++                 base_address, heap_base_);
+     return false;
+   }
+ 

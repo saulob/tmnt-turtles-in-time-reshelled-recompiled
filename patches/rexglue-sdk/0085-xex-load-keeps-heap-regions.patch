@@ -1,0 +1,17 @@
+Stops XexModule::ReadImage from resetting the page table of the whole heap its image lives in. Every XEX shares the
+0x80000000 heap, so loading TMNT_r.xex erased the region of default.xex, and releasing the executable image at
+teardown then failed with "0x82000000 is not a region start". AllocFixed already takes over the image's own range.
+
+diff --git a/src/system/xex_module.cpp b/src/system/xex_module.cpp
+index 0726516..ab52d4d 100644
+--- a/src/system/xex_module.cpp
++++ b/src/system/xex_module.cpp
+@@ -460,8 +460,6 @@ int XexModule::ReadImage(const void* xex_addr, size_t xex_length, bool use_dev_k
+     return 0;
+   }
+ 
+-  memory()->LookupHeap(base_address_)->Reset();
+-
+   aes_decrypt_buffer(use_dev_key ? xe_xex2_devkit_key : xe_xex2_retail_key,
+                      reinterpret_cast<const uint8_t*>(xex_security_info()->aes_key), 16,
+                      session_key_, 16);
