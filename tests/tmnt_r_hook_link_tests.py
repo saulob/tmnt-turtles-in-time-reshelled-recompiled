@@ -34,6 +34,7 @@ HOOKED = {
     0x875A6770: "SessionWorld_RequestWriteStatsAllValid",
     0x87599B80: "InGameHUD_GoShowSummary",
     0x875BA650: "FireCommunicator_SendCharSelGamerTag",
+    0x8757E9E0: "BasicWorld_CheckIfPlayerCanViewProfile",
     0x87520018: "engine import lookup",
 }
 UNHOOKED_CONTROL = 0x876AE628
@@ -214,6 +215,21 @@ class AddressTests(unittest.TestCase):
         self.assertIn(1935, imports)  # PLT_GetRowLongIntByColumnNum
         self.assertIn(1929, imports)  # PLT_GetRowPlayerRank
         self.assertIn(1931, imports)  # PLT_GetRowPlayerName
+
+    @unittest.skipUnless(os.path.exists(BF), "TMNT.bf not present")
+    def test_can_view_profile_matches_its_script(self):
+        data = read_file(BF)
+        records = {r[1]: r for r in bf.read_records(data)}
+        text = bf.entry_bytes(data, records["BasicWorld_Public.fcl"]).replace(b"\0", b"").decode("latin-1")
+        start = text.index("BasicWorld_CheckIfPlayerCanViewProfile(int i_ControllerID, longint l_PlayerID)")
+        script = text[start:text.index("\nfunction", start)]
+        self.assertIn("PLT_IsPlayerSignedIntoConsole", script)
+        self.assertIn("PLT_C_Privilege_Profile", script)
+        self.assertIn("PLT_CheckIsFriend", script)
+        _, imports, _ = function_facts("sub_8757E9E0")
+        self.assertIn(1875, imports)  # PLT_IsPlayerSignedIntoConsole
+        self.assertEqual(imports.count(1890), 2)  # PLT_CheckPlayerPrivilege: Profile, ProfileFriends
+        self.assertIn(1910, imports)  # PLT_CheckIsFriend
 
     def test_platform_wrappers_match_their_structure(self):
         _, imports, calls = function_facts("sub_876AE008")

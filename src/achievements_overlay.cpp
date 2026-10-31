@@ -12,6 +12,7 @@
 
 #include "launcher.h"
 #include "achievement_menu.h"
+#include "overlay_close_button.h"
 #include "overlay_rules.h"
 
 namespace tmnt {
@@ -22,7 +23,6 @@ constexpr float kMaxWidth = 560.0f;
 constexpr float kMinHeight = 320.0f;
 constexpr float kMaxHeight = 460.0f;
 constexpr float kScrollPixelsPerSecond = 480.0f;
-constexpr float kCloseButtonSize = 22.0f;
 constexpr float kHintScale = 1.2f;
 constexpr float kHintPadding = 6.0f;
 constexpr ImGuiWindowFlags kWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize |
@@ -98,25 +98,6 @@ void DrawRow(const rex::ui::AchievementsStyle& style, rex::ui::ImmediateTexture*
   ImGui::PopID();
 }
 
-// A square X at the right end of the first header row.
-bool DrawCloseButton(const rex::ui::AchievementsStyle& style, float row_y) {
-  const float button_y = row_y + (ImGui::GetTextLineHeight() - kCloseButtonSize) * 0.5f - 2.0f;
-  const ImVec2 restore = ImGui::GetCursorPos();
-  ImGui::SetCursorPos(ImVec2(ImGui::GetWindowWidth() - style.window_padding.x - kCloseButtonSize, button_y));
-  const ImVec4& tint = style.progress_bar;
-  ImGui::PushStyleColor(ImGuiCol_Text, tint);
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(tint.x, tint.y, tint.z, 0.30f));
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(tint.x, tint.y, tint.z, 0.50f));
-  ImGui::PushStyleColor(ImGuiCol_Border, tint);
-  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-  const bool clicked = ImGui::Button("X##close_achievements", ImVec2(kCloseButtonSize, kCloseButtonSize));
-  ImGui::PopStyleVar();
-  ImGui::PopStyleColor(5);
-  ImGui::SetCursorPos(restore);
-  return clicked;
-}
-
 }  // namespace
 
 AchievementsOverlay::AchievementsOverlay(rex::ui::ImGuiDrawer* drawer, rex::ui::ImmediateDrawer* immediate_drawer,
@@ -153,7 +134,7 @@ void AchievementsOverlay::DrawContent(ImGuiIO& io) {
     const std::vector<AchievementEntry> achievements = ListAchievements(*achievements_);
     const float header_row_y = ImGui::GetCursorPosY();
     DrawHeader(style, Summarize(achievements));
-    if (DrawCloseButton(style, header_row_y)) {
+    if (DrawOverlayCloseButton(style, header_row_y, "X##close_achievements")) {
       RequestClose();
     }
 
