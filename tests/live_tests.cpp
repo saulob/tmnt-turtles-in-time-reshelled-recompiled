@@ -797,7 +797,7 @@ void TestHooksAreDirect() {
   const char* const kGateLine = "if (page_start < page_end) return;";
   CHECK(Contains(send_data, kGateLine));
   CHECK(Contains(send_data, "CompleteLeaderboardTrack(ctx, base, lr);"));
-  CHECK(Contains(send_data, "[DEBUG_SAULO][Leaderboard] forced completed leaderboard read start={} end={}"));
+  CHECK(Contains(send_data, "[Leaderboard] forced completed leaderboard read start={} end={}"));
 
   const auto gate_returns_early = [](uint32_t page_start, uint32_t page_end) { return page_start < page_end; };
   CHECK(!gate_returns_early(1, 1));  // one-row page, fully sent: the repair fires
@@ -822,7 +822,7 @@ void TestHooksAreDirect() {
   CHECK(Contains(helper, "ctx.r3.u64 = 1;"));
   CHECK(!Contains(module, "sub_876ADF58"));
   CHECK(!Contains(module, "SigninState") && !Contains(module, "signin_state"));
-  CHECK(Contains(module, "[DEBUG_SAULO][Live] local profile accepted in {}"));
+  CHECK(Contains(module, "[Live] local profile accepted in {}"));
 
   CHECK(Contains(Between(module, "REX_HOOK_RAW(sub_8759F858)", "REX_EXTERN(__imp__sub_876AE720)"), "LiveScope scope("));
   CHECK(Contains(Between(module, "REX_HOOK_RAW(sub_876AE720)", "REX_EXTERN(__imp__sub_876B75C0)"), "LiveScope scope("));
@@ -832,13 +832,7 @@ void TestHooksAreDirect() {
   CHECK(Contains(events, "LiveScope scope(name);"));
   CHECK(Contains(events, "LiveScopeSuspended offline;"));
 
-  CHECK(Contains(module, "[DEBUG_SAULO][TMNT_r] local hooks linked"));
-  size_t first_calls = 0;
-  for (size_t at = module.find("static FirstCall first_call("); at != std::string::npos;
-       at = module.find("static FirstCall first_call(", at + 1)) {
-    ++first_calls;
-  }
-  CHECK(first_calls == sizeof(hooked) / sizeof(hooked[0]));
+  CHECK(!Contains(module, "FirstCall") && !Contains(module, "DEBUG_SAULO"));
 
   CHECK(!Contains(module, "ctx.lr =="));
   CHECK(!Contains(module, "ctx.lr !="));
@@ -874,7 +868,7 @@ void TestHooksAreDirect() {
   CHECK(Contains(live, "CreateFriendsEnumerator(base, services->enumerators, ctx.r6.u32, ctx.r7.u32)"));
   CHECK(Contains(live, "REX_HOOK_RAW(sub_826EDE80)"));
   CHECK(Contains(Between(live, "REX_HOOK_RAW(sub_826EDE80)", "\n}\n"), "__imp__sub_826EDE80(ctx, base);"));
-  CHECK(Contains(live, "[DEBUG_SAULO][Leaderboard] query kind={} view={} pivot={} -> status={:#x} rows={}"));
+  CHECK(!Contains(live, "LogQuery") && !Contains(live, "DEBUG_SAULO"));
   CHECK(!Contains(live, "GetNumRowsInLB") && !Contains(live, "GetRowPlayerName") && !Contains(live, "SendData"));
   CHECK(!Contains(live, "DoWaitStop") && !Contains(live, "std::this_thread") && !Contains(live, "chrono"));
   CHECK(!Contains(live, "kByRating"));

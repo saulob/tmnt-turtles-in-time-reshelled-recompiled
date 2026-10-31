@@ -60,11 +60,6 @@ if ($Check) {
     exit 1
 }
 
-function Invoke-Native([string]$What, [scriptblock]$Command) {
-    & $Command
-    if ($LASTEXITCODE) { throw "$What failed ($LASTEXITCODE)" }
-}
-
 function Import-VsEnvironment {
     $vsRoot = Get-VisualStudioRoot
     $vsDevCmd = Join-Path $vsRoot 'Common7\Tools\VsDevCmd.bat'
@@ -112,6 +107,11 @@ function Install-PatchedRuntime {
     $commit = "$(git -C $src rev-parse HEAD)".Trim()
     if ($commit -ne $Baseline.SDK_COMMIT) { throw "$src is at $commit; expected $($Baseline.SDK_TAG) $($Baseline.SDK_COMMIT) (delete the folder to fetch it again)" }
 
+    # However this tree was left -- another branch's patches, a stray `git add`, a removed or
+    # renamed patch file, an interrupted apply -- it must match the pinned baseline before the
+    # current patch series applies, so that series always applies exactly once.
+    Reset-RuntimeSource $src
+
     # Windows checks out the libmspack symlinks as one-line text files; use copies of their targets.
     $mspack = Join-Path $src 'thirdparty\libmspack'
     foreach ($line in (git -C $mspack ls-files -s)) {
@@ -123,9 +123,6 @@ function Install-PatchedRuntime {
         if (Test-Path -LiteralPath $target -PathType Leaf) { Copy-Item -LiteralPath $target $file -Force }
     }
 
-    # Another branch may have left other patches in the tree, in any tracked file.
-    Invoke-Native 'git checkout' { git -C $src checkout -- . }
-    Invoke-Native 'git clean' { git -C $src clean -fdq -- src include tests cmake }
     $patches = Get-RuntimePatchFiles
     foreach ($patch in $patches) {
         & git -C $src apply --check $patch.FullName
@@ -136,9 +133,24 @@ function Install-PatchedRuntime {
     Import-VsEnvironment
     # -ffile-prefix-map keeps the build folder out of the runtime's log strings.
     $flags = "$RuntimeBuildFlags -ffile-prefix-map=$srcCmake=."
+    # The current Clang/Windows SDK pairing no longer resolves the POSIX-named CRT compatibility
+    # symbols (fileno, isatty, itoa, ...) that Tracy, FFmpeg and SDL3 all call directly; the
+    # modern UCRT only exports their underscore-prefixed forms. oldnames.lib and
+    # legacy_stdio_definitions.lib supply the old names; -nostdlib (set elsewhere in this build)
+    # otherwise suppresses them being linked in by default.
+    $linkerFlags = '-Xlinker /defaultlib:oldnames.lib -Xlinker /defaultlib:legacy_stdio_definitions.lib'
+    $presetName = 'win-amd64'
+    $binDir = Join-Path $src "out\build\$presetName"
+    if (Test-ConfigureCacheStale $binDir $srcCmake) {
+        Write-Host "ReXGlue configure: out\build\$presetName has a stale or incomplete CMake cache, resetting it"
+        Reset-ConfigureCache $binDir
+    }
     Push-Location $src
     try {
-        Invoke-Native 'ReXGlue configure' { cmake --preset win-amd64 "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" "-DREXGPU_PGO_USE=$((Get-RuntimePgo).Profile.Replace('\', '/'))" }
+        # Tracy's vendored CMake target fails to link against the current toolchain (undefined
+        # fileno in TracyClient.dll); disabled until that's fixed upstream or in a scoped patch.
+        Invoke-Native 'ReXGlue configure' { cmake --preset $presetName "-DCMAKE_C_FLAGS=$flags" "-DCMAKE_CXX_FLAGS=$flags" "-DCMAKE_EXE_LINKER_FLAGS=$linkerFlags" "-DCMAKE_SHARED_LINKER_FLAGS=$linkerFlags" "-DREXGPU_PGO_USE=$((Get-RuntimePgo).Profile.Replace('\', '/'))" '-DREXGLUE_ENABLE_TRACY=OFF' }
+        if (Test-ConfigureCacheStale $binDir $srcCmake) { throw "ReXGlue configure: out\build\$presetName still has an incomplete CMake cache after reconfiguring" }
         $parallel = @(if ($Jobs -gt 0) { '--parallel'; $Jobs } else { '--parallel' })
         foreach ($config in $RuntimeBuildConfigs) {
             $targets = if ($config -eq 'Release') { $RuntimeBuildTargets + $RuntimeReleaseOnlyTargets } else { $RuntimeBuildTargets }

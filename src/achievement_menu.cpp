@@ -50,7 +50,7 @@ void FilterGuestInput(uint8_t* base, uint32_t user, uint32_t state) {
 
 void InstallAchievementMenu(AchievementMenuBridge bridge) {
   g_bridge = std::move(bridge);
-  REXLOG_INFO("[DEBUG_SAULO][Achievement] Local achievements menu bridge installed");
+  REXLOG_INFO("[Achievement] Local achievements menu bridge installed");
 }
 
 void SetAchievementMenuOpen(bool open) {
@@ -77,7 +77,7 @@ REX_HOOK_RAW(sub_826EDB50) {
     __imp__sub_826EDB50(ctx, base);
     return;
   }
-  REXLOG_INFO("[DEBUG_SAULO][Achievement] XamShowAchievementsUI wrapper: opening local overlay");
+  REXLOG_INFO("[Achievement] XamShowAchievementsUI wrapper: opening local overlay");
   g_bridge.open();
   ctx.r3.u64 = 0;
 }

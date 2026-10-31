@@ -1,0 +1,219 @@
+diff --git a/include/rex/graphics/d3d12/aa838_stage_fix.h b/include/rex/graphics/d3d12/aa838_stage_fix.h
+new file mode 100644
+index 0000000..263548f
+--- /dev/null
++++ b/include/rex/graphics/d3d12/aa838_stage_fix.h
+@@ -0,0 +1,27 @@
++/**
++ * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
++ */
++
++#pragma once
++
++#include <cstdint>
++
++namespace rex::graphics::d3d12 {
++
++// Classifies the AA838 interleaved-copy draws of the current frame into Stage A, B and C by
++// draw order, the only reliable signature (the source address repeats across stages). Stage A
++// is the one whose packed output byte 1 must be forced to 0; see kAa838InterleavedCopyPixelShader
++// and DxbcShaderTranslator::ApplyAa838StageAFix.
++class Aa838StageAFix {
++ public:
++  void OnFrameEnd() { frame_ordinal_ = 0; }
++
++  // Call exactly once per issued draw, in draw order. ps_hash is the pixel shader's ucode hash
++  // for this draw, or 0 if there is none. Returns whether this draw is AA838 Stage A.
++  bool OnDraw(uint64_t ps_hash);
++
++ private:
++  uint32_t frame_ordinal_ = 0;
++};
++
++}  // namespace rex::graphics::d3d12
+diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
+index 0000000..0000000 100644
+--- a/include/rex/graphics/d3d12/command_processor.h
++++ b/include/rex/graphics/d3d12/command_processor.h
+@@ -26,6 +26,7 @@
+ 
+ #include <rex/assert.h>
+ #include <rex/graphics/command_processor.h>
++#include <rex/graphics/d3d12/aa838_stage_fix.h>
+ #include <rex/graphics/d3d12/deferred_command_list.h>
+ #include <rex/graphics/d3d12/graphics_system.h>
+ #include <rex/graphics/d3d12/pipeline_cache.h>
+@@ -740,6 +741,12 @@
+   ConstantBufferBinding cbuffer_binding_fetch_;
+   ConstantBufferBinding cbuffer_binding_descriptor_indices_vertex_;
+   ConstantBufferBinding cbuffer_binding_descriptor_indices_pixel_;
++
++  Aa838StageAFix aa838_stage_a_fix_;
++  // Computed once per draw in IssueDraw (see Aa838StageAFix), baked into the bool loop constants
++  // buffer from UpdateBindings when it differs from aa838_stage_a_bool_state_.
++  bool aa838_stage_a_pending_ = false;
++  bool aa838_stage_a_bool_state_ = false;
+ 
+   // Whether the latest shared memory and EDRAM buffer binding contains the
+   // shared memory UAV rather than the SRV.
+diff --git a/include/rex/graphics/flags.h b/include/rex/graphics/flags.h
+index 0000000..0000000 100644
+--- a/include/rex/graphics/flags.h
++++ b/include/rex/graphics/flags.h
+@@ -109,4 +109,13 @@
+ REXCVAR_DECLARE(bool, d3d12_readback_resolve);
+ #endif  // REX_HAS_D3D12
+ 
++// AA838 is the Xenos interleaved-copy pixel shader TMNT uses to merge the turtle G-buffer.
++// Forcing its packed output byte 1 (oC0.g) to 0 on the frame's first AA838 draw (Stage A) fixes
++// the production cyan/blue turtle flicker; see Aa838StageAFix and
++// DxbcShaderTranslator::ApplyAa838StageAFix.
++constexpr uint64_t kAa838InterleavedCopyPixelShader = 0xAA83877EDB2163EEull;
++// Bool constant slot carrying the Stage A classification into the shader, clear of the guest's
++// own bool constants.
++constexpr uint32_t kAa838StageAByte1ZeroBool = 120;
++
+ #define XE_GPU_FINE_GRAINED_DRAW_SCOPES 1
+diff --git a/include/rex/graphics/pipeline/shader/dxbc_translator.h b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+index 0000000..0000000 100644
+--- a/include/rex/graphics/pipeline/shader/dxbc_translator.h
++++ b/include/rex/graphics/pipeline/shader/dxbc_translator.h
+@@ -788,6 +788,12 @@
+   void CompletePixelShader_WriteToRTVs();
+   void CompletePixelShader_DSV_DepthTo24Bit();
+   void CompletePixelShader_WriteToROV();
++  // Whether the current shader is the AA838 interleaved-copy pixel shader; see
++  // kAa838InterleavedCopyPixelShader.
++  bool IsAa838Shader() const;
++  // Forces packed output byte 1 (oC0.g) to 0 when kAa838StageAByte1ZeroBool is set for this draw,
++  // fixing the production cyan/blue turtle flicker. See Aa838StageAFix for how that bool is set.
++  void ApplyAa838StageAFix();
+   void CompletePixelShader();
+ 
+   void CompleteShaderCode();
+diff --git a/src/graphics/CMakeLists.txt b/src/graphics/CMakeLists.txt
+index 0000000..0000000 100644
+--- a/src/graphics/CMakeLists.txt
++++ b/src/graphics/CMakeLists.txt
+@@ -74,6 +74,7 @@
+ 
+     # D3D12 GPU backend
+     set(REXGPU_XENOS_D3D12_SOURCES
++        d3d12/aa838_stage_fix.cpp
+         d3d12/graphics_system.cpp
+         d3d12/command_processor.cpp
+         d3d12/primitive_processor.cpp
+diff --git a/src/graphics/d3d12/aa838_stage_fix.cpp b/src/graphics/d3d12/aa838_stage_fix.cpp
+new file mode 100644
+index 0000000..05ab859
+--- /dev/null
++++ b/src/graphics/d3d12/aa838_stage_fix.cpp
+@@ -0,0 +1,18 @@
++/**
++ * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
++ */
++
++#include <rex/graphics/d3d12/aa838_stage_fix.h>
++
++#include <rex/graphics/flags.h>
++
++namespace rex::graphics::d3d12 {
++
++bool Aa838StageAFix::OnDraw(uint64_t ps_hash) {
++  if (ps_hash != kAa838InterleavedCopyPixelShader) {
++    return false;
++  }
++  return frame_ordinal_++ == 0;
++}
++
++}  // namespace rex::graphics::d3d12
+diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
+index 0000000..0000000 100644
+--- a/src/graphics/d3d12/command_processor.cpp
++++ b/src/graphics/d3d12/command_processor.cpp
+@@ -2451,6 +2451,9 @@
+   bool memexport_used_pixel = pixel_shader && (pixel_shader->memexport_eM_written() != 0);
+   bool memexport_used = memexport_used_vertex || memexport_used_pixel;
+ 
++  aa838_stage_a_pending_ =
++      aa838_stage_a_fix_.OnDraw(pixel_shader ? pixel_shader->ucode_data_hash() : 0);
++
+   if (!BeginSubmission(true)) {
+     return false;
+   }
+@@ -3519,6 +3522,8 @@
+     texture_cache_->EndFrame();
+ 
+     primitive_processor_->EndFrame();
++
++    aa838_stage_a_fix_.OnFrameEnd();
+   }
+ 
+   if (submission_open_) {
+@@ -4370,6 +4375,10 @@
+     cbuffer_binding_float_pixel_.up_to_date = true;
+     current_graphics_root_up_to_date_ &= ~(1u << root_parameter_float_constants_pixel);
+   }
++  if (aa838_stage_a_bool_state_ != aa838_stage_a_pending_) {
++    aa838_stage_a_bool_state_ = aa838_stage_a_pending_;
++    cbuffer_binding_bool_loop_.up_to_date = false;
++  }
+   if (!cbuffer_binding_bool_loop_.up_to_date) {
+     constexpr uint32_t kBoolLoopConstantsSize = (8 + 32) * sizeof(uint32_t);
+     uint8_t* bool_loop_constants = constant_buffer_pool_->Request(
+@@ -4380,6 +4389,11 @@
+     }
+     std::memcpy(bool_loop_constants, &regs[XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031],
+                 kBoolLoopConstantsSize);
++    if (aa838_stage_a_bool_state_) {
++      uint32_t& word =
++          reinterpret_cast<uint32_t*>(bool_loop_constants)[kAa838StageAByte1ZeroBool >> 5];
++      word |= UINT32_C(1) << (kAa838StageAByte1ZeroBool & 31);
++    }
+     cbuffer_binding_bool_loop_.up_to_date = true;
+     current_graphics_root_up_to_date_ &= ~(1u << root_parameter_bool_loop_constants);
+   }
+diff --git a/src/graphics/pipeline/shader/dxbc_translator_om.cpp b/src/graphics/pipeline/shader/dxbc_translator_om.cpp
+index a7d508a..f669b80 100644
+--- a/src/graphics/pipeline/shader/dxbc_translator_om.cpp
++++ b/src/graphics/pipeline/shader/dxbc_translator_om.cpp
+@@ -2621,6 +2621,31 @@ void DxbcShaderTranslator::CompletePixelShader_WriteToROV() {
+   PopSystemTemp();
+ }
+ 
++bool DxbcShaderTranslator::IsAa838Shader() const {
++  return is_pixel_shader() && current_shader().ucode_data_hash() == kAa838InterleavedCopyPixelShader &&
++         !current_shader().uses_register_dynamic_addressing() && register_count() >= 2;
++}
++
++void DxbcShaderTranslator::ApplyAa838StageAFix() {
++  if (!IsAa838Shader() || !current_shader().writes_color_target(0)) {
++    return;
++  }
++  uint32_t bool_test_temp = PushSystemTemp();
++  if (cbuffer_index_bool_loop_constants_ == kBindingIndexUnallocated) {
++    cbuffer_index_bool_loop_constants_ = cbuffer_count_++;
++  }
++  a_.OpAnd(dxbc::Dest::R(bool_test_temp, 0b0001),
++           dxbc::Src::CB(cbuffer_index_bool_loop_constants_,
++                         uint32_t(CbufferRegister::kBoolLoopConstants),
++                         kAa838StageAByte1ZeroBool >> 7)
++               .Select((kAa838StageAByte1ZeroBool >> 5) & 3),
++           dxbc::Src::LU(UINT32_C(1) << (kAa838StageAByte1ZeroBool & 31)));
++  a_.OpIf(true, dxbc::Src::R(bool_test_temp, dxbc::Src::kXXXX));
++  PopSystemTemp();
++  a_.OpMov(dxbc::Dest::R(system_temps_color_[0], 0b0010), dxbc::Src::LF(0.0f));
++  a_.OpEndIf();
++}
++
+ void DxbcShaderTranslator::CompletePixelShader() {
+   if (is_depth_only_pixel_shader_) {
+     // The depth-only shader only needs to do the depth test and to write the
+@@ -2754,6 +2779,7 @@ void DxbcShaderTranslator::CompletePixelShader() {
+   if (edram_rov_used_) {
+     CompletePixelShader_WriteToROV();
+   } else {
++    ApplyAa838StageAFix();
+     CompletePixelShader_WriteToRTVs();
+     CompletePixelShader_DSV_DepthTo24Bit();
+   }

@@ -1,0 +1,64 @@
+diff --git a/src/graphics/pipeline/shader/translator.cpp b/src/graphics/pipeline/shader/translator.cpp
+index e472251..c1467dc 100644
+--- a/src/graphics/pipeline/shader/translator.cpp
++++ b/src/graphics/pipeline/shader/translator.cpp
+@@ -10,6 +10,7 @@
+  */
+ 
+ #include <algorithm>
++#include <atomic>
+ #include <cstdarg>
+ #include <cstring>
+ #include <set>
+@@ -367,6 +368,25 @@ void Shader::GatherExecInformation(const ParsedExecInstruction& instr,
+   }
+ }
+ 
++namespace {
++
++// Logs the first vertex fetch that reuses a binding with a different, non-zero stride than the
++// one the binding was created with. Each attribute is addressed with its own stride, so this is
++// not fatal, but it is unexpected and worth a one-shot warning.
++void WarnMixedStrideVertexFetch(const Shader& shader, const ParsedVertexFetchInstruction& fetch_instr,
++                                uint32_t fetch_constant, uint32_t binding_stride) {
++  static std::atomic<bool> warned{false};
++  if (warned.exchange(true, std::memory_order_relaxed)) {
++    return;
++  }
++  REXGPU_WARN(
++      "Vertex fetch constant {} used with stride {}, binding already has stride {} (shader "
++      "hash={:016X})",
++      fetch_constant, fetch_instr.attributes.stride, binding_stride, shader.ucode_data_hash());
++}
++
++}  // namespace
++
+ void Shader::GatherVertexFetchInformation(const VertexFetchInstruction& op,
+                                           VertexFetchInstruction& previous_vfetch_full,
+                                           string::StringBuffer& ucode_disasm_buffer) {
+@@ -397,18 +417,21 @@ void Shader::GatherVertexFetchInformation(const VertexFetchInstruction& op,
+   // If no binding for this fetch slot is found create it.
+   using VertexBinding = Shader::VertexBinding;
+   VertexBinding::Attribute* attrib = nullptr;
++  // Translators address each attribute with its own stride, and stride 0 (one element for every
++  // vertex) is legal, so the binding stride is only the first one seen and may differ or be 0.
+   for (auto& vertex_binding : vertex_bindings_) {
+     if (vertex_binding.fetch_constant == op.fetch_constant_index()) {
+-      // It may not hold that all strides are equal, but I hope it does.
+-      assert_true(!fetch_instr.attributes.stride ||
+-                  vertex_binding.stride_words == fetch_instr.attributes.stride);
++      if (fetch_instr.attributes.stride &&
++          vertex_binding.stride_words != fetch_instr.attributes.stride) {
++        WarnMixedStrideVertexFetch(*this, fetch_instr, vertex_binding.fetch_constant,
++                                   vertex_binding.stride_words);
++      }
+       vertex_binding.attributes.push_back({});
+       attrib = &vertex_binding.attributes.back();
+       break;
+     }
+   }
+   if (!attrib) {
+-    assert_not_zero(fetch_instr.attributes.stride);
+     VertexBinding vertex_binding;
+     vertex_binding.binding_index = int(vertex_bindings_.size());
+     vertex_binding.fetch_constant = op.fetch_constant_index();

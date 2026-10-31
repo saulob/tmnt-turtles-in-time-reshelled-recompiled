@@ -14,6 +14,21 @@ $RuntimeBuildTargets = @('rexruntime', 'rexgpu-xenos')
 $RuntimeReleaseOnlyTargets = @('rexglue')
 $RuntimeBuildConfigs = @('RelWithDebInfo', 'Release')
 
+function Invoke-Native([string]$What, [scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE) { throw "$What failed ($LASTEXITCODE)" }
+}
+
+# Restores $SrcDir's index and working tree to the pinned baseline commit, undoing every effect of
+# previously applied patches -- including ones no longer in the current patch set, any files a
+# patch or a stray `git add` left in the index, and any partially applied patch. The current patch
+# series is applied on top of this, so it always starts from the same state and applies exactly
+# once, regardless of what an earlier build or validation left behind.
+function Reset-RuntimeSource([string]$SrcDir) {
+    Invoke-Native 'git reset' { git -C $SrcDir reset --hard HEAD }
+    Invoke-Native 'git clean' { git -C $SrcDir clean -fdq -- src include tests cmake }
+}
+
 # The generated code depends on the installed (patched) rexglue.exe, the manifest and the configs it includes;
 # codegen.ps1 records this hash in generated\codegen.stamp and build.ps1 regenerates when it differs.
 $CodegenStampPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'generated\codegen.stamp'
@@ -229,6 +244,42 @@ function Test-StagedRuntime([string]$SdkDir, [string]$BuildDir, [string]$Config)
         }
     }
     return $problems
+}
+
+# A CMake cache variable, once set, is never rewritten by a later configure's preset or toolchain
+# defaults, however wrong or empty that first value was: `cmake --preset` only applies a preset's
+# cacheVariables where the cache does not already have the variable. If a single earlier configure of
+# $BinDir left the RelWithDebInfo/Release optimization flags blank (e.g. a one-off `-D...FLAGS_RELEASE=`
+# while debugging something unrelated), every later `cmake --preset` here reuses that blank value
+# instead of rederiving it from the toolchain, with no further warning. Returns $true when $BinDir
+# needs a reset.
+# CMAKE_CXX_COMPILER/CMAKE_C_COMPILER are deliberately not checked here: CMake leaves them as the
+# preset's raw, UNINITIALIZED compiler name on every reconfigure of an already-configured tree (it
+# resolves the compiler once from the separately cached CMakeCXXCompiler.cmake, without re-promoting
+# this cache entry), so that alone does not mean the cache is stale.
+function Test-ConfigureCacheStale([string]$BinDir, [string]$SrcDir) {
+    $cachePath = Join-Path $BinDir 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cachePath -PathType Leaf)) { return $false }
+    $cache = @{}
+    foreach ($line in Get-Content -LiteralPath $cachePath) {
+        if ($line -cmatch '^([A-Za-z0-9_]+):([A-Z]+)=(.*)$') { $cache[$Matches[1]] = @{ Type = $Matches[2]; Value = $Matches[3] } }
+    }
+    if ("$($cache['CMAKE_GENERATOR'].Value)" -ne 'Ninja Multi-Config') { return $true }
+    $cacheHomeDir = "$($cache['CMAKE_HOME_DIRECTORY'].Value)".Replace('\', '/').TrimEnd('/')
+    if ($cacheHomeDir -and $cacheHomeDir -ne $SrcDir.Replace('\', '/').TrimEnd('/')) { return $true }
+    foreach ($var in 'CMAKE_CXX_FLAGS_RELEASE', 'CMAKE_CXX_FLAGS_RELWITHDEBINFO', 'CMAKE_C_FLAGS_RELEASE', 'CMAKE_C_FLAGS_RELWITHDEBINFO') {
+        if (-not "$($cache[$var].Value)".Trim()) { return $true }
+    }
+    return $false
+}
+
+# Forces the next configure to rederive the compiler and its flags from the preset. Removes only the
+# top-level CMakeCache.txt and CMakeFiles; the per-target object directories (e.g.
+# src\graphics\CMakeFiles\rexgpu-xenos.dir\RelWithDebInfo\...) live under each source subdirectory and
+# are untouched, so ninja still only recompiles what the corrected flags actually change.
+function Reset-ConfigureCache([string]$BinDir) {
+    Remove-Item -LiteralPath (Join-Path $BinDir 'CMakeCache.txt') -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $BinDir 'CMakeFiles') -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # Copies the SDK's DLLs over the ones in $BuildDir that differ.

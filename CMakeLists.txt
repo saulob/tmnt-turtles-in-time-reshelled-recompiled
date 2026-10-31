@@ -349,6 +349,23 @@ target_compile_definitions(tmnt_turtles_in_time_reshelled PRIVATE
     TMNT_TRG_VERSION="${TMNT_TRG_VERSION}"
     TMNT_BUILD_CONFIG="$<CONFIG>")
 
+if(WIN32)
+    # packaging/windows/tmnt_turtles_in_time_reshelled.rc only declares an ICON; it needs
+    # none of this target's compile definitions. RC_COMPILER (cmake_llvm_rc) hands every -D
+    # to both the clang preprocessor and rc.exe, and a quoted string define's escaped quotes
+    # (e.g. TMNT_BUILD_CONFIG="RelWithDebInfo") survive into the resource compile as a
+    # literal backslash, breaking it. rexglue_setup_target() above also adds
+    # REXGLUE_BUILD_CONFIG this way. Scope every directly-set definition to C++ so the RC
+    # source gets none of them.
+    get_target_property(_tmnt_app_compile_defs tmnt_turtles_in_time_reshelled COMPILE_DEFINITIONS)
+    if(_tmnt_app_compile_defs)
+        set_property(TARGET tmnt_turtles_in_time_reshelled PROPERTY COMPILE_DEFINITIONS "")
+        target_compile_definitions(tmnt_turtles_in_time_reshelled PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:${_tmnt_app_compile_defs}>)
+    endif()
+    unset(_tmnt_app_compile_defs)
+endif()
+
 # The runtime reads its cvars from <exe dir>/tmnt_turtles_in_time_reshelled.toml.
 add_custom_command(TARGET tmnt_turtles_in_time_reshelled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
