@@ -14,6 +14,9 @@ namespace tmnt {
 // Adds the in-game counter and its F2 toggle.
 void CreateFrameCounter(rex::ui::ImGuiDrawer* drawer);
 
+// One corner readout in the frame counter's style, at `slot` (see corner_overlay.h).
+void DrawCornerText(const std::string& text, int slot);
+
 // "60 FPS  16.7 ms": the rate as a whole number and the average frame time to a tenth of a millisecond.
 inline std::string FrameCounterText(const GuestFrameStats& stats) {
   char fps[32];

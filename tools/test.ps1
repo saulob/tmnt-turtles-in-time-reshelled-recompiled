@@ -422,7 +422,7 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
 Invoke-Check 'hygiene: no temporary markers or local absolute paths in the project files' {
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
-    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$'
+    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$', '^src/(online|netplay)/', '^src/(online_|clipboard|friend_code_field|player_match)[^/]*$'
     $localPath = ('S:\\+VisualStudio', 'C:\\+Users', '/Users/[A-Za-z]', 'scratchpad', 'AppData[\\/]Local[\\/]Temp') -join '|'
     foreach ($file in $ProjectFiles) {
         $normalized = $file -replace '\\', '/'
@@ -445,6 +445,24 @@ Invoke-Check 'hygiene: .gitignore keeps game data, player data, logs and build o
     }
 }
 
+$Node = Get-Command node -ErrorAction SilentlyContinue
+
+Invoke-Check 'online service: Worker tests (node --test, no network)' {
+    if (-not $Node) { return 'NOT RUN: node is not installed' }
+    Push-Location (Join-Root 'server/tmnt-lobby')
+    try {
+        & $Node.Source --test 'test/*.test.js' 2>&1 | Select-Object -Last 8 | ForEach-Object { Write-Host "   $_" }
+        if ($LASTEXITCODE) { "node --test failed ($LASTEXITCODE)" }
+    } finally { Pop-Location }
+}
+
+Invoke-Check 'online instances: four isolated local test instances (PrepareOnly, nothing is started)' {
+    $script = Join-Root 'tools/test-online-instance.ps1'
+    if (-not (Test-Path -LiteralPath $script)) { return 'tools/test-online-instance.ps1 is missing' }
+    $output = & $script 2>&1 | Out-String
+    if ($LASTEXITCODE) { $output.Trim() -split "`r?`n" | Select-Object -Last 6 }
+}
+
 Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every test program (-CppTests <build folder>)' {
     if (-not $CppTests) { return 'NOT RUN: pass -CppTests <a configured build folder> to build and run the C++ tests' }
     $build = if ([IO.Path]::IsPathRooted($CppTests)) { $CppTests } else { Join-Root $CppTests }
@@ -452,13 +470,34 @@ Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every test program (-C
     & cmake --build $build --target tmnt_runtime_tests 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host "   $_" }
     if ($LASTEXITCODE) { return 'cmake --build --target tmnt_runtime_tests failed' }
     $problems = [System.Collections.Generic.List[string]]::new()
-    $ext = if ($IsLinux) { '' } else { '.exe' }
-    $programs = @(Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Name -match "^tmnt_.+_tests$([regex]::Escape($ext))$" })
-    foreach ($program in $programs) {
-        & $program.FullName *> $null
-        if ($LASTEXITCODE) { $problems.Add("$($program.Name) failed ($LASTEXITCODE)") }
+    # The online integration and connection tests run against a local lobby on loopback; without Node they skip.
+    $server = $null
+    $out = $null
+    if ($Node) {
+        $port = 18000 + (Get-Random -Maximum 2000)
+        $out = Join-Path ([IO.Path]::GetTempPath()) "tmnt-lobby-$port.log"
+        $server = Start-Process -FilePath $Node.Source -PassThru -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError "$out.err" `
+            -ArgumentList @((Join-Root 'server/tmnt-lobby/local/server.js'), '--host', '127.0.0.1', '--port', "$port", '--db', ':memory:')
+        $listening = $false
+        for ($i = 0; $i -lt 100 -and -not $listening -and -not $server.HasExited; $i++) {
+            try { ([Net.Sockets.TcpClient]::new('127.0.0.1', $port)).Close(); $listening = $true } catch { Start-Sleep -Milliseconds 100 }
+        }
+        if ($listening) { $env:TMNT_LOBBY_TEST_URL = "ws://127.0.0.1:$port/" } else { $problems.Add('the local lobby did not start') }
     }
-    Write-Host "   $($programs.Count) test programs run"
+    try {
+        $ext = if ($IsLinux) { '' } else { '.exe' }
+        $programs = @(Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Name -match "^tmnt_.+_tests$([regex]::Escape($ext))$" })
+        foreach ($program in $programs) {
+            & $program.FullName *> $null
+            # 77: the program had nothing to run against (the integration test without a lobby).
+            if ($LASTEXITCODE -and $LASTEXITCODE -ne 77) { $problems.Add("$($program.Name) failed ($LASTEXITCODE)") }
+        }
+        Write-Host "   $($programs.Count) test programs run$(if ($env:TMNT_LOBBY_TEST_URL) { ' (online tests against a local lobby)' })"
+    } finally {
+        Remove-Item Env:TMNT_LOBBY_TEST_URL -ErrorAction SilentlyContinue
+        if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
+        if ($out) { Remove-Item -LiteralPath $out, "$out.err" -ErrorAction SilentlyContinue }
+    }
     $problems
 }
 

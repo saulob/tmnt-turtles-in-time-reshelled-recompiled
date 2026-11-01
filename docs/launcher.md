@@ -108,6 +108,10 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Render resolution in title | `tmnt_show_render_resolution` |
 | | Frame counter | `tmnt_show_frame_counter` |
 | | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
+| Online | Online play | `tmnt_online_enabled` |
+| | Online name | `tmnt_online_name` |
+| | Connection test | `tmnt_online_connection_test` (the finished test and the configuration it ran for) |
+| | Ping display | `tmnt_online_ping_display` |
 | Controls | Keyboard | `mnk_mode` |
 | | Keyboard controls | `keybind_*` (one per action), reset by Keyboard defaults |
 | About | Detailed logging | `detailed_logging` |
@@ -164,9 +168,17 @@ Internal render resolution is the resolution the GPU draws the game at before th
 - **Language** is the only language setting the game has: a single text language for menus, the HUD and movie subtitles. There is no separate voice language, because the game has no spoken dialogue for any language — the archive (`Data\TMNT.bf`) has no audio files at all, and its seven Bink movies share one audio track with only their subtitles translated per language. The five options are exactly the languages with text banks in the archive (`00_French`, `01_English`, `05_German`, `06_Italian`, `07_Spanish` `UI_TextBank`/`ErrorTextBank`/`WaitingTextBank`/`MovieSubtitleBank`); no other language has banks. It is applied by setting ReXGlue's `user_language` to the Xbox `XLanguage` ID the game itself maps to that bank (English 1, French 4, German 3, Italian 6, Spanish 5) before the game boots: `default.xex` reads `user_language` once at startup via `ExGetXConfigSetting(XCONFIG_USER_LANGUAGE)` and switches its text-bank index from it, with no other runtime re-selection. An unknown or missing saved value falls back to English. The same `user_language` cvar already drives achievement name and description localization (`src/achievement_alias.cpp`), so no separate state was introduced.
 - **Local player names** change only the name the game shows for local players 1 to 4; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
 
+### Online
+
+Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
+Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F10 in game) and the stored Connection test result
+(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). With Online play on, PLAY waits for a
+Connection test whose result is Overall usable for the current UDP configuration. Friends, invites and the four-player
+party are on the same page; see `docs/online.md`.
+
 ### Page order
 
-The sidebar order is Play, Display, Graphics, Gameplay, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
+The sidebar order is Play, Display, Graphics, Gameplay, Online, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
 
 The Hard Corps launcher also had Cheats, Skip intro and a Frame rate choice with visual interpolation. Those were implemented with hooks into the Hard Corps engine and are not part of this project.
 

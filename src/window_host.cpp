@@ -35,6 +35,7 @@
 #include "cursor_input.h"
 #include "frame_limiter.h"
 #include "input_activity.h"
+#include "online_bridge.h"
 #include "settings.h"
 #include "window_title.h"
 
@@ -305,4 +306,5 @@ REX_HOOK_RAW(__imp__VdSwap) {
   tmnt::PaceGuestFrame();
   rex::ppc::HostToGuestFunction<rex::kernel::xboxkrnl::VdSwap_entry>(ctx, base);
   CountGuestFrame();
+  tmnt::PumpOnlineNetwork(base);
 }

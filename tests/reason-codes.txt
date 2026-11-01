@@ -1,0 +1,81 @@
+# Every reason code the game, the match session and the online service may report: code, category.
+# Checked by tests/online_telemetry_tests.cpp and server/tmnt-lobby/test/reasons.test.js against
+# src/online/telemetry.h and server/tmnt-lobby/src/reasons.js. Anything else is reported as "other".
+#
+# path: why a pair did not go (or stay) Direct, or failed to connect
+# disconnect: why a party, a room, a member or a link ended
+# invite: how an invite ended
+# service: refusals and errors of the online service
+# connection_test: why a Connection Test did not end usable
+direct_timeout path
+hole_punch_failed path
+stun_failed path
+no_public_endpoint path
+peer_endpoint_missing path
+service_public_endpoints_unsupported path
+chooser_chose_relay path
+socket_unbound path
+no_candidates path
+no_direct_path path
+establishment_timeout path
+transport_unconfirmed path
+direct_handshake_failed path
+relay_unavailable path
+relay_connection_failed path
+relay_closed path
+relay_receive_overflow path
+relay_send_refused path
+peer_disconnected disconnect
+service_disconnected disconnect
+host_left disconnect
+kicked disconnect
+removed disconnect
+expired disconnect
+closed disconnect
+left disconnect
+disconnect disconnect
+disabled disconnect
+host_unreachable disconnect
+timeout disconnect
+link_lost disconnect
+unreachable disconnect
+rate_limit disconnect
+peer_backpressure disconnect
+peer_unavailable disconnect
+unavailable disconnect
+declined invite
+cancelled invite
+accepted_elsewhere invite
+accepted invite
+version_mismatch service
+party_full service
+busy service
+offline service
+not_found service
+not_friends service
+already_invited service
+no_party service
+not_host service
+not_owner service
+already_set service
+limit service
+unauthorized service
+proto service
+bad_game service
+bad_guest service
+bad_request service
+too_large service
+no_session service
+stale service
+internal service
+protocol_mismatch connection_test
+worker_unreachable connection_test
+worker_bad_status connection_test
+worker_unrecognized connection_test
+websocket_failed connection_test
+stun_no_answer connection_test
+signin_refused connection_test
+identity_unavailable connection_test
+direct_unavailable connection_test
+not_usable connection_test
+other service

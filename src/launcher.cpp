@@ -40,6 +40,8 @@
 #include "launcher_achievements.h"
 #include "launcher_quit.h"
 #include "log_filter.h"
+#include "online_page.h"
+#include "online_runtime.h"
 #include "platform.h"
 #include "player_names.h"
 #include "port_version.h"
@@ -203,6 +205,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         monitors_(ListMonitors()),
         graphics_adapters_(ListGraphicsAdapters()) {
     dlc_ = ListInstalledDlc(paths_.user_dir);
+    ConfigureOnline(paths_.user_dir);
     header_art_ = LoadHeaderArt(paths_.immediate_drawer);
     launcher_ = std::make_unique<trg::Launcher>(MakeConfig());
     updater_ = std::make_unique<trg::update::UpdateController>(MakeUpdateConfig(PortFolder()));
@@ -220,9 +223,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (done_) {
       return;
     }
+    online_page_.SetOwnerWindow(WindowHandle());
     PollInstall();
     PollDlcTask();
     PollUpdate();
+    PollOnline();
     TrackPlacement();
     if (!nav_taken_) {
       saved_nav_flags_ = io.ConfigFlags & kNavFlags;
@@ -444,9 +449,18 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
   }
 
+  void PollOnline() {
+    const std::vector<std::string> notices = online_page_.Tick(settings_);
+    if (!notices.empty()) {
+      launcher_->SetStatus(notices.back(), 5.0);
+    }
+  }
+
   trg::LauncherConfig MakeConfig() {
     trg::LauncherConfig c;
     c.settings = &settings_;
+    online_page_.SetSaveNow(
+        [this](std::string_view key, const std::string& value) { return settings_.SaveNow({{std::string(key), value}}); });
     // PLAY saves in RequestPlay, so a failed save keeps the launcher open.
     c.save_on_play = false;
     c.theme = LauncherTheme();
@@ -472,6 +486,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         {"Graphics", "Render resolution, anti-aliasing and texture filtering.",
          [this](trg::Ui& ui) { PageGraphics(ui); }},
         {"Gameplay", "What the window shows while you play.", [](trg::Ui& ui) { PageGameplay(ui); }},
+        {"Online", "Add friends and see who is online. Play them from the game's own online menus.",
+         [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
         {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
         {"Controls", "Controller and keyboard.", [](trg::Ui& ui) { PageControls(ui); }},
         {"About", "About this port, and where your files and settings live.",
@@ -482,14 +498,21 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
                      trg::Page{"DLC", "Optional downloadable content", [this](trg::Ui& ui) { PageDlc(ui); }});
     }
     c.can_play = [this] {
+      const bool pressed = play_attempt_.PressedThisCall(ImGui::GetFrameCount());
       if (install_.running() || dlc_task_.running()) {
         return trg::PlayCheck{false, "Wait for the install to finish.", 0};
       }
-      if (game_files_ == GameFiles::kReady) {
-        return trg::PlayCheck{};
+      if (game_files_ != GameFiles::kReady) {
+        return trg::PlayCheck{false, "The game files are not ready: see the Play page.", 0};
       }
-      return trg::PlayCheck{false, "The game files are not ready: see the Play page.", 0};
+      if (online_page_.PlayNeedsTest(settings_)) {
+        if (pressed) online_page_.RequestConnectionTestAttention();
+        return trg::PlayCheck{false, kConnectionTestRequired, online_page_index_};
+      }
+      return trg::PlayCheck{};
     };
+    const auto online = std::find_if(c.pages.begin(), c.pages.end(), [](const trg::Page& p) { return p.name == "Online"; });
+    online_page_index_ = int(online - c.pages.begin());
     return c;
   }
 
@@ -511,6 +534,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
                         "This port requires your own Turtles in Time Re-Shelled Xbox Live Arcade package.");
           break;
       }
+    }
+    if (game_files_ == GameFiles::kReady && online_page_.PlayNeedsTest(settings_)) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ui.theme().warn_dot);
+      ImGui::TextWrapped("%s", kConnectionTestRequired);
+      ImGui::PopStyleColor();
     }
     if (!install_failure_.empty()) {
       DrawFailure(ui, install_failure_, install_failure_text_);
@@ -1300,6 +1328,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   std::optional<DlcInfo> dlc_remove_target_;
   bool dlc_remove_open_ = false;
   std::unique_ptr<trg::update::UpdateController> updater_;
+  OnlinePage online_page_;
+  PlayAttemptDetector play_attempt_;
+  int online_page_index_ = 0;
   bool skip_finish_save_ = false;
 };
 

@@ -1,0 +1,17 @@
+{
+  "name": "tmnt-lobby",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled PC port: online lobby (players meet here; games are peer-to-peer, relayed when they must be)",
+  "license": "GPL-2.0-only",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "local": "node local/server.js",
+    "test": "node --test \"test/*.test.js\"",
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy"
+  }
+}

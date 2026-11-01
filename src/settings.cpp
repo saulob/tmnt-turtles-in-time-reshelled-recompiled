@@ -19,6 +19,7 @@
 #include "trg/settings.h"
 
 #include "aspect_ratio.h"
+#include "connection_test_gate.h"
 #include "crash_report.h"
 #include "diagnostics.h"
 #include "game_files.h"
@@ -87,6 +88,10 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_graphics_adapter",
       "tmnt_aspect_ratio",
       "tmnt_language",
+      kOnlineEnabledSetting,
+      kOnlineNameSetting,
+      kOnlinePingSetting,
+      kConnectionTestSetting,
       "resolution_scale",
       "tmnt_internal_render_scale",
       "swap_post_effect",

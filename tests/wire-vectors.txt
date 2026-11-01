@@ -1,0 +1,9 @@
+# Wire bytes every platform and the online service must produce and read: name, hex.
+# Checked by tests/wire_parity_tests.cpp and server/tmnt-lobby/test/wire.test.js.
+punch.ack.join 5346504e0202fedcba9876543210
+punch.key.match b4790ddba0095122
+punch.punch.host 5346504e01010123456789abcdef
+relay.data 53520201010289abcdef0000000700056c6f626279
+relay.game 53520201010400000001ffffffff0018000102030405060708090a0b0c0d0e0f1011121314151617
+relay.v2.slot2to3 53520201020312345678000000420008736c6f7432746f33
+stun.binding_request 000100002112a442b7e7a701bc34d686fa87dfae

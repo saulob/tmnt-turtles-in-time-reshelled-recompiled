@@ -1,0 +1,19 @@
+name = "tmnt-lobby"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "TMNTLobby"
+
+[[durable_objects.bindings]]
+name = "MATCH"
+class_name = "TMNTMatch"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TMNTLobby"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["TMNTMatch"]

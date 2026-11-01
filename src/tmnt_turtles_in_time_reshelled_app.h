@@ -38,6 +38,8 @@
 #include "log_filter.h"
 #include "log_path.h"
 #include "modal_dialog.h"
+#include "online_runtime.h"
+#include "ping_display.h"
 #include "platform.h"
 #include "player_names.h"
 #include "port_version.h"
@@ -152,6 +154,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       show_launcher_ = true;
     }
     if (!show_launcher_) {
+      tmnt::ConfigureOnline(defaults.user_data_root);
       tmnt::ApplyMultisampling();
       tmnt::ApplyPlayerNames();
       tmnt::ApplyLanguage();
@@ -265,6 +268,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     }
     if (window() && imgui_drawer()) {
       tmnt::CreateFrameCounter(imgui_drawer());
+      tmnt::CreatePingDisplay(imgui_drawer());
       CreateCursorSync(imgui_drawer());
       tmnt::ModalDialog::AttachEscapeKey(window());
     }
@@ -276,6 +280,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       input->Shutdown();
     }
     tmnt::ModalDialog::DetachEscapeKey();
+    tmnt::StopOnline();
     CloseGamerCard();
     CloseAchievements();
     DetachWindowHost();

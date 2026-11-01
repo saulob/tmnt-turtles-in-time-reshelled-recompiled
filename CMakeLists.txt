@@ -176,6 +176,45 @@ set_target_properties(trg_launcher PROPERTIES CXX_STANDARD 17)
 target_compile_definitions(trg_launcher PRIVATE _CRT_SECURE_NO_WARNINGS)
 get_directory_property(TMNT_TRG_VERSION DIRECTORY "${_trg_patched_dir}" DEFINITION PROJECT_VERSION)
 
+# Online play: the online service client, identity, connection test and the gameplay socket with its relay. No game
+# runtime needed; the tests build it as it is.
+set(TMNT_ONLINE_SOURCES
+    src/netplay/lobby_mux.cpp
+    src/netplay/online_game_socket.cpp
+    src/netplay/relay_frame.cpp
+    src/netplay/udp_transport.cpp
+    src/online/connection_test.cpp
+    src/online/friend_view.cpp
+    src/online/identity.cpp
+    src/online/instance.cpp
+    src/online/lobby_link.cpp
+    src/online/local_addresses.cpp
+    src/online/match_session.cpp
+    src/online/net_addr.cpp
+    src/online/online_service.cpp
+    src/online/peer_ping.cpp
+    src/online/protocol.cpp
+    src/online/random.cpp
+    src/online/rendezvous.cpp
+    src/online/stun.cpp
+    src/online/telemetry.cpp
+    src/online/upnp.cpp
+    src/online/websocket.cpp
+    src/online/websocket_frame.cpp
+    src/updater/json.cpp
+    src/updater/sha256.cpp
+    src/updater/update_paths.cpp
+)
+set(TMNT_ONLINE_LIBS)
+if(WIN32)
+    list(APPEND TMNT_ONLINE_SOURCES src/online/websocket_win.cpp)
+    list(APPEND TMNT_ONLINE_LIBS winhttp ws2_32 bcrypt iphlpapi)
+else()
+    # libssl is loaded at run time (src/online/websocket_posix.cpp), so no OpenSSL is needed to build.
+    list(APPEND TMNT_ONLINE_SOURCES src/online/websocket_posix.cpp)
+    list(APPEND TMNT_ONLINE_LIBS Threads::Threads ${CMAKE_DL_LIBS})
+endif()
+
 set(TMNT_SOURCES
     src/main.cpp
     src/achievement_alias.cpp
@@ -187,6 +226,7 @@ set(TMNT_SOURCES
     src/frame_counter.cpp
     src/frame_limiter.cpp
     src/frame_wait.cpp
+    src/friend_code_field.cpp
     src/game_files.cpp
     src/gamer_card.cpp
     src/gamer_card_overlay.cpp
@@ -200,11 +240,22 @@ set(TMNT_SOURCES
     src/live_fix.cpp
     src/live_stats.cpp
     src/local_stats.cpp
+    src/frame_trace.cpp
+    src/lobby_trace_hook.cpp
     src/log_filter.cpp
     src/log_path.cpp
     src/modal_dialog.cpp
     src/notice_dialog.cpp
+    src/online_bridge.cpp
+    src/online_page.cpp
+    src/online_runtime.cpp
+    src/ping_display.cpp
     src/platform.cpp
+    src/player_match.cpp
+    src/player_match_hook.cpp
+    src/player_match_invite_hook.cpp
+    src/player_match_net.cpp
+    src/player_match_net_hook.cpp
     src/port_version.cpp
     src/session_log.cpp
     src/settings.cpp
@@ -225,6 +276,16 @@ set(TMNT_SOURCES
     src/user_data.cpp
     src/window_host.cpp
 )
+if(WIN32)
+    list(APPEND TMNT_SOURCES src/clipboard_win32.cpp)
+else()
+    list(APPEND TMNT_SOURCES src/clipboard_sdl.cpp)
+endif()
+foreach(_online_source IN LISTS TMNT_ONLINE_SOURCES)
+    if(NOT _online_source IN_LIST TMNT_SOURCES)
+        list(APPEND TMNT_SOURCES ${_online_source})
+    endif()
+endforeach()
 set_source_files_properties(src/updater/third_party/miniz/miniz.c PROPERTIES COMPILE_OPTIONS "-w")
 if(WIN32)
     # Resource 1 is the first icon in the executable: Explorer, and SDL's window class, use it.
@@ -242,7 +303,7 @@ else()
 endif()
 
 rexglue_setup_target(tmnt_turtles_in_time_reshelled GPU_PLUGINS xenos)
-target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher)
+target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher ${TMNT_ONLINE_LIBS})
 if(WIN32)
     target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE shcore synchronization dxgi shell32)
     # The SDK stages its DLLs only when the program links, so a rebuilt runtime or GPU plugin has to
@@ -787,6 +848,72 @@ if(UNIX AND NOT APPLE)
         VERBATIM
     )
     set_target_properties(tmnt_renderdoc_detect_tests PROPERTIES BUILD_RPATH "$ORIGIN")
+endif()
+
+# Online play: protocol, identity and instance isolation, the service state machine over a scripted channel, the
+# connection test, per-peer ping, telemetry, wire parity with the online service, and the settings wiring. Headless; nothing opens a window. The
+# integration test skips unless TMNT_LOBBY_TEST_URL names a lobby server (node server/tmnt-lobby/local/server.js).
+foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session)
+    set(_name tmnt_online_${_test}_tests)
+    add_executable(${_name} EXCLUDE_FROM_ALL tests/online_${_test}_tests.cpp ${TMNT_ONLINE_SOURCES})
+    target_include_directories(${_name} PRIVATE src tests)
+    target_compile_definitions(${_name} PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(${_name} PRIVATE -Wall -Wextra)
+    target_link_libraries(${_name} PRIVATE ${TMNT_ONLINE_LIBS})
+endforeach()
+
+add_executable(tmnt_wire_parity_tests EXCLUDE_FROM_ALL tests/wire_parity_tests.cpp ${TMNT_ONLINE_SOURCES})
+target_include_directories(tmnt_wire_parity_tests PRIVATE src tests)
+target_compile_definitions(tmnt_wire_parity_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(tmnt_wire_parity_tests PRIVATE -Wall -Wextra)
+target_link_libraries(tmnt_wire_parity_tests PRIVATE ${TMNT_ONLINE_LIBS})
+
+if(NOT WIN32)
+    add_executable(tmnt_online_websocket_tls_tests EXCLUDE_FROM_ALL tests/online_websocket_tls_tests.cpp ${TMNT_ONLINE_SOURCES})
+    target_include_directories(tmnt_online_websocket_tls_tests PRIVATE src tests)
+    target_compile_definitions(tmnt_online_websocket_tls_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_options(tmnt_online_websocket_tls_tests PRIVATE -Wall -Wextra)
+    target_link_libraries(tmnt_online_websocket_tls_tests PRIVATE ${TMNT_ONLINE_LIBS})
+endif()
+
+add_executable(tmnt_online_setting_tests EXCLUDE_FROM_ALL tests/online_setting_tests.cpp)
+target_include_directories(tmnt_online_setting_tests PRIVATE src)
+target_link_libraries(tmnt_online_setting_tests PRIVATE trg::launcher)
+target_compile_definitions(tmnt_online_setting_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+add_executable(tmnt_netplay_online_game_socket_tests EXCLUDE_FROM_ALL tests/netplay_online_game_socket_tests.cpp
+    src/netplay/lobby_mux.cpp src/netplay/online_game_socket.cpp src/netplay/relay_frame.cpp src/netplay/udp_transport.cpp)
+target_include_directories(tmnt_netplay_online_game_socket_tests PRIVATE src tests)
+target_compile_options(tmnt_netplay_online_game_socket_tests PRIVATE -Wall -Wextra)
+if(WIN32)
+    target_link_libraries(tmnt_netplay_online_game_socket_tests PRIVATE ws2_32)
+endif()
+
+add_executable(tmnt_player_match_net_tests EXCLUDE_FROM_ALL tests/player_match_net_tests.cpp src/player_match.cpp
+    src/player_match_net.cpp src/netplay/lobby_mux.cpp src/netplay/udp_transport.cpp src/online/protocol.cpp
+    src/updater/json.cpp)
+target_include_directories(tmnt_player_match_net_tests PRIVATE src)
+target_compile_definitions(tmnt_player_match_net_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(tmnt_player_match_net_tests PRIVATE -Wall -Wextra)
+if(WIN32)
+    target_link_libraries(tmnt_player_match_net_tests PRIVATE ws2_32)
+endif()
+
+add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)
+target_include_directories(tmnt_search_ticket_tests PRIVATE src)
+target_compile_definitions(tmnt_search_ticket_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(tmnt_search_ticket_tests PRIVATE -Wall -Wextra)
+
+add_executable(tmnt_friend_field_tests EXCLUDE_FROM_ALL tests/friend_field_tests.cpp src/friend_code_field.cpp
+    src/online/protocol.cpp src/updater/json.cpp)
+target_include_directories(tmnt_friend_field_tests PRIVATE src tests)
+target_link_libraries(tmnt_friend_field_tests PRIVATE trg::launcher)
+
+if(WIN32)
+    add_executable(tmnt_clipboard_tests EXCLUDE_FROM_ALL tests/clipboard_tests.cpp src/clipboard_win32.cpp
+        src/online/protocol.cpp src/updater/json.cpp)
+    target_include_directories(tmnt_clipboard_tests PRIVATE src tests)
+    target_sources(tmnt_friend_field_tests PRIVATE src/clipboard_win32.cpp)
 endif()
 
 # Every test program in one target, not part of the default build: cmake --build <dir> --target tmnt_runtime_tests.
