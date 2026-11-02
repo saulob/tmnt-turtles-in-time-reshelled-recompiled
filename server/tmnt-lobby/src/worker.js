@@ -7,6 +7,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 import { handleAdmin, isAdminPath } from './admin.js';
 import { BEACON_PATH, BeaconGate, beaconQuery, handleBeacon, parseBeacon } from './beacon.js';
+import { handleUpgrade, limitedCount } from './edge.js';
 import { Hub } from './hub.js';
 import { LIMITS, PROTOCOL, RELAY, SERVICE, WORKER_BUILD } from './protocol.js';
 import { MatchRoom } from './room.js';
@@ -68,19 +69,23 @@ export class TMNTLobby extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-    this.hub = new Hub({
-      sql: sqlOf(ctx.storage.sql),
-      sockets: () => ctx.getWebSockets().map((ws) => new WorkerConn(ws)),
-      now: () => Date.now(),
-      setAlarm: (ms) => ctx.storage.setAlarm(ms),
-      log: (text) => console.log(text),
-      room: (id, method, ...args) =>
-        oneWay(ctx, () => env.MATCH.get(env.MATCH.idFromName(id))[method](...args), `room ${method}`),
+    // Every wake builds the hub again; knowing the stored alarm keeps it from being written again each time.
+    ctx.blockConcurrencyWhile(async () => {
+      this.hub = new Hub({
+        sql: sqlOf(ctx.storage.sql),
+        sockets: () => ctx.getWebSockets().map((ws) => new WorkerConn(ws)),
+        now: () => Date.now(),
+        setAlarm: (ms) => ctx.storage.setAlarm(ms),
+        log: (text) => console.log(text),
+        room: (id, method, ...args) =>
+          oneWay(ctx, () => env.MATCH.get(env.MATCH.idFromName(id))[method](...args), `room ${method}`),
+      }, { alarmAt: await ctx.storage.getAlarm() });
     });
   }
 
   async fetch(request) {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return this.telemetryRoute(request);
+    this.hub.edgeLimited(limitedCount(request.headers));
     const first = this.hub.admit(request.headers.get('CF-Connecting-IP') ?? '');
     if (!first) return new Response('Too many connections from this address', { status: 429 });
     const [client, server] = Object.values(new WebSocketPair());
@@ -153,21 +158,27 @@ export class TMNTLobby extends DurableObject {
   roomEvent(diag, event, fields) {
     this.hub.roomEvent(diag, event, fields);
   }
+
+  roomAbuse(entries) {
+    this.hub.roomAbuse(entries);
+  }
 }
 
 export class TMNTMatch extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
-    this.room = new MatchRoom({
-      sql: sqlOf(ctx.storage.sql),
-      sockets: () => ctx.getWebSockets().map((ws) => new WorkerConn(ws, ctx)),
-      now: () => Date.now(),
-      setAlarm: (ms) => ctx.storage.setAlarm(ms),
-      log: (text) => console.log(text),
-      hub: (method, ...args) =>
-        oneWay(ctx, () => env.LOBBY.get(env.LOBBY.idFromName('global'))[method](...args), `hub ${method}`),
-      destroy: () => ctx.storage.deleteAll(),
+    ctx.blockConcurrencyWhile(async () => {
+      this.room = new MatchRoom({
+        sql: sqlOf(ctx.storage.sql),
+        sockets: () => ctx.getWebSockets().map((ws) => new WorkerConn(ws, ctx)),
+        now: () => Date.now(),
+        setAlarm: (ms) => ctx.storage.setAlarm(ms),
+        log: (text) => console.log(text),
+        hub: (method, ...args) =>
+          oneWay(ctx, () => env.LOBBY.get(env.LOBBY.idFromName('global'))[method](...args), `hub ${method}`),
+        destroy: () => ctx.storage.deleteAll(),
+      }, { alarmAt: await ctx.storage.getAlarm() });
     });
   }
 
@@ -232,8 +243,8 @@ export default {
     const url = new URL(request.url);
     if (request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
       const room = ROOM_PATH.exec(url.pathname)?.[1];
-      if (room) return env.MATCH.get(env.MATCH.idFromName(room)).fetch(request);
-      return env.LOBBY.get(env.LOBBY.idFromName('global')).fetch(request);
+      if (room) return handleUpgrade(request, env, env.MATCH.get(env.MATCH.idFromName(room)));
+      return handleUpgrade(request, env, env.LOBBY.get(env.LOBBY.idFromName('global')), { reportsLimited: true });
     }
     const lobby = () => env.LOBBY.get(env.LOBBY.idFromName('global'));
     if (url.pathname === BEACON_PATH) {

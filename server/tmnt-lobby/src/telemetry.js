@@ -3,6 +3,7 @@
 // Nothing here names a player: a session row is keyed by the party's random `diag`, the reporting slot and a salted hash
 // of the reporter that is never shown. Values are re-validated like the client does (SanitizeTelemetryValue), whatever
 // the client claims to have done.
+import { AbuseCounts, PROTECTION } from './abuse.js';
 import { MAX_PARTY, fail, isObject } from './protocol.js';
 import { REASON_CATEGORIES, REASON_GROUP, isReason, normalizeReason, reasonCategory } from './reasons.js';
 
@@ -356,6 +357,8 @@ export class TelemetryStore {
     this.lastPrune = 0;
     this.rates = new Map();
     this.lastRateFlush = 0;
+    this.abuse = new AbuseCounts();
+    this.lastAbuseFlush = 0;
     for (const statement of SCHEMA) sql.run(statement);
     // CREATE TABLE IF NOT EXISTS leaves an older tel_sessions without the column.
     if (!sql.all('PRAGMA table_info(tel_sessions)').some((c) => c.name === 'last_n')) {
@@ -550,10 +553,36 @@ export class TelemetryStore {
     this.addCounts(counts);
   }
 
+  // Abuse counts (abuse.js) are counted in memory and written together once per window; true when this one is the
+  // first pending and so needs a flush deadline.
+  noteAbuse(name, amount = 1) {
+    const first = this.abuse.add(name, amount);
+    if (this.now() - this.lastAbuseFlush >= PROTECTION.flushMs) {
+      this.flushAbuse();
+      return false;
+    }
+    return first;
+  }
+
+  flushAbuse() {
+    this.lastAbuseFlush = this.now();
+    const counts = new Map(this.abuse.drain().map(([name, n]) => [`abuse.${name}`, n]));
+    if (counts.size) this.addCounts(counts);
+  }
+
+  abuseDueAt() {
+    return this.abuse.pending.size ? this.lastAbuseFlush + PROTECTION.flushMs : null;
+  }
+
+  flushPending() {
+    this.flushLimits();
+    this.flushAbuse();
+  }
+
   // ---- reads ----
   summary(days = TELEMETRY_LIMITS.defaultDays) {
     if (!Number.isInteger(days) || days < 1 || days > TELEMETRY_LIMITS.maxDays) throw new RangeError('days out of range');
-    this.flushLimits();
+    this.flushPending();
     const now = this.now();
     this.prune(now);
     const first = utcDay(now - (days - 1) * DAY_MS);
@@ -680,6 +709,7 @@ export class TelemetryStore {
       reasons,
       disconnect_reasons: { peer: list('client.peer_disconnect.reason.'), session: list('client.session_end.reason.') },
       rejected_batches: list('tel.rejected.'),
+      abuse: list('abuse.'),
       invites: {
         sent: count('server.invite_sent'), accepted: count('server.invite_accepted'), declined: count('server.invite_declined'),
         expired: count('server.invite_expired'), ended_other: list('server.invite_ended.reason.'),

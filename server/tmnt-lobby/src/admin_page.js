@@ -215,6 +215,22 @@ const JS = String.raw`(function () {
     return Object.keys(object).map(function (k) { return [k.replace(/_/g, ' '), object[k]]; });
   }
 
+  var ABUSE = {
+    ws_upgrade_accepted: 'WebSocket upgrades accepted by the directory',
+    ws_upgrade_limited: 'WebSocket upgrades refused at the edge',
+    ws_upgrade_ip_cap: 'WebSocket upgrades refused: too many sockets from one address',
+    hello_accepted: 'Sign-ins accepted',
+    hello_limited: 'Sign-ins refused: too many',
+    party_create_accepted: 'Parties created',
+    party_create_limited: 'Party creations refused',
+    party_join_limited: 'Party joins refused',
+    invite_limited: 'Invites refused',
+    friend_request_limited: 'Friend requests refused',
+    telemetry_limited: 'Telemetry batches refused for the account',
+    room_resume_limited: 'Match room reconnects refused',
+    relay_abuse_closed: 'Relay senders or relays closed for abuse'
+  };
+
   function card(label, value) {
     var c = el('div', 'card');
     c.appendChild(el('span', 'label', label));
@@ -347,6 +363,9 @@ const JS = String.raw`(function () {
     g3.appendChild(panel('Worker: rate limited', counts(sv.rate_limited)));
     g3.appendChild(panel('Rejected telemetry batches', counts(s.rejected_batches)));
     out.appendChild(g3);
+    var abuse = s.abuse || [];
+    out.appendChild(panel('Abuse protection (aggregate counts)', abuse.length ? table(['Counter', 'Count'],
+      abuse.map(function (a) { return [ABUSE[a.value] || a.value, a.count]; })) : el('p', 'empty', 'None')));
     out.appendChild(panel('Worker totals', table(['Item', 'Count'], pairs({ parties_started: sv.parties_started,
       parties_reaching_4_of_4: sv.parties_reached_4 + ' (' + pct(sv.parties_reached_4, sv.parties_started) + ')',
       host_disconnects: sv.host_disconnects, guest_disconnects: sv.guest_disconnects, member_joined: sv.member_joined,

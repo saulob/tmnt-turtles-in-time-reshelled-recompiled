@@ -5,6 +5,7 @@ import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 
+import { edgeCounts } from '../src/edge.js';
 import { GAME_ID, PROTOCOL, encodeRelayFrame } from '../src/protocol.js';
 import { identity } from './harness.js';
 
@@ -63,8 +64,14 @@ class FakeResponse {
 function fakeContext(waits) {
   const db = new DatabaseSync(':memory:');
   const sockets = [];
+  const alarms = [];
+  let ready = Promise.resolve();
   return {
     sockets,
+    alarms,
+    get ready() {
+      return ready;
+    },
     ctx: {
       storage: {
         sql: {
@@ -73,8 +80,15 @@ function fakeContext(waits) {
             return { toArray: () => rows };
           },
         },
-        setAlarm() {},
+        setAlarm(ms) {
+          alarms.push(ms);
+        },
+        getAlarm: async () => alarms.at(-1) ?? null,
         deleteAll() {},
+      },
+      blockConcurrencyWhile: (fn) => {
+        ready = fn();
+        return ready;
       },
       setWebSocketAutoResponse() {},
       getWebSocketAutoResponseTimestamp: () => null,
@@ -106,12 +120,19 @@ async function setup() {
   const binding = (kind, Class) => ({
     idFromName: (name) => name,
     get: (name) => {
-      if (!objects[kind].has(name)) {
-        const context = fakeContext(waits);
-        objects[kind].set(name, { object: new Class(context.ctx, env), context });
-      }
-      const { object } = objects[kind].get(name);
-      return new Proxy({}, { get: (_, method) => (...args) => Promise.resolve().then(() => object[method](...args)) });
+      // Like a stub: the object only exists once something is called on it.
+      const instance = () => {
+        if (!objects[kind].has(name)) {
+          const context = fakeContext(waits);
+          objects[kind].set(name, { object: new Class(context.ctx, env), context });
+        }
+        return objects[kind].get(name).object;
+      };
+      return new Proxy({}, { get: (_, method) => (...args) => Promise.resolve().then(async () => {
+        const object = instance();
+        await objects[kind].get(name).context.ready;
+        return object[method](...args);
+      }) });
     },
   });
   env.LOBBY = binding('LOBBY', TMNTLobby);
@@ -128,7 +149,7 @@ async function setup() {
     return response;
   };
   const lobby = () => objects.LOBBY.get('global');
-  return { worker, env, objects, settle, open, lobby };
+  return { worker, env, objects, settle, open, lobby, classes: { TMNTLobby, TMNTMatch } };
 }
 
 function directory(ctxOwner, who, n) {
@@ -308,5 +329,87 @@ test('the Worker answers the Connection Test beacon without a session, limits it
   const broken = rig.lobby().object.hub;
   broken.telemetry = new Proxy({}, { get: () => () => { throw new Error('store is down'); } });
   assert.equal((await get(query, { 'CF-Connecting-IP': '203.0.113.7' })).status, 204);
+  console.log = quiet;
+});
+
+test('the Worker refuses upgrades at the edge before any object exists, counts them, and leaves other routes alone', { skip }, async () => {
+  stubCloudflare();
+  const quiet = console.log;
+  console.log = () => {};
+  const rig = await setup();
+  edgeCounts.limited = 0;
+  let allow = false;
+  const keys = [];
+  rig.env.WS_UPGRADE_LIMITER = { limit: async ({ key }) => {
+    keys.push(key);
+    return { success: allow };
+  } };
+  rig.env.ADMIN_TOKEN = 'a-long-enough-admin-secret';
+  const upgrade = (path, headers = {}) => rig.worker.fetch(new Request(`https://lobby.example${path}`,
+    { headers: { Upgrade: 'websocket', 'CF-Connecting-IP': '203.0.113.7', ...headers } }), rig.env);
+
+  for (const path of ['/', '/match/0123456789abcdef']) {
+    const refused = await upgrade(path);
+    assert.equal(refused.status, 429, path);
+    assert.equal(refused.headers.get('Retry-After'), '60', path);
+  }
+  assert.deepEqual(keys, ['ws:203.0.113.7', 'ws:203.0.113.7']);
+  assert.deepEqual([rig.objects.LOBBY.size, rig.objects.MATCH.size], [0, 0]);
+
+  assert.equal((await rig.worker.fetch(new Request('https://lobby.example/health'), rig.env)).status, 200);
+  assert.equal((await rig.worker.fetch(new Request('https://lobby.example/'), rig.env)).status, 200);
+  assert.equal((await rig.worker.fetch(new Request('https://lobby.example/admin'), rig.env)).status, 200);
+  assert.equal(rig.objects.LOBBY.size, 0);
+
+  allow = true;
+  assert.equal((await upgrade('/', { 'X-TMNT-Edge-Limited': '9999' })).status, 101);
+  const counts = () => Object.fromEntries(rig.lobby().object.hub.telemetrySummary(3).abuse.map((a) => [a.value, a.count]));
+  assert.deepEqual(counts(), { ws_upgrade_accepted: 1, ws_upgrade_limited: 2 });
+  assert.equal((await upgrade('/')).status, 101);
+  assert.equal(counts().ws_upgrade_limited, 2);
+
+  const summary = await rig.worker.fetch(new Request('https://lobby.example/admin/telemetry/summary?days=1',
+    { headers: { Authorization: 'Bearer a-long-enough-admin-secret' } }), rig.env);
+  assert.deepEqual((await summary.json()).abuse.map((a) => a.value).sort(), ['ws_upgrade_accepted', 'ws_upgrade_limited']);
+
+  rig.env.WS_UPGRADE_LIMITER = { limit: async () => { throw new Error('limiter down'); } };
+  assert.equal((await upgrade('/')).status, 101);
+  delete rig.env.WS_UPGRADE_LIMITER;
+  assert.equal((await upgrade('/')).status, 101);
+  console.log = quiet;
+});
+
+test('a woken object reuses its stored alarm, and a room reports its abuse counters to the directory', { skip }, async () => {
+  stubCloudflare();
+  const quiet = console.log;
+  console.log = () => {};
+  const rig = await setup();
+  await rig.open('/');
+  const owner = rig.lobby();
+  const player = directory(owner, identity(1), 1);
+  assert.equal(player.call('hello', { proto: PROTOCOL, game: GAME_ID, guest: 'base', build: 1, player: player.who.player,
+    token: player.who.token, name: 'W1', version: '0.2.2', platform: 'Windows' }).code, 'ok');
+  const created = player.call('party.create');
+  assert.equal(created.code, 'ok');
+  await rig.settle();
+  assert.ok(owner.context.alarms.length > 0);
+
+  const written = owner.context.alarms.length;
+  new rig.classes.TMNTLobby(owner.context.ctx, rig.env);
+  await rig.settle();
+  assert.equal(owner.context.alarms.length, written);
+  const room = rig.objects.MATCH.get(created.match);
+  const roomWrites = room.context.alarms.length;
+  assert.ok(roomWrites > 0);
+  const wokenRoom = new rig.classes.TMNTMatch(room.context.ctx, rig.env);
+  await rig.settle();
+  wokenRoom.apply({ match: created.match, rev: 0, members: [] });
+  assert.equal(room.context.alarms.length, roomWrites);
+
+  owner.object.roomAbuse([['relay_abuse_closed', 2], ['made_up', 5], ['room_resume_limited', 'many']]);
+  const counts = Object.fromEntries(owner.object.hub.telemetrySummary(3).abuse.map((a) => [a.value, a.count]));
+  assert.equal(counts.relay_abuse_closed, 2);
+  assert.equal(counts.made_up, undefined);
+  assert.equal(counts.room_resume_limited, undefined);
   console.log = quiet;
 });

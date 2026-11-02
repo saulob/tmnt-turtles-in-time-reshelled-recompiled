@@ -4,6 +4,7 @@
 // The directory hub (hub.js) talks to a room with `apply` and `end`; the room reports back with roomMember, roomLeft and
 // roomEnded, all one-way. The same class runs in the Durable Object (worker.js), the development server and the tests
 // (local/rooms.js).
+import { AbuseCounts, PROTECTION, RateLimiter } from './abuse.js';
 import { toHex } from './sha256.js';
 import {
   BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, ProtocolError, RELAY, fail, ipGroup, isInt, isLocalAddress, isObject,
@@ -38,11 +39,13 @@ const pairKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 export class MatchRoom {
   // host: { sql: { all, get, run }, sockets(): Conn[], now(): ms, setAlarm(ms), log(text), hub(method, ...args),
   //         destroy?() }
+  // options: { local, alarmAt } - alarmAt is the alarm the host already has stored, if any.
   // Conn: { send(text), sendBinary(bytes), bufferedAmount, close(code, reason), attachment(), setAttachment(object),
   //         lastActive?() }
   constructor(host, options = {}) {
     this.host = host;
     this.local = Boolean(options.local);
+    this.alarmAt = options.alarmAt ?? null;
     this.depth = 0;
     this.gone = false;
     this.resetMemory();
@@ -61,6 +64,10 @@ export class MatchRoom {
     this.closedPairs = new Set();
     this.told = new Set();
     this.activity = new Map();
+    this.faults = new Map();
+    this.resumeGuard = new RateLimiter(PROTECTION.resumeAccount);
+    this.abuse = new AbuseCounts();
+    this.lastAbuseFlush = 0;
   }
 
   createSchema() {
@@ -186,6 +193,7 @@ export class MatchRoom {
     } finally {
       this.depth -= 1;
       if (this.depth === 0) {
+        this.flushAbuse();
         this.flush();
         if (!this.gone) this.scheduleAlarm();
       }
@@ -208,6 +216,20 @@ export class MatchRoom {
         }
       }
     }
+  }
+
+  // Abuse counters go to the directory once per window; a room never writes them itself.
+  countAbuse(name) {
+    this.abuse.add(name);
+  }
+
+  flushAbuse({ force = false } = {}) {
+    if (!this.abuse.pending.size) return;
+    const now = this.host.now();
+    if (!force && now - this.lastAbuseFlush < PROTECTION.flushMs) return;
+    this.lastAbuseFlush = now;
+    const entries = this.abuse.drain();
+    this.later(() => this.host.hub?.('roomAbuse', entries));
   }
 
   tell(method, ...args) {
@@ -280,6 +302,7 @@ export class MatchRoom {
       if (open.length >= LIMITS.roomSockets) return null;
       if (!(this.local && isLocalAddress(ip)) &&
           open.filter((s) => ipGroup(s.att.ip) === ipGroup(ip)).length >= LIMITS.socketsPerIp) {
+        this.countAbuse('ws_upgrade_ip_cap');
         return null;
       }
       const cid = toHex(crypto.getRandomValues(new Uint8Array(8)));
@@ -341,6 +364,13 @@ export class MatchRoom {
     this.touch(conn.attachment()?.cid);
   }
 
+  // Counted once the join token matched, so nobody can lock a member out of its seat by guessing at it.
+  limitResume(att, slot) {
+    if ((this.local && isLocalAddress(att.ip)) || this.resumeGuard.take(slot, this.host.now())) return;
+    this.countAbuse('room_resume_limited');
+    fail('limit', 'reconnecting too fast');
+  }
+
   // A socket closed: the seat is held for the grace period. A socket that was replaced or removed changes nothing.
   closed(conn) {
     const att = conn.attachment();
@@ -348,6 +378,7 @@ export class MatchRoom {
     this.scoped(() => {
       this.activity.delete(att.cid);
       this.budgets.delete(att.cid);
+      this.faults.delete(att.cid);
       for (const key of [...this.told]) if (key.startsWith(`${att.cid}:`)) this.told.delete(key);
       const greeted = att.hello;
       att.hello = false;
@@ -374,8 +405,10 @@ export class MatchRoom {
   }
 
   alarm() {
+    this.alarmAt = null;
     this.scoped(() => {
       const now = this.host.now();
+      this.flushAbuse({ force: true });
       if (this.getMeta('ended') !== null) {
         if (this.num('ended_at') + LIMITS.tombstoneMs <= now) this.destroy();
         return;
@@ -404,9 +437,11 @@ export class MatchRoom {
     });
   }
 
+  // An alarm that is already set for the same moment or earlier stays: it fires early at worst, and alarm() sets the next.
   scheduleAlarm() {
     const times = [];
     const now = this.host.now();
+    if (this.abuse.pending.size) times.push(this.lastAbuseFlush + PROTECTION.flushMs);
     if (this.getMeta('ended') !== null) {
       times.push(this.num('ended_at') + LIMITS.tombstoneMs);
     } else {
@@ -423,10 +458,15 @@ export class MatchRoom {
         else if (live.has(s.att.cid)) times.push(this.lastActive(s) + LIMITS.silenceMs);
       }
     }
-    if (times.length) this.host.setAlarm(Math.min(...times));
+    if (!times.length) return;
+    const at = Math.min(...times);
+    if (this.alarmAt !== null && this.alarmAt <= at) return;
+    this.host.setAlarm(at);
+    this.alarmAt = at;
   }
 
   destroy() {
+    this.alarmAt = null;
     this.resetMemory();
     this.gone = true;
     this.host.destroy?.();
@@ -530,6 +570,7 @@ export class MatchRoom {
     this.host.sql.run('DELETE FROM members');
     this.host.sql.run('DELETE FROM pairs');
     this.host.sql.run('DELETE FROM links');
+    this.flushAbuse({ force: true });
     this.setMeta('ended', reason);
     this.setMeta('ended_at', this.host.now());
     this.clearMeta('empty_since');
@@ -552,17 +593,20 @@ export class MatchRoom {
   relay(conn, bytes) {
     const att = conn.attachment();
     this.touch(att?.cid);
-    if (!att?.hello) return this.drop('not_joined');
+    if (!att) return this.drop('not_joined');
+    if (this.faults.get(att.cid)?.abusive) return;
+    if (!att.hello) return this.senderFault(conn, att, 'not_joined');
     const frame = parseRelayFrame(bytes);
-    if (frame.error) return this.drop(frame.error);
+    if (frame.error) return this.senderFault(conn, att, frame.error);
     const me = this.member(att.slot);
     if (!me || me.generation !== att.generation) return this.drop('stale');
-    if (frame.src !== att.slot) return this.drop('src_mismatch', att, frame);
-    const dst = frame.dst === me.slot ? null : this.member(frame.dst);
+    if (frame.src !== att.slot) return this.senderFault(conn, att, 'src_mismatch', frame);
+    if (frame.dst === me.slot || !isInt(frame.dst, 1, MAX_PARTY)) return this.senderFault(conn, att, 'dst_invalid', frame);
+    const dst = this.member(frame.dst);
     if (!dst) return this.drop('dst_invalid', att, frame);
     const target = dst.seen && dst.grace === null ? this.socketOf(dst) : null;
     if (!target) return this.drop('dst_unavailable', att, frame);
-    if (frame.token !== this.relayToken()) return this.drop('bad_token', att, frame);
+    if (frame.token !== this.relayToken()) return this.senderFault(conn, att, 'bad_token', frame);
     const key = pairKey(frame.src, frame.dst);
     if (this.pair(frame.src, frame.dst)?.transport === 'direct') return this.drop('pair_direct', att, frame);
     if (this.closedPairs.has(key)) return this.drop('relay_closed', att, frame);
@@ -577,7 +621,10 @@ export class MatchRoom {
       this.drop('rate_limit', att, frame);
       const overruns = (this.overruns.get(key) ?? 0) + 1;
       this.overruns.set(key, overruns);
-      if (overruns >= RELAY.overrunsToClose) this.closePair(frame.src, frame.dst, 'rate_limit');
+      if (overruns >= RELAY.overrunsToClose) {
+        this.countAbuse('relay_abuse_closed');
+        this.closePair(frame.src, frame.dst, 'rate_limit');
+      }
       return;
     }
     const buffered = target.conn.bufferedAmount;
@@ -612,6 +659,19 @@ export class MatchRoom {
     this.told.add(told);
     const own = this.sockets().find((s) => s.att.cid === att.cid);
     if (own) this.send(own.conn, { ev: 'relay.closed', peer: frame.dst, reason: 'unavailable' });
+  }
+
+  // Drops the frame; a sender that keeps producing frames no well-behaved client sends loses its connection, and only it.
+  senderFault(conn, att, reason, frame = null) {
+    this.drop(reason, att, frame);
+    const state = this.faults.get(att.cid) ?? { bucket: null, abusive: false };
+    state.bucket = takeToken(state.bucket, RELAY.invalid, this.host.now());
+    this.faults.set(att.cid, state);
+    if (state.bucket) return;
+    state.abusive = true;
+    this.countAbuse('relay_abuse_closed');
+    this.host.log(`relay sender closed match=${this.id ?? '-'} reason=${reason}`);
+    this.closeSocket(conn, 1008, 'relay abuse');
   }
 
   // One pair's relay ends; the other pairs of the room are untouched. It comes back when either end reconnects.
@@ -653,6 +713,7 @@ const HANDLERS = {
     const member = roster.find((m) => m.slot === hello.slot);
     if (!member) fail(roster.length >= MAX_PARTY ? 'party_full' : 'not_found');
     if (member.hash !== joinTokenHash(hello.token)) fail('unauthorized');
+    this.limitResume(att, member.slot);
     const generation = member.generation + 1;
     if (hello.generationSeen > member.generation) {
       this.host.log(`room hello match=${this.id} slot=${member.slot} generation_seen=${hello.generationSeen} ahead of ${member.generation}`);
@@ -663,11 +724,13 @@ const HANDLERS = {
       if (old.att.hello && old.att.slot === member.slot && old.att.cid !== att.cid) this.closeSocket(old.conn, 4001, 'replaced');
     }
     const wasLost = member.seen && member.grace !== null;
-    this.host.sql.run('UPDATE members SET seen = 1, grace = NULL, relay = ? WHERE slot = ?', hello.relay ? 1 : 0, member.slot);
+    if (!member.seen || member.grace !== null || member.relay !== (hello.relay ? 1 : 0)) {
+      this.host.sql.run('UPDATE members SET seen = 1, grace = NULL, relay = ? WHERE slot = ?', hello.relay ? 1 : 0, member.slot);
+    }
     this.host.sql.run('DELETE FROM links WHERE slot = ?', member.slot);
     this.reopenPairs(member.slot);
     this.clearMeta('empty_since');
-    this.setMeta('ever', 1);
+    if (this.getMeta('ever') === null) this.setMeta('ever', 1);
     Object.assign(att, { hello: true, slot: member.slot, generation });
     conn.setAttachment(att);
     this.host.log(`room hello match=${this.id} slot=${member.slot} generation=${generation}`);
@@ -735,6 +798,8 @@ const HANDLERS = {
     if (!LINK_STATES.includes(msg.state)) fail('bad_request', 'state expected');
     if (peer === member.slot) fail('bad_request', 'own slot');
     if (!this.member(peer)) fail('not_found');
+    const known = this.host.sql.get('SELECT state FROM links WHERE slot = ? AND peer = ?', member.slot, peer);
+    if (known?.state === msg.state) return {};
     this.host.sql.run(`INSERT INTO links (slot, peer, state) VALUES (?, ?, ?)
       ON CONFLICT(slot, peer) DO UPDATE SET state = excluded.state`, member.slot, peer, msg.state);
     this.later(() => {

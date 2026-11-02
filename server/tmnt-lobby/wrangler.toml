@@ -17,3 +17,8 @@ new_sqlite_classes = ["TMNTLobby"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["TMNTMatch"]
+
+[[ratelimits]]
+name = "WS_UPGRADE_LIMITER"
+namespace_id = "3003"
+simple = { limit = 30, period = 60 }

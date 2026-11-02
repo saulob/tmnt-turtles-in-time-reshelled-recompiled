@@ -28,7 +28,8 @@ const batch = (over = {}) => ({ diag: DIAG, ctx: context(), session: session(), 
     { e: 'transport_selected', t: 2.3, f: { transport: 'direct', ms: '850', slot: '1' } }], ...over });
 
 const send = (client, body) => client.call('telemetry.batch', body);
-const everything = (env) => ['tel_events', 'tel_sessions', 'tel_counters'].flatMap((t) => env.host.sql.all(`SELECT * FROM ${t}`));
+const everything = (env) => ['tel_events', 'tel_sessions', "tel_counters WHERE k NOT LIKE 'abuse.%'"]
+  .flatMap((t) => env.host.sql.all(`SELECT * FROM ${t}`));
 const values = (list) => Object.fromEntries(list.map((i) => [i.value, i.count]));
 
 test('a client batch is accepted and shows up in the aggregates and the session drill-down', () => {

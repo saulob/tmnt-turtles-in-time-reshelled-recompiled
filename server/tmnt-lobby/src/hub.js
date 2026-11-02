@@ -5,6 +5,7 @@
 // needs and the two converge through events.
 // State lives in SQL tables and in each socket's attachment, so a hibernated Durable Object resumes as if it had never
 // stopped. The same class runs in the development server (local/server.js).
+import { PROTECTION, RateLimiter, checkedCounts } from './abuse.js';
 import { sha256Hex, toHex } from './sha256.js';
 import {
   BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, ProtocolError, compatibleGuests, fail, ipGroup, isInt, isLocalAddress, isObject,
@@ -64,10 +65,22 @@ function playerOf(value) {
 export class Hub {
   // host: { sql: { all(q, ...a), get(q, ...a), run(q, ...a) }, sockets(): Conn[], now(): ms, setAlarm(ms), log(text),
   //         room(match, method, ...args) }
+  // options: { local, telemetry, alarmAt } - alarmAt is the alarm the host already has stored, if any.
   // Conn: { send(text), close(code, reason), attachment(), setAttachment(object) }
   constructor(host, options = {}) {
     this.host = host;
     this.local = Boolean(options.local);
+    this.alarmAt = options.alarmAt ?? null;
+    this.guards = {
+      hello: new RateLimiter(PROTECTION.hello),
+      createAccount: new RateLimiter(PROTECTION.createAccount),
+      createAddress: new RateLimiter(PROTECTION.createAddress),
+      joinAccount: new RateLimiter(PROTECTION.joinAccount),
+      inviteAccount: new RateLimiter(PROTECTION.inviteAccount),
+      inviteAddress: new RateLimiter(PROTECTION.inviteAddress),
+      friendAccount: new RateLimiter(PROTECTION.friendAccount),
+      telemetryAccount: new RateLimiter(PROTECTION.telemetryAccount),
+    };
     for (const statement of SCHEMA) host.sql.run(statement);
     for (const [table, column, definition] of ADDED_COLUMNS) {
       try { host.sql.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch { /* already there */ }
@@ -118,9 +131,18 @@ export class Hub {
     const group = ipGroup(ip);
     if (!(this.local && isLocalAddress(ip))) {
       const open = this.host.sockets().filter((c) => ipGroup(c.attachment()?.ip) === group).length;
-      if (open >= LIMITS.socketsPerIp) return null;
+      if (open >= LIMITS.socketsPerIp) {
+        this.diagnose('ws_upgrade_ip_cap');
+        return null;
+      }
     }
+    this.diagnose('ws_upgrade_accepted');
     return { cid: this.randomHex(8), ip, opened: this.host.now() };
+  }
+
+  // Upgrades the Worker refused before they reached this object.
+  edgeLimited(count) {
+    if (count > 0) this.diagnose('ws_upgrade_limited', count);
   }
 
   message(conn, text) {
@@ -231,6 +253,7 @@ export class Hub {
   }
 
   alarm() {
+    this.alarmAt = null;
     this.index = null;
     const now = this.host.now();
     for (const ad of this.host.sql.all('SELECT * FROM player_matches WHERE refreshed + ? <= ?', LIMITS.playerMatchMs, now)) {
@@ -259,11 +282,15 @@ export class Hub {
     }
     this.runDeferred();
     this.index = null;
+    this.flushDiagnostics();
     this.scheduleAlarm();
   }
 
+  // An alarm that is already set for the same moment or earlier stays: it fires early at worst, and alarm() sets the next.
   scheduleAlarm() {
     const times = [];
+    const flush = this.diagnosticsDueAt();
+    if (flush) times.push(flush);
     const advertised = this.host.sql.get('SELECT MIN(refreshed) AS t FROM player_matches');
     if (advertised?.t) times.push(advertised.t + LIMITS.playerMatchMs);
     const invited = this.host.sql.get('SELECT MIN(created) AS t FROM party_invites');
@@ -274,7 +301,11 @@ export class Hub {
       if (members.length === 1) times.push(party.activity + LIMITS.partyIdleMs);
       for (const m of members) if (m.offline_since !== null && !HELD_STATES.includes(m.state)) times.push(m.offline_since + LIMITS.graceMs);
     }
-    if (times.length) this.host.setAlarm(Math.min(...times));
+    if (!times.length) return;
+    const at = Math.min(...times);
+    if (this.alarmAt !== null && this.alarmAt <= at) return;
+    this.host.setAlarm(at);
+    this.alarmAt = at;
   }
 
   // ---- reports from a room ----
@@ -293,6 +324,7 @@ export class Hub {
     this.inbound(match, seq, () => {
       const member = this.host.sql.get('SELECT * FROM party_members WHERE party = ? AND slot = ?', match, slot);
       if (!member || !MEMBER_STATES.includes(state) || !isInt(generation, 0, 0x7fffffff)) return;
+      if (member.state === state && member.generation === generation) return;
       this.host.sql.run('UPDATE party_members SET state = ?, generation = ? WHERE party = ? AND slot = ?', state, generation, match, slot);
       // A member away from the directory gets the grace from the moment its room seat is lost too.
       if (state === 'disconnected' && member.offline_since !== null) {
@@ -340,6 +372,37 @@ export class Hub {
     } catch (error) {
       this.telemetryFailed(error);
     }
+  }
+
+  // Aggregate abuse counters (abuse.js): counted in memory, written together, never tied to a player or an address.
+  diagnose(name, amount = 1) {
+    try {
+      if (this.telemetry?.noteAbuse(name, amount)) this.scheduleAlarm();
+    } catch (error) {
+      this.telemetryFailed(error);
+    }
+  }
+
+  flushDiagnostics() {
+    try {
+      this.telemetry?.flushPending();
+    } catch (error) {
+      this.telemetryFailed(error);
+    }
+  }
+
+  diagnosticsDueAt() {
+    try {
+      return this.telemetry?.abuseDueAt() ?? null;
+    } catch (error) {
+      this.telemetryFailed(error);
+      return null;
+    }
+  }
+
+  // A match room's abuse counters (RPC).
+  roomAbuse(entries) {
+    for (const [name, count] of checkedCounts(entries)) this.diagnose(name, count);
   }
 
   telemetryFailed(error) {
@@ -472,6 +535,57 @@ export class Hub {
     }
   }
 
+  // ---- abuse limits (abuse.js); in memory, checked once the request is valid and before it writes ----
+  exempt(att) {
+    return this.local && isLocalAddress(att.ip);
+  }
+
+  // Counted once the token matched, so nobody can lock out another player by guessing at the account.
+  limitHello(att, player, now) {
+    if (this.exempt(att) || this.guards.hello.take(player, now)) return;
+    this.diagnose('hello_limited');
+    fail('limit', 'too many sign-ins');
+  }
+
+  limitByAccountAndAddress(att, account, address, diagnostic, detail) {
+    if (this.exempt(att)) return;
+    const now = this.host.now();
+    const key = ipGroup(att.ip);
+    if (!account.allows(att.player, now) || !address.allows(key, now)) {
+      this.diagnose(diagnostic);
+      fail('limit', detail);
+    }
+    account.take(att.player, now);
+    address.take(key, now);
+  }
+
+  limitCreate(att) {
+    this.limitByAccountAndAddress(att, this.guards.createAccount, this.guards.createAddress, 'party_create_limited',
+      'creating parties too fast');
+  }
+
+  limitJoin(att) {
+    if (this.exempt(att) || this.guards.joinAccount.take(att.player, this.host.now())) return;
+    this.diagnose('party_join_limited');
+    fail('limit', 'joining too fast');
+  }
+
+  limitInvite(att) {
+    this.limitByAccountAndAddress(att, this.guards.inviteAccount, this.guards.inviteAddress, 'invite_limited', 'inviting too fast');
+  }
+
+  limitFriendRequest(att) {
+    if (this.exempt(att) || this.guards.friendAccount.take(att.player, this.host.now())) return;
+    this.diagnose('friend_request_limited');
+    fail('limit', 'adding friends too fast');
+  }
+
+  touchPlayer(row, name, now) {
+    if (row.name !== name || now - row.seen >= PROTECTION.seenRefreshMs) {
+      this.host.sql.run('UPDATE players SET name = ?, seen = ? WHERE player = ?', name, now, row.player);
+    }
+  }
+
   // ---- friends ----
   friendCount(player) {
     return this.host.sql.get('SELECT COUNT(*) AS n FROM friends WHERE player = ?', player).n;
@@ -530,8 +644,8 @@ export class Hub {
   // Every change to a party bumps its revision and, once the request is answered, tells its members and their friends.
   // Only what a player did counts as activity for the idle expiry.
   changed(id, { roster = false, gone = {}, active = false } = {}) {
-    this.host.sql.run('UPDATE parties SET revision = revision + 1 WHERE id = ?', id);
-    if (active) this.host.sql.run('UPDATE parties SET activity = ? WHERE id = ?', this.host.now(), id);
+    if (active) this.host.sql.run('UPDATE parties SET revision = revision + 1, activity = ? WHERE id = ?', this.host.now(), id);
+    else this.host.sql.run('UPDATE parties SET revision = revision + 1 WHERE id = ?', id);
     if (roster) this.later(() => this.pushRoster(id, gone));
     this.later(() => this.broadcastParty(id));
     this.later(() => {
@@ -555,6 +669,8 @@ export class Hub {
   }
 
   createParty(att) {
+    this.limitCreate(att);
+    this.diagnose('party_create_accepted');
     const id = this.randomHex(8);
     const diag = this.randomHex(6);
     const token = this.randomHex(16);
@@ -619,6 +735,7 @@ export class Hub {
       this.record('party_full', { scope: 'accept' }, party.diag);
       fail('party_full');
     }
+    this.limitJoin(att);
     let slot = 2;
     while (members.some((m) => m.slot === slot)) slot += 1;
     const token = this.randomHex(16);
@@ -679,7 +796,9 @@ const HANDLERS = {
     if (att.hello) fail('bad_request', 'already greeted');
     const hello = parseHello(msg);
     const now = this.host.now();
-    let row = this.playerRow(hello.player);
+    const row = this.playerRow(hello.player);
+    if (row && row.token_hash !== hello.hash) fail('unauthorized');
+    this.limitHello(att, hello.player, now);
     let renamed = false;
     if (!row) {
       const ipKey = this.ipKey(att.ip);
@@ -691,20 +810,22 @@ const HANDLERS = {
       this.host.sql.run('INSERT INTO players (player, token_hash, name, created, seen) VALUES (?, ?, ?, ?, ?)', hello.player,
         hello.hash, hello.name, now, now);
       this.host.sql.run('INSERT INTO registrations (ip, ms) VALUES (?, ?)', ipKey, now);
-    } else if (row.token_hash !== hello.hash) {
-      fail('unauthorized');
     } else {
       renamed = row.name !== hello.name;
-      this.host.sql.run('UPDATE players SET name = ?, seen = ? WHERE player = ?', hello.name, now, hello.player);
+      this.touchPlayer(row, hello.name, now);
     }
     const wasOnline = hello.presence && this.presentSockets(hello.player).length > 0;
     Object.assign(att, { hello: true, player: hello.player, name: hello.name, presence: hello.presence, guest: hello.guest,
       build: hello.build, version: hello.version, platform: hello.platform, relay: hello.relay });
+    this.diagnose('hello_accepted');
     this.index = null;
     const mine = hello.presence ? this.partyOf(hello.player) : null;
     if (mine) {
-      this.host.sql.run('UPDATE party_members SET offline_since = NULL, platform = ?, version = ? WHERE player = ?',
-        hello.platform, hello.version, hello.player);
+      const { offline_since: offline, platform, version } = mine.member;
+      if (offline !== null || platform !== hello.platform || version !== hello.version) {
+        this.host.sql.run('UPDATE party_members SET offline_since = NULL, platform = ?, version = ? WHERE player = ?',
+          hello.platform, hello.version, hello.player);
+      }
       this.later(() => {
         const s = this.socketByCid(att.cid);
         const party = this.partyRow(mine.party.id);
@@ -742,6 +863,7 @@ const HANDLERS = {
     this.expireRequests();
     if (this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', target.player, att.player)) {
       this.requireFriendRoom(att.player, target.player);
+      this.limitFriendRequest(att);
       this.makeFriends(att.player, target.player);
       for (const s of this.presentSockets(target.player)) {
         this.send(s.conn, { ev: 'friend.added', friend: this.friendView(att.player, s.att) });
@@ -755,6 +877,7 @@ const HANDLERS = {
     const incoming = this.host.sql.get('SELECT COUNT(*) AS n FROM friend_requests WHERE target = ?', target.player).n;
     if (outgoing >= LIMITS.pendingOut || incoming >= LIMITS.pendingIn) fail('limit', 'too many pending requests');
     this.requireFriendRoom(att.player, target.player);
+    this.limitFriendRequest(att);
     this.host.sql.run('INSERT INTO friend_requests (sender, target, ms) VALUES (?, ?, ?)', att.player, target.player, this.host.now());
     this.notifyPlayer(target.player, { ev: 'friend.request', player: att.player, name: att.name });
     return { ...result, state: 'pending' };
@@ -805,6 +928,10 @@ const HANDLERS = {
     const all = takeToken(this.telemetryBucket, BUCKETS.telemetryAll, now);
     if (!all) {
       this.noteLimit('telemetry_all');
+      fail('limit', 'slow down');
+    }
+    if (!this.exempt(att) && !this.guards.telemetryAccount.take(att.player, now)) {
+      this.diagnose('telemetry_limited');
       fail('limit', 'slow down');
     }
     att.rt = mine;
@@ -878,6 +1005,7 @@ const HANDLERS = {
       fail('party_full');
     }
     if (pending.length >= LIMITS.pendingInvites) fail('limit', 'too many pending invites');
+    this.limitInvite(att);
     const now = this.host.now();
     const id = this.randomHex(8);
     this.host.sql.run('DELETE FROM party_invites WHERE party = ? AND target = ?', mine.party.id, target);
@@ -917,6 +1045,7 @@ const HANDLERS = {
       this.record('party_full', { scope: 'accept' }, party.diag);
       fail('party_full');
     }
+    this.limitJoin(att);
     let slot = 2;
     while (members.some((m) => m.slot === slot)) slot += 1;
     const token = this.randomHex(16);
@@ -967,16 +1096,20 @@ const HANDLERS = {
     const party = existing?.party ?? this.partyRow(created.match);
     const now = this.host.now();
     const ad = this.adOf(party.id);
+    const rulesText = JSON.stringify(rules);
     if (ad) {
-      this.host.sql.run('UPDATE player_matches SET guest = ?, build = ?, slots = ?, rules = ?, qos = ?, refreshed = ? WHERE id = ?',
-        att.guest, att.build, slots, JSON.stringify(rules), qos, now, ad.id);
+      const unchanged = ad.guest === att.guest && ad.build === att.build && ad.slots === slots && ad.rules === rulesText &&
+        ad.qos === qos;
+      if (!unchanged || now - ad.refreshed >= PROTECTION.advertiseRefreshMs) {
+        this.host.sql.run('UPDATE player_matches SET guest = ?, build = ?, slots = ?, rules = ?, qos = ?, refreshed = ? WHERE id = ?',
+          att.guest, att.build, slots, rulesText, qos, now, ad.id);
+      }
     } else {
       this.host.sql.run(`INSERT INTO player_matches (id, owner, guest, build, slots, rules, qos, created, refreshed, party)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, this.randomHex(8), att.player, att.guest, att.build, slots, JSON.stringify(rules), qos,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, this.randomHex(8), att.player, att.guest, att.build, slots, rulesText, qos,
       now, now, party.id);
       this.changed(party.id, { active: true });
     }
-    this.scheduleAlarm();
     const session = this.adOf(party.id).id;
     return created ? { session, ...created, party: this.snapshot(this.partyRow(party.id)) } : { session };
   },
@@ -1020,8 +1153,10 @@ const HANDLERS = {
       fail('offline');
     }
     if (!compatibleGuests(att, ad)) fail('version_mismatch');
-    this.host.sql.run('UPDATE party_members SET in_session = 1 WHERE party = ? AND slot = ?', mine.party.id, mine.member.slot);
-    this.changed(mine.party.id, { active: true });
+    if (!mine.member.in_session) {
+      this.host.sql.run('UPDATE party_members SET in_session = 1 WHERE party = ? AND slot = ?', mine.party.id, mine.member.slot);
+      this.changed(mine.party.id, { active: true });
+    }
     return { session: ad.id, match: mine.party.id, slot: mine.member.slot, generation: mine.member.generation };
   },
 };
