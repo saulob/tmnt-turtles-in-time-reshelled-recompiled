@@ -26,9 +26,8 @@ struct SelectOutcome {
 
 // select over a mix of shim sockets (answered from the shim) and real sockets (answered by `real_select`, which gets
 // the real handles and returns how many are ready, or -1). Real handles are polled with a zero timeout so a ready shim
-// socket is never delayed; with nothing ready the caller's timeout is honoured by repeating the poll. A shim-only call,
-// or an infinite wait with nothing ready, never waits: shim data arrives from the network pump, which a blocked game
-// thread would starve.
+// socket is never delayed; with nothing ready the caller's timeout is honoured by repeating the poll, because a thread
+// that paces itself on select would otherwise spin. An infinite wait with nothing ready never waits.
 inline SelectOutcome SelectMixed(const FdSets& requested, const std::function<bool(uint32_t)>& owned,
                                  const std::function<bool(uint32_t)>& readable,
                                  const std::function<int(FdSets&)>& real_select, SelectTimeout timeout,
@@ -58,7 +57,7 @@ inline SelectOutcome SelectMixed(const FdSets& requested, const std::function<bo
       outcome.count += ready;
     }
     if (outcome.count > 0) return outcome;
-    if (real.empty() || timeout.infinite || now_milliseconds() - started >= timeout.milliseconds) return {};
+    if (timeout.infinite || now_milliseconds() - started >= timeout.milliseconds) return {};
     pause();
   }
 }
@@ -74,8 +73,18 @@ inline uint32_t NextWaitSlice(uint32_t wait_milliseconds, uint32_t elapsed_milli
   return left < kWaitSliceMilliseconds ? left : kWaitSliceMilliseconds;
 }
 
-inline bool WaitExpired(uint32_t wait_milliseconds, uint32_t elapsed_milliseconds, bool first_slice) {
-  return !first_slice && wait_milliseconds != kInfiniteWait && elapsed_milliseconds >= wait_milliseconds;
+inline constexpr uint32_t kWaitSliceTimedOut = 0x102;
+
+// One logical wait: a completion `pump` makes before a slice is seen by that slice, the last one included, so only a
+// wait with nothing signaled at its very end reports a timeout.
+template <typename Pump, typename WaitSlice, typename Elapsed>
+uint32_t WaitInSlices(uint32_t wait_milliseconds, Pump pump, WaitSlice wait_slice, Elapsed elapsed_milliseconds) {
+  for (;;) {
+    pump();
+    const uint32_t slice = NextWaitSlice(wait_milliseconds, elapsed_milliseconds());
+    const uint32_t status = wait_slice(slice);
+    if (status != kWaitSliceTimedOut || slice == 0) return status;
+  }
 }
 
 }  // namespace tmnt

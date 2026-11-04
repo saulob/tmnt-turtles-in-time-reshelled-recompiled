@@ -15,8 +15,7 @@ namespace {
 constexpr int kConnectTimeoutMs = 8000;
 constexpr int kKeepaliveMs = 20000;
 constexpr int kSilenceMs = 45000;
-// Relay frames waiting for the socket; a link this far behind is not carrying a match any more.
-constexpr size_t kMaxQueuedBinary = 512;
+constexpr size_t kMaxQueuedBinary = 512;  // relay frames waiting for the socket
 
 using Clock = std::chrono::steady_clock;
 
@@ -74,7 +73,7 @@ void Run(std::shared_ptr<Shared> s, std::string url) {
   std::string reason = "closed";
   int64_t last_ping = now_ms();
   std::unique_lock<std::mutex> lock(s->mutex);
-  while (!s->stop && reading) {
+  while (reading) {
     while (!s->outgoing.empty()) {
       const Outgoing message = std::move(s->outgoing.front());
       s->outgoing.pop_front();
@@ -86,6 +85,8 @@ void Run(std::shared_ptr<Shared> s, std::string url) {
       lock.lock();
       if (!sent) break;
     }
+    // Checked after the queue, so what was sent just before Close still goes out.
+    if (s->stop) break;
     const int64_t now = now_ms();
     if (now - last_ping >= kKeepaliveMs) {
       last_ping = now;
@@ -131,22 +132,21 @@ class LobbyLink final : public LobbyChannel {
 
   bool SendBinary(std::vector<uint8_t>&& bytes) override {
     std::lock_guard<std::mutex> lock(shared_->mutex);
-    if (shared_->stop || !shared_->socket || shared_->queued_binary >= kMaxQueuedBinary) return false;
+    if (shared_->stop || !shared_->socket) return false;
+    if (shared_->queued_binary >= kMaxQueuedBinary) return true;  // lost like any datagram; the link itself still works
     shared_->outgoing.push_back({std::string(bytes.begin(), bytes.end()), true});
     ++shared_->queued_binary;
     shared_->wake.notify_all();
     return true;
   }
 
+  // The link's own thread closes the socket: a close waits for the network, and callers hold the service's lock.
   void Close() override {
-    std::shared_ptr<WebSocket> socket;
     {
       std::lock_guard<std::mutex> lock(shared_->mutex);
       shared_->stop = true;
-      socket = shared_->socket;
     }
     shared_->wake.notify_all();
-    if (socket) socket->close();
   }
 
  private:

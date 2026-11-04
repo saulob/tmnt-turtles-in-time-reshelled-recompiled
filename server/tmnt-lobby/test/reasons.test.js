@@ -74,11 +74,11 @@ test('no reason the Worker records in a full set of flows is outside the shared 
 
   const a = buildParty(env, 4);
   const [host, two, three, four] = a.clients;
+  a.rooms[3].buffered = RELAY.bufferedBytes + 1;
+  for (let i = 0; i < RELAY.overrunsToClose; i++) a.rooms[1].relay(a.rooms[1].frame(4, a.token));
+  a.rooms[3].buffered = 0;
   const big = encodeRelayFrame(2, 3, a.token, 1, new Uint8Array(RELAY.maxPayload));
   for (let i = 0; i < 10000 && !env.logs.some((l) => l.includes('relay close') && l.includes('reason=rate_limit')); i++) a.rooms[1].relay(big);
-  a.rooms[3].buffered = RELAY.bufferedBytes + 1;
-  a.rooms[1].relay(a.rooms[1].frame(4, a.token));
-  a.rooms[3].buffered = 0;
   a.rooms[2].failBinary = true;
   a.rooms[0].relay(a.rooms[0].frame(3, a.token));
 

@@ -85,6 +85,31 @@ uint32_t WriteSearchResults(uint8_t* header, uint32_t header_address, uint32_t c
   return count;
 }
 
+SessionSlots SearchResultSlots(const uint8_t* result) {
+  const auto at = [result](uint32_t offset) { return LoadBE32(result, kSessionInfoBytes + offset); };
+  return {at(0) + at(8), at(4) + at(12)};
+}
+
+void WriteSigninInfo(uint8_t* info, uint64_t xuid, std::string_view name) {
+  StoreBE64(info, 0, xuid);
+  StoreBE32(info, 8, kSigninInfoOnlineEnabled);
+  StoreBE32(info, 12, kSignedInToLive);
+  std::memset(info + 24, 0, 16);
+  std::memcpy(info + 24, name.data(), std::min<size_t>(name.size(), 15));
+}
+
+uint32_t JoinRefusalResult(const std::string& code) {
+  constexpr uint32_t kSessionNotFound = 0x80155200;
+  constexpr uint32_t kSessionFull = 0x80155202;
+  constexpr uint32_t kServiceUnavailable = 0x80151100;
+  constexpr uint32_t kFailed = 0x80004005;
+  if (code.empty()) return 0;
+  if (code == "party_full") return kSessionFull;
+  if (code == "not_found" || code == "offline" || code == "host_left" || code == "expired") return kSessionNotFound;
+  if (code == "link_lost" || code == "limit" || code == "rate_limited") return kServiceUnavailable;
+  return kFailed;
+}
+
 bool WriteSearchByIdResult(uint8_t* header, uint32_t header_address, uint32_t capacity, const online::PlayerMatchAd& ad) {
   std::memset(header, 0, std::min(capacity, kSearchByIdBytes));
   return WriteSearchResults(header, header_address, capacity, 1, {ad}) == 1;

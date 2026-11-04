@@ -93,6 +93,10 @@ class MatchSession {
   void OnBinary(const std::string& frame);
   // The room was lost and found again: the service may have forgotten this side's endpoint.
   void ResendEndpoint();
+  // And it forgot this side's link states and may have missed a transport choice.
+  void ResendReports();
+  // The room refused a request of this session.
+  void OnRefused(int seq, const std::string& code, double now);
   void Update(double now);
   // The game's own report about its traffic with a peer.
   void SetPeerLink(int slot, NetplayLink link);
@@ -122,6 +126,7 @@ class MatchSession {
     double direct_deadline = 0;
     double peer_deadline = 0;
     bool relay_requested = false;
+    int relay_request_seq = 0;
     bool relay_used = false;
     bool relay_dead = false;
     int direct_elapsed_ms = -1;
@@ -134,6 +139,7 @@ class MatchSession {
     std::optional<NetplayAssignment> assignment;
     bool summary_logged = false;
     double next_relay_stats = 0;
+    double relay_resume_deadline = 0;  // set while a relayed pair waits for the service to come back
   };
   class Tap;
 
@@ -160,6 +166,8 @@ class MatchSession {
   void SelectDirect(Link& link, const Candidate& selected);
   void SelectRelay(Link& link);
   void Assign(Link& link, const netplay::Endpoint& peer, bool relay);
+  void ReportLink(const Link& link);
+  void AnnounceDirect(const Link& link);
   void FailLink(Link& link, const std::string& reason, const std::string& notice);
   void LogSummary(Link& link);
   void PumpRelay(Link& link, double now);

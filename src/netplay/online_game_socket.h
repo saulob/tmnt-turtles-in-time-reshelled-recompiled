@@ -36,6 +36,7 @@ struct PeerTraffic {
   uint64_t relay_tx_packets = 0;
   uint64_t relay_rx_packets = 0;
   uint64_t relay_rejected = 0;
+  uint64_t relay_dropped = 0;  // queued too long unread
 };
 
 // The current match's gameplay datagrams, whichever way they went.
@@ -47,12 +48,13 @@ struct MatchTraffic {
   uint64_t relay_rx_packets = 0;
   uint64_t relay_rx_bytes = 0;
   uint64_t relay_rejected = 0;
+  uint64_t relay_dropped = 0;
   std::vector<size_t> relay_tx_sizes;  // the first few payload sizes each way
   std::vector<size_t> relay_rx_sizes;
 };
 
 // The one UDP socket online play uses from its early bind (so Windows can prompt for network access before any match)
-// through every match: STUN, punching, the Player Match lobby and the rollback session all share it, because the NAT
+// through every match: STUN, punching, the Player Match lobby and the game's own session all share it, because the NAT
 // mapping the peer was told about belongs to this socket alone. When a match has no direct path, the same Transport
 // carries it over the online service's relay instead: the game then talks to RelayPeerEndpoint(slot) and never
 // knows the difference. Every remote participant is independent: one on the relay does not move the others. Thread-safe.
@@ -82,8 +84,6 @@ class OnlineGameSocket final : public Transport {
   bool relay_selected(int peer_slot) const;
   // One binary message from the online service; false when it is not a frame of the open relay for this slot.
   bool DeliverRelay(const uint8_t* data, size_t size);
-  // Why the relay can no longer carry this participant ("receive_overflow", "send_refused"); empty while it can.
-  std::string relay_failure(int peer_slot) const;
 
   // Tests simulate a firewall: direct datagrams to or from an endpoint it refuses are dropped.
   void SetDirectFilter(std::function<bool(const Endpoint&)> allow);
@@ -121,8 +121,7 @@ class OnlineGameSocket final : public Transport {
     bool selected = false;
     uint32_t seq = 0;
     std::deque<std::vector<uint8_t>> in;
-    std::string failure;
-  };
+    };
 
   mutable std::mutex mutex_;
   UdpTransport socket_;

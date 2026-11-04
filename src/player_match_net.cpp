@@ -16,6 +16,17 @@ constexpr uint32_t kOnlineIdOffset = 16;
 constexpr uint8_t kXnAddrTag[4] = {'T', 'M', 'N', 'T'};
 constexpr size_t kMaxQueued = 128;
 
+// Neither of the two low bytes is ever 0 or 255, the values a subnet reserves.
+uint32_t NextAddress(uint32_t address) {
+  uint32_t hi = (address >> 8) & 0xFF;
+  uint32_t lo = (address & 0xFF) + 1;
+  if (lo > 254) {
+    lo = 1;
+    hi = hi % 254 + 1;
+  }
+  return kSyntheticNet | hi << 8 | lo;
+}
+
 }  // namespace
 
 uint32_t SyntheticAddress(uint64_t xuid) {
@@ -24,9 +35,33 @@ uint32_t SyntheticAddress(uint64_t xuid) {
   return kSyntheticNet | hi << 8 | lo;
 }
 
-void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid) {
+void SyntheticAddressBook::Update(std::vector<AddressMember> roster) {
+  std::sort(roster.begin(), roster.end(), [](const AddressMember& a, const AddressMember& b) { return a.slot < b.slot; });
+  for (auto it = assigned_.begin(); it != assigned_.end();) {
+    const uint64_t xuid = it->first;
+    const bool member = std::any_of(roster.begin(), roster.end(), [xuid](const AddressMember& m) { return m.xuid == xuid; });
+    it = member ? std::next(it) : assigned_.erase(it);
+  }
+  const auto taken = [this](uint32_t address) {
+    return std::any_of(assigned_.begin(), assigned_.end(), [address](const auto& entry) { return entry.second == address; });
+  };
+  for (const AddressMember& member : roster) {
+    if (assigned_.count(member.xuid)) continue;
+    uint32_t address = SyntheticAddress(member.xuid);
+    while (taken(address)) address = NextAddress(address);
+    assigned_[member.xuid] = address;
+  }
+}
+
+uint32_t SyntheticAddressBook::AddressOf(uint64_t xuid) const {
+  const auto found = assigned_.find(xuid);
+  return found == assigned_.end() ? SyntheticAddress(xuid) : found->second;
+}
+
+void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid) { WriteXnAddr(xnaddr, xuid, SyntheticAddress(xuid)); }
+
+void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid, uint32_t address) {
   std::memset(xnaddr, 0, kXnAddrBytes);
-  const uint32_t address = SyntheticAddress(xuid);
   StoreBE32(xnaddr, kInaOffset, address);
   StoreBE32(xnaddr, kInaOnlineOffset, address);
   for (uint32_t i = 0; i < 6; ++i) xnaddr[kEnetOffset + i] = uint8_t(xuid >> (40 - 8 * i));
@@ -37,7 +72,7 @@ void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid) {
 std::optional<uint64_t> XnAddrXuid(const uint8_t* xnaddr) {
   if (std::memcmp(xnaddr + kOnlineIdOffset + 8, kXnAddrTag, sizeof(kXnAddrTag)) != 0) return std::nullopt;
   const uint64_t xuid = LoadBE64(xnaddr, kOnlineIdOffset);
-  if (LoadBE32(xnaddr, kInaOffset) != SyntheticAddress(xuid)) return std::nullopt;
+  if (!IsSyntheticAddress(LoadBE32(xnaddr, kInaOffset))) return std::nullopt;
   return xuid;
 }
 
@@ -50,21 +85,26 @@ uint32_t SessionTag(std::string_view match) {
   return hash ? hash : 1;
 }
 
-std::optional<PeerRoute> RouteFor(const online::ActivePeer& peer) {
+std::optional<PeerRoute> RouteFor(const online::ActivePeer& peer, const SyntheticAddressBook& book) {
   if (peer.match.empty() || peer.player.empty() || peer.slot < 1 || peer.slot > online::kMaxParty) return std::nullopt;
   PeerRoute route;
   route.slot = peer.slot;
   route.xuid = VirtualXuid(peer.player);
-  route.address = SyntheticAddress(route.xuid);
+  route.address = book.AddressOf(route.xuid);
   route.tag = SessionTag(peer.match);
   route.host = peer.host;
   return route;
 }
 
-std::vector<PeerRoute> RoutesFor(const std::vector<online::ActivePeer>& peers) {
+std::vector<PeerRoute> RoutesFor(const std::vector<online::ActivePeer>& peers, int my_slot, uint64_t my_xuid,
+                                 SyntheticAddressBook& book) {
+  std::vector<AddressMember> roster;
+  if (my_slot) roster.push_back({my_slot, my_xuid});
+  for (const online::ActivePeer& peer : peers) roster.push_back({peer.slot, VirtualXuid(peer.player)});
+  book.Update(std::move(roster));
   std::vector<PeerRoute> routes;
   for (const online::ActivePeer& peer : peers) {
-    if (const auto route = RouteFor(peer)) routes.push_back(*route);
+    if (const auto route = RouteFor(peer, book)) routes.push_back(*route);
   }
   return routes;
 }
@@ -144,6 +184,13 @@ uint32_t ScatterBuffers(uint8_t* base, uint32_t buffers, uint32_t count, const s
   return written;
 }
 
+void PendingReceives::Add(const PendingReceive& receive) {
+  pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
+                                [&](const PendingReceive& r) { return r.overlapped && r.overlapped == receive.overlapped; }),
+                 pending_.end());
+  pending_.push_back(receive);
+}
+
 std::optional<PendingReceive> PendingReceives::Take(uint32_t handle) {
   for (auto it = pending_.begin(); it != pending_.end(); ++it) {
     if (it->handle != handle) continue;
@@ -215,7 +262,9 @@ void VdpShim::TakeIn(const std::vector<PeerRoute>& routes, LobbyLink& link) {
       if (socket.port == datagram.to_port) target = &socket;
     }
     if (!target && sockets_.size() == 1) target = &sockets_.begin()->second;
-    if (target && target->queue.size() < kMaxQueued) target->queue.push_back({from->address, std::move(datagram)});
+    if (!target) continue;
+    if (target->queue.size() < kMaxQueued) target->queue.push_back({from->address, std::move(datagram)});
+    else ++dropped_;
   }
 }
 
@@ -257,6 +306,12 @@ bool VdpShim::Peer(uint32_t handle, uint32_t& address, uint16_t& port) const {
 uint16_t VdpShim::bound_port(uint32_t handle) const {
   const auto it = sockets_.find(handle);
   return it == sockets_.end() ? 0 : it->second.port;
+}
+
+size_t VdpShim::deepest_queue() const {
+  size_t deepest = 0;
+  for (const auto& [handle, socket] : sockets_) deepest = std::max(deepest, socket.queue.size());
+  return deepest;
 }
 
 size_t VdpShim::queued(uint32_t handle) const {

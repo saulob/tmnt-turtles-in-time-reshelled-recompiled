@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 
+#include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
@@ -16,11 +17,18 @@
 
 #include "frame_trace.h"
 #include "guest_memory.h"
+#include "online_bridge.h"
 #include "online_runtime.h"
 #include "player_match.h"
 #include "player_match_net.h"
 #include "qos_placeholder.h"
 #include "search_ticket.h"
+
+// Slots of the session this console joined as a guest; the title only configures them when it creates a session, and
+// TMNT_r reads this to show them (live_hooks_tmnt_r.cpp).
+REXCVAR_DEFINE_INT32(tmnt_online_joined_slots, 0, "TMNT", "Player slots of the online session joined as a guest; 0: none");
+// Set by TMNT_r from the ONLINE row's gate.
+REXCVAR_DEFINE_INT32(tmnt_online_user, 0, "TMNT", "Controller that chose ONLINE and owns the LIVE profile");
 
 namespace {
 
@@ -28,6 +36,11 @@ using tmnt::GuestHost;
 using tmnt::LoadBE32;
 using tmnt::StoreBE32;
 using tmnt::StoreBE64;
+
+uint32_t CurrentOnlineUser() {
+  const uint32_t user = uint32_t(REXCVAR_GET(tmnt_online_user));
+  return tmnt::LocalUser(user) ? user : 0;
+}
 
 struct LiveProfile {
   bool available = false;
@@ -52,6 +65,8 @@ LiveProfile CurrentLive() {
 }
 
 constexpr std::chrono::seconds kSearchWaitLimit(7);
+// Below the 15 s after which the title's join script gives up on the call.
+constexpr std::chrono::seconds kJoinWaitLimit(7);
 // A cached answer still completes after a few script ticks, so the title's wait overlay is shown before its result.
 constexpr std::chrono::milliseconds kSearchLatencyFloor(250);
 
@@ -61,9 +76,14 @@ std::mutex g_session_mutex;
 tmnt::SessionDetails g_session;
 uint32_t g_members_address = 0;
 
+void PublishJoinedSlots(uint32_t slots) {
+  rex::cvar::SetFlagByName("tmnt_online_joined_slots", std::to_string(slots >= 2 && slots <= tmnt::online::kMaxParty ? slots : 0));
+}
+
 void ResetSession() {
   std::lock_guard<std::mutex> lock(g_session_mutex);
   g_session = {};
+  PublishJoinedSlots(0);
 }
 // What the title's XSessionSearchEx wrapper requires per requested result.
 constexpr uint32_t kSearchBytesPerResult = 1326;
@@ -92,20 +112,20 @@ void LogOnChange(const char* what, uint32_t value) {
 
 void SigninState(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
-  if (user == tmnt::kOnlineUser && CurrentLive().available) {
+  const uint32_t online_user = CurrentOnlineUser();
+  if (tmnt::LiveProfileUser(user, online_user, CurrentLive().available)) {
     ctx.r3.u64 = tmnt::kSignedInToLive;
   } else {
     original(ctx, base);
   }
-  if (user == tmnt::kOnlineUser) LogOnChange("live signin state", ctx.r3.u32);
+  if (user == online_user) LogOnChange("live signin state", ctx.r3.u32);
 }
 
 void CheckPrivilege(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t privilege = ctx.r4.u32;
   const uint32_t result = ctx.r5.u32;
-  constexpr uint32_t kAnyUser = 0xFF;
-  if ((user == tmnt::kOnlineUser || user == kAnyUser) && result && CurrentLive().available) {
+  if (result && tmnt::LivePrivilegeUser(user, CurrentOnlineUser(), CurrentLive().available)) {
     StoreBE32(GuestHost(base, result), 0, 1);
     ctx.r3.u64 = 0;
     LogOnChange("live privilege check granted", privilege);
@@ -118,14 +138,9 @@ void SigninInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t info = ctx.r5.u32;
   original(ctx, base);
-  const LiveProfile live = user == tmnt::kOnlineUser && info ? CurrentLive() : LiveProfile{};
+  const LiveProfile live = user == CurrentOnlineUser() && info ? CurrentLive() : LiveProfile{};
   if (!live.available) return;
-  uint8_t* out = GuestHost(base, info);
-  StoreBE64(out, 0, live.xuid);
-  StoreBE32(out, 8, tmnt::kSigninInfoOnlineEnabled);
-  StoreBE32(out, 12, tmnt::kSignedInToLive);
-  std::memset(out + 24, 0, 16);
-  std::memcpy(out + 24, live.name.data(), std::min<size_t>(live.name.size(), 15));
+  tmnt::WriteSigninInfo(GuestHost(base, info), live.xuid, live.name);
   ctx.r3.u64 = 0;
   LogOnChange("live signin info", tmnt::kSignedInToLive);
 }
@@ -133,7 +148,7 @@ void SigninInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 void GetXuid(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t out = ctx.r4.u32;
-  const LiveProfile live = user == tmnt::kOnlineUser && out ? CurrentLive() : LiveProfile{};
+  const LiveProfile live = user == CurrentOnlineUser() && out ? CurrentLive() : LiveProfile{};
   if (!live.available) {
     original(ctx, base);
     return;
@@ -148,7 +163,7 @@ void GetName(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t buffer = ctx.r4.u32;
   const uint32_t size = ctx.r5.u32;
-  const LiveProfile live = user == tmnt::kOnlineUser && buffer && size ? CurrentLive() : LiveProfile{};
+  const LiveProfile live = user == CurrentOnlineUser() && buffer && size ? CurrentLive() : LiveProfile{};
   if (!live.available || live.name.empty()) {
     original(ctx, base);
     return;
@@ -164,17 +179,42 @@ void TitleXnAddr(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   original(ctx, base);
   const LiveProfile live = CurrentLive();
   if (!live.available || !xnaddr) return;
-  tmnt::WriteXnAddr(GuestHost(base, xnaddr), live.xuid);
+  tmnt::WriteXnAddr(GuestHost(base, xnaddr), live.xuid, tmnt::ActiveSyntheticAddress(live.xuid));
   constexpr uint32_t kXnAddrOnline = 0x80;
   ctx.r3.u64 = ctx.r3.u32 | kXnAddrOnline;
   LogOnChange("live xnaddr flags", ctx.r3.u32);
 }
 
-// The game's own way out of its session ends the game session; the party and its connections stay.
+// XUserMuteListQuery(user, XUID, BOOL*): XLIVEBASE 0x0005800E, behind the scripts' PLT_IsPlayerMuted. The runtime has no
+// handler for it; this port has no voice chat and no mute list, so nobody is on it.
+void MuteListQuery(PPCContext& ctx, uint8_t* base, PPCFunc*) {
+  if (ctx.r5.u32) StoreBE32(GuestHost(base, ctx.r5.u32), 0, 0);
+  ctx.r3.u64 = 0;
+}
+
 void EndOnlineMatch(const char* reason) {
   tmnt::Online().CancelPlayerMatch();
+  tmnt::Online().LeaveFinishedMatch();
   ResetSession();
   REXLOG_INFO("DEBUG_SAULO player_match session left reason={}", reason);
+}
+
+// The join's overlapped stays pending until the service has answered, so a refusal reaches the title's own failure path
+// instead of its wait for a host that will never answer. The runtime already completed it; nothing has looked at it yet.
+void CompleteJoinWhenAnswered(bool started, uint32_t overlapped) {
+  const auto limit = std::chrono::steady_clock::now() + kJoinWaitLimit;
+  auto run = [=]() -> rex::X_RESULT {
+    while (started && tmnt::Online().JoinAnswer().pending && std::chrono::steady_clock::now() < limit) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    const tmnt::online::OnlineService::PlayerMatchJoinAnswer answer = tmnt::Online().JoinAnswer();
+    const uint32_t result = tmnt::JoinRefusalResult(answer.pending ? std::string("link_lost") : answer.refused);
+    if (!result) return 0;
+    REXLOG_INFO("DEBUG_SAULO player_match join failed result={:08X} code={}", result, answer.pending ? "timeout" : answer.refused);
+    EndOnlineMatch("join_refused");
+    return result;
+  };
+  REX_KERNEL_STATE()->CompleteOverlappedDeferred(std::function<rex::X_RESULT()>(std::move(run)), overlapped);
 }
 
 // Host: advertised to online friends. Join (a search result's session info): the service pairs the two consoles.
@@ -190,6 +230,7 @@ void SessionCreate(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   const uint32_t public_slots = ctx.r5.u32;
   const uint32_t private_slots = ctx.r6.u32;
+  const uint32_t overlapped = ctx.r9.u32;
   original(ctx, base);
   if (!live) return;
   if (flags & tmnt::kSessionCreateHost) {
@@ -199,6 +240,7 @@ void SessionCreate(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
       g_session.max_public = public_slots;
       g_session.max_private = private_slots;
       g_session.host_xuid = CurrentLive().xuid;
+      PublishJoinedSlots(0);
     }
     if (info) tmnt::WriteXnAddr(GuestHost(base, info) + tmnt::kXnkidBytes, CurrentLive().xuid);
     tmnt::Online().HostPlayerMatch({}, int(std::clamp<uint32_t>(public_slots + private_slots, 2, tmnt::online::kMaxParty)));
@@ -208,17 +250,20 @@ void SessionCreate(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
     std::lock_guard<std::mutex> lock(g_session_mutex);
     g_session = {};
     g_session.session = join_session;
-    g_session.max_public = LoadBE32(GuestHost(base, info), tmnt::kSessionInfoBytes) +
-                           LoadBE32(GuestHost(base, info), tmnt::kSessionInfoBytes + 8);
-    g_session.max_private = LoadBE32(GuestHost(base, info), tmnt::kSessionInfoBytes + 4) +
-                            LoadBE32(GuestHost(base, info), tmnt::kSessionInfoBytes + 12);
+    tmnt::SessionSlots slots = tmnt::SearchResultSlots(GuestHost(base, info));
     for (const tmnt::online::PlayerMatchAd& ad : tmnt::Online().PlayerMatchResults()) {
-      if (ad.session == join_session) g_session.host_xuid = tmnt::VirtualXuid(ad.player);
+      if (ad.session != join_session) continue;
+      g_session.host_xuid = tmnt::VirtualXuid(ad.player);
+      slots = {uint32_t(ad.slots), 0};
     }
+    g_session.max_public = slots.max_public;
+    g_session.max_private = slots.max_private;
+    PublishJoinedSlots(slots.Total());
   }
-  if (!join_session.empty() && !tmnt::Online().JoinPlayerMatch(join_session)) {
-    REXLOG_INFO("DEBUG_SAULO player_match join refused session={}", join_session);
-  }
+  if (join_session.empty()) return;
+  const bool started = tmnt::Online().JoinPlayerMatch(join_session);
+  if (!started) REXLOG_INFO("DEBUG_SAULO player_match join refused session={}", join_session);
+  if (overlapped && ctx.r3.u32 == tmnt::kIoPending) CompleteJoinWhenAnswered(started, overlapped);
 }
 
 // The guest's search stays pending until the service has answered it, so an empty cache is never taken for "no match".
@@ -336,7 +381,7 @@ void SessionJoinRemote(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
       const bool known = std::any_of(g_session.members.begin(), g_session.members.end(),
                                      [xuid](const tmnt::SessionMember& m) { return m.xuid == xuid; });
       if (!known) {
-        g_session.members.push_back({xuid, xuid == live.xuid ? tmnt::kOnlineUser : tmnt::kRemoteUserIndex});
+        g_session.members.push_back({xuid, xuid == live.xuid ? CurrentOnlineUser() : tmnt::kRemoteUserIndex});
         REXLOG_INFO("DEBUG_SAULO XSessionJoinRemote member={} local={} members={}", g_session.members.size(),
                     xuid == live.xuid, g_session.members.size());
       }
@@ -354,6 +399,7 @@ void SessionStateChange(PPCContext& ctx, uint8_t* base, PPCFunc* original, uint3
 }
 
 void SessionStart(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
+  tmnt::ArmStartTrace();
   SessionStateChange(ctx, base, original, tmnt::kSessionStateInGame, "XSessionStart");
   if (CurrentLive().available) tmnt::Online().NoteGameStart();
 }
@@ -389,7 +435,7 @@ void SessionGetDetails(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
     std::lock_guard<std::mutex> lock(g_session_mutex);
     details = g_session;
   }
-  if (details.members.empty()) details.members.push_back({live.xuid, tmnt::kOnlineUser});
+  if (details.members.empty()) details.members.push_back({live.xuid, CurrentOnlineUser()});
   if (details.session.empty()) {
     if (const auto party = tmnt::Online().party()) details.session = party->session.empty() ? party->match.substr(0, 16) : party->session;
   }
@@ -412,7 +458,6 @@ void SessionDelete(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   SessionCall(ctx, base, original, "XSessionDelete");
   ResetSession();
   if (!CurrentLive().available) return;
-  tmnt::Online().CancelPlayerMatch();
   EndOnlineMatch("session_deleted");
 }
 
@@ -420,6 +465,8 @@ void SessionDelete(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 
 // The title's search object keeps an inline zeroed XNQOS placeholder at object+16 and releases it on every reset; nothing
 // was allocated, and the stubbed QoS lookup never replaces it, so a real release only fails inside BaseHeap.
+uint32_t tmnt::OnlineUser() { return CurrentOnlineUser(); }
+
 std::string tmnt::SessionHeartbeat(uint8_t* base) {
   std::lock_guard<std::mutex> lock(g_session_mutex);
   return "session_state=" + std::to_string(g_session.state) + " session_members=" + std::to_string(g_session.members.size()) +
@@ -457,6 +504,7 @@ TMNT_LIVE_HOOK(826EE0C8, SigninInfo)
 TMNT_LIVE_HOOK(826EE078, GetXuid)
 TMNT_LIVE_HOOK(826EDD48, GetName)
 TMNT_LIVE_HOOK(823CB4E0, TitleXnAddr)
+TMNT_LIVE_HOOK(823C7F20, MuteListQuery)
 TMNT_LIVE_HOOK(8243C480, SessionCreate)
 TMNT_LIVE_HOOK(8243CA48, SessionSearchEx)
 TMNT_LIVE_HOOK(8243C850, SessionLeaveRemote)

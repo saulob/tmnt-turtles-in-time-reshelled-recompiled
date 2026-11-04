@@ -400,8 +400,13 @@ ConnectionReport RunConnectionTest(const ConnectionTestRequest& request) {
   const net::SocketHandle handle = !request.game_ports.empty() || !servers.empty()
                                        ? OpenTestSocket(request, facts, details, local_port)
                                        : net::kNoSocket;
+  if (request.game_port) {
+    details.push_back("the game's socket holds UDP port " + std::to_string(request.game_port));
+    facts.udp_port = request.game_port;
+    facts.closed_ports.clear();
+  }
   const uint32_t stun_public_ip = ProbeStun(servers, handle, local_port, facts, details);
-  ProbeRouter(request, stun_public_ip, local_port, facts, details);
+  ProbeRouter(request, stun_public_ip, request.game_port ? request.game_port : local_port, facts, details);
   if (handle != net::kNoSocket) net::CloseSocket(handle);
 
   ConnectionReport report = SummarizeConnection(facts);

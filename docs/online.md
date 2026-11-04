@@ -18,14 +18,24 @@ play is claimed only after four real instances have been tested.
 3. **Connection test** > **Run test**. PLAY stays blocked until it reports **Overall usable** (see below).
 4. **Invite** each friend from **Friends**. Invited players see the invite on their own Online page and **Join** it;
    the **Party** section shows Player 1 to Player 4. The host can **Remove** a player or **Leave party**.
-5. Everyone presses **Play**. In the game, with the first controller (or the keyboard), the host uses **Create Match**
+5. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
    and the guests **Quick Match** or **Custom Match**, which find only the friends' party.
 
-There are no rooms to pick: the party is the match. Player 1 is the host; a guest takes the lowest free slot when it
-joins and keeps it. A fifth player is refused (`party full`). One local player per PC is online (the first controller);
-the game's own Live check keeps other local players out, because only the first controller gets the online profile.
+In the game, the Multiplayer menu offers **Local** and **Online**; Online lists Quick Match, Create Match and Custom Match.
+In the lobby of a match you created, **X Invite Friends** opens the friend list of the online service (the Xbox Guide is not
+used): pick a friend with A, as many as the match has places, B closes it. Only the host can invite. A friend who is
+online and not in a match sees an **Online match invite** box in the game (or the Join button on the launcher page) and
+**Accept** puts them in your lobby through the same path as Quick Match; **Decline** or a full, started or ended match
+leaves them where they were. An accepted invite the game has not joined after 60 s gives its place back.
 
-While Online play is signed in, the first controller sees a title-local Xbox LIVE profile: signed in, multiplayer
+There are no rooms to pick: the party is the match. Player 1 is the host; a guest takes the lowest free slot when it
+joins and keeps it. The match takes as many players as the host chose (2 to 4); one more is refused (`party full`). A
+party lasts one game session: when the game leaves its session everyone in it leaves the party, so the next match has
+its own party, room, relay and endpoints, and a former host can join a friend's match. One local player per PC is online
+(the controller that chose ONLINE); the game's own Live check keeps other local players out, because only that controller
+gets the online profile.
+
+While Online play is signed in, the controller that chose **ONLINE** (the first one until then) sees a title-local Xbox LIVE profile: signed in, multiplayer
 allowed, the Online name as gamer name and a stable XUID derived from the friend code (never from the private token).
 With Online play Off nothing changes: no sign-in, no service, no relay, no test and no telemetry, and every local feature
 (local multiplayer, achievements, leaderboards, Gamer Card, player names) behaves as before.
@@ -73,12 +83,16 @@ the world, each console owns its own turtles, and the four consoles form a full 
 that and answers the calls underneath it (`src/player_match_hook.cpp`, `src/player_match_net_hook.cpp`):
 
 - `XUserGetSigninState`, `XUserCheckPrivilege`, `XUserGetSigninInfo`, `XUserGetXUID`, `XUserGetName`,
-  `XNetGetTitleXnAddr`: the title-local LIVE profile of the first controller.
+  `XNetGetTitleXnAddr`: the title-local LIVE profile of the controller that chose ONLINE.
 - `XSessionCreate` (host) advertises the party's session to its members; `XSessionSearchEx` returns it;
   `XSessionCreate` with a listed session joins it; `XSessionJoinRemote`/`XSessionLeaveRemote` add and remove members;
   `XSessionGetDetails` reports the real member list (up to four, with slot counts and state); `XSessionDelete` leaves.
-- `XNetXnAddrToInAddr` maps a participant's XNADDR to a synthetic address (10.83.x.y); QoS answers with the host's
-  advertised listen data.
+- XLIVEBASE `0x0005800E` is `XUserMuteListQuery`, behind the scripts' `PLT_IsPlayerMuted`: this port has no voice chat, so
+  nobody is muted. `PLT_GetNumPartyMembers` reads the Xbox LIVE Party through `XamPartyGetUserList`, which the runtime
+  answers with no party, so the lobby's Invite Friends always takes the `XamShowFriendsUI` branch, guests or not.
+- `XNetXnAddrToInAddr` maps a participant's XNADDR to a synthetic address (10.83.x.y), hashed from its XUID; a member whose
+  address is taken moves to the next free one, in slot order so every console agrees, and keeps it until it leaves. QoS
+  answers with the host's advertised listen data.
 - The game's datagram sockets become shim handles. `WSASendTo`/`sendto` to a participant's synthetic address go to that
   participant's transport; `WSARecvFrom` completes at once when a datagram is waiting, or stays pending (overlapped,
   error 997) and is completed by the network pump every presented frame, which sets its event;
@@ -98,8 +112,12 @@ not end the party.
 Direct UDP is always tried first; the relay is the automatic fallback. There is one relay: the online service over the
 WebSocket every member already has. Relay frames are binary messages (`"SR"`, version 2, type, source slot,
 destination slot, token, sequence, length; at most 1472 bytes); the service checks the sender, destination, match
-generation, token, size and rate before routing, and a frame never leaves its own match. A relayed pair does not survive
-a lost service connection (30 s of seat grace in the match room). Every match has one 15 s establishment budget.
+generation, token, size and rate before routing, and a frame never leaves its own match. Congestion loses frames as a
+network would; only a peer that stays behind ends its pair. A relayed pair waits up to 30 s (the room's seat grace) for a
+lost room connection to return, its datagrams lost meanwhile, and goes on over the new connection; it never outlives the
+party. A member's LAN addresses reach only members behind the same address. A game running over Direct links does not need the service once it has started: if the
+service ends the party, the game plays on and the party ends with the game's session. Every match has one 15 s
+establishment budget.
 
 ## Telemetry
 
@@ -164,9 +182,14 @@ four-client run, against an isolated test server.
 
 ## What is not covered
 
-- More than one online player per PC: the first controller carries the online profile.
+- More than one online player per PC: one controller carries the online profile.
 - Host migration: the game has none; when the host leaves, the party ends and the guests return to the menu.
 - The game's own timeouts are kept; its 15 s wait for the host's answer after joining is not tied to the
-  establishment budget.
+  establishment budget. A join the service refuses ends in the game's own failure dialog (session full, session gone,
+  unable to connect or its generic error), and the game's own join stays pending until the service has answered.
+- The UPnP check only proves the router would open a port: no mapping is kept during a match. Direct is hole punching
+  from the gameplay socket, and the relay takes over any pair that cannot punch through.
+- Closing the window ends the process at once: friends see the player offline immediately, and the room gives the seat
+  the usual 30 s grace.
 - Deployment: the online service must be published to Cloudflare by hand (`server/tmnt-lobby/README.md`) before the
   game can go online; until then Online play reports that the service is unavailable.

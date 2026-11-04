@@ -8,7 +8,7 @@ namespace {
 
 constexpr size_t kMaxDatagram = 2048;
 constexpr size_t kMaxWaiting = 64;
-// About four seconds of a match's traffic: a consumer this far behind has stalled.
+// About four seconds of a match's traffic; a consumer this far behind loses the oldest, as a socket buffer would.
 constexpr size_t kMaxRelayQueued = 256;
 
 void Sample(std::vector<size_t>& sizes, size_t size) {
@@ -74,7 +74,9 @@ void OnlineGameSocket::SelectRelay(int peer_slot) {
 
 void OnlineGameSocket::CloseRelayPeer(int peer_slot) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (peer_slot >= 1 && peer_slot <= kMaxSlot) relay_peers_[peer_slot] = {};
+  if (peer_slot < 1 || peer_slot > kMaxSlot) return;
+  relay_peers_[peer_slot] = {};
+  peer_endpoints_[peer_slot] = {};
 }
 
 void OnlineGameSocket::CloseRelay() {
@@ -83,6 +85,8 @@ void OnlineGameSocket::CloseRelay() {
   relay_slot_ = 0;
   relay_send_ = nullptr;
   relay_peers_ = {};
+  peer_endpoints_ = {};
+  waiting_.clear();
 }
 
 bool OnlineGameSocket::relay_open() const {
@@ -104,15 +108,10 @@ bool OnlineGameSocket::DeliverRelay(const uint8_t* data, size_t size) {
     return false;
   }
   PeerRelay& peer = relay_peers_[frame->src];
-  if (!peer.failure.empty()) {
-    ++traffic_.relay_rejected;
-    ++peer_traffic_[frame->src].relay_rejected;
-    return false;
-  }
   if (peer.in.size() >= kMaxRelayQueued) {
-    peer.failure = "receive_overflow";
-    peer.in.clear();
-    return false;
+    peer.in.pop_front();
+    ++traffic_.relay_dropped;
+    ++peer_traffic_[frame->src].relay_dropped;
   }
   ++traffic_.relay_rx_packets;
   ++peer_traffic_[frame->src].relay_rx_packets;
@@ -120,11 +119,6 @@ bool OnlineGameSocket::DeliverRelay(const uint8_t* data, size_t size) {
   Sample(traffic_.relay_rx_sizes, frame->payload.size());
   peer.in.push_back(std::move(frame->payload));
   return true;
-}
-
-std::string OnlineGameSocket::relay_failure(int peer_slot) const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return peer_slot >= 1 && peer_slot <= kMaxSlot ? relay_peers_[peer_slot].failure : std::string();
 }
 
 void OnlineGameSocket::SetDirectFilter(std::function<bool(const Endpoint&)> allow) {
@@ -162,13 +156,15 @@ PeerTraffic OnlineGameSocket::peer_traffic(int peer_slot) const {
 
 bool OnlineGameSocket::SendRelayLocked(int peer_slot, const uint8_t* data, size_t size) {
   PeerRelay& peer = relay_peers_[peer_slot];
-  if (!peer.failure.empty() || !relay_send_) return false;
+  if (!relay_send_) return false;
   std::vector<uint8_t> frame =
       EncodeRelayFrame(uint8_t(relay_slot_), uint8_t(peer_slot), relay_token_, ++peer.seq, data, size);
   if (frame.empty()) return false;
+  // The room connection is away: a lost datagram, as on a network. The session decides when the pair is over.
   if (!relay_send_(std::move(frame))) {
-    peer.failure = "send_refused";
-    return false;
+    ++traffic_.relay_dropped;
+    ++peer_traffic_[peer_slot].relay_dropped;
+    return true;
   }
   ++traffic_.relay_tx_packets;
   ++peer_traffic_[peer_slot].relay_tx_packets;

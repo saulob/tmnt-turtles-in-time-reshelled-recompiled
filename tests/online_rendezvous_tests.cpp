@@ -2,6 +2,7 @@
 // candidates, and the punch whose acknowledgement alone proves a path. In memory: no socket is opened.
 // Run: tmnt_online_rendezvous_tests
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -184,6 +185,16 @@ void TestCandidates() {
   lan.same_network = true;
   c = PeerCandidates(lan, {"192.168.1.9"}, kWilliam);
   CHECK(!c.empty() && c[0].endpoint == (Endpoint{0x7F000001, 7002}));
+
+  // A "LAN" address that is none is never dialled, even from the same network.
+  lan.lan = {"192.168.1.9", "8.8.8.8", "0.0.0.0", "not-an-ip", "2804:14d::1", "169.254.1.1"};
+  c = PeerCandidates(lan, {"127.0.0.1", "192.168.1.5"}, kWilliam);
+  CHECK(c.size() == 4 && c[0].endpoint == (Endpoint{0xC0A80109, 7002}) && c[1].endpoint == (Endpoint{0xA9FE0101, 7002}) &&
+        c[2].type == CandidateType::kStun && c[3].type == CandidateType::kObserved);
+  // Loopback only ever means this PC: a peer on another PC of the network gets none.
+  lan.lan = {"127.0.0.1", "192.168.1.9"};
+  c = PeerCandidates(lan, {"127.0.0.1", "192.168.1.5"}, kWilliam);
+  CHECK(std::none_of(c.begin(), c.end(), [](const Candidate& x) { return x.endpoint.address == 0x7F000001; }));
 }
 
 void TestPunchPacketFormat() {

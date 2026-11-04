@@ -156,6 +156,10 @@ bool http_get(const std::string& ws_url, const std::string& path, int timeout_ms
   HINTERNET session = WinHttpOpen(L"TMNTPC", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                   WINHTTP_NO_PROXY_BYPASS, 0);
   if (!session) {
+    session = WinHttpOpen(L"TMNTPC", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
+                              WINHTTP_NO_PROXY_BYPASS, 0);
+  }
+  if (!session) {
     if (error) *error = Describe("WinHTTP", GetLastError());
     return false;
   }

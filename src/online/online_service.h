@@ -53,8 +53,7 @@ struct ServiceConfig {
   // Receives the path of the support beacon for each finished Connection Test (best effort; must not block). The
   // default fetches it from the service on a detached thread.
   std::function<void(const std::string& path)> test_beacon;
-  // Called (with the service locked; it must not call back into the service) once the party of an accepted invite
-  // that names a game session is joined.
+  // Called once the party of an accepted invite that names a game session is joined.
   std::function<void(const AcceptedInvite&)> invite_accepted;
 };
 
@@ -142,6 +141,9 @@ class OnlineService {
   void DropAcceptedInvite(const std::string& reason);
   void KickFromParty(const std::string& player);
   void LeaveParty();
+  // The game left its session: a party serves one game session, so whoever was in it leaves it, and the next match gets
+  // its own party, room and relay. An accepted invite the game has not joined yet keeps its party.
+  void LeaveFinishedMatch();
   std::optional<Party> party() const;
   int my_slot() const;
   std::vector<Invite> Invites() const;
@@ -166,6 +168,12 @@ class OnlineService {
   std::vector<PlayerMatchAd> PlayerMatchResults(uint32_t epoch) const;
   // False when the session is not among the last results or this player is not connected.
   bool JoinPlayerMatch(const std::string& session);
+  // The join under way, then the service's refusal of the last one; `refused` stays empty for a join it accepted.
+  struct PlayerMatchJoinAnswer {
+    bool pending = false;
+    std::string refused;
+  };
+  PlayerMatchJoinAnswer JoinAnswer() const;
 
   bool SignedIn() const;
   OnlineProfile Profile() const;
@@ -174,7 +182,10 @@ class OnlineService {
   std::vector<ActivePeer> Peers() const;
   void TestConnection();
   // A DEBUG_SAULO line from the launcher page, in the same log.
-  void LogLine(const std::string& line) { Log(line); }
+  void LogLine(const std::string& line) {
+    Log(line);
+    FlushLog();
+  }
   // From the game runtime, for one peer.
   void SetPeerLink(int slot, NetplayLink link);
 
@@ -224,7 +235,9 @@ class OnlineService {
   bool Connected() const { return step_ == Step::kOnline; }
   void Notice(const std::string& text);
   void Log(const std::string& line);
+  void FlushLog();
   void Disable();
+  void StartTest();
   void CollectTest();
   bool EnsureIdentity();
   std::string SessionName() const;
@@ -232,8 +245,14 @@ class OnlineService {
 
   // The party and its room.
   void AdoptAccess(const PartyAccess& access);
+  void AdoptHostAccess(const PartyAccess& access);
   void OnParty(const Party& party);
   void EndParty(const std::string& reason);
+  // The service ended the party; a game running over direct links outlives that.
+  void ServiceEndedParty(const std::string& reason);
+  bool PlayingDirect() const;
+  void KeepPlayingWithoutService(const std::string& reason);
+  void ExpireAcceptedInvite(double now);
   void OpenRoom(double now);
   void PumpRoom(double now);
   void OnRoomEvent(const ChannelEvent& event, double now);
@@ -252,11 +271,19 @@ class OnlineService {
   void SendTestBeacon(const ConnectionReport& report);
   void DropAcceptedInviteLocked(const std::string& reason);
 
+  class Locked;
+
   ServiceConfig config_;
   mutable std::mutex mutex_;
+  // Lines wait here while the service is locked, since the game's threads wait on that lock. Also written from the
+  // gameplay socket's threads, which do not hold it.
+  std::mutex log_mutex_;
+  std::vector<std::string> log_queue_;
+  std::optional<AcceptedInvite> announce_invite_;  // goes out once the service is unlocked
   UserSettings settings_;
   Identity identity_;
   bool identity_loaded_ = false;
+  double next_identity_try_ = 0;
 
   Connection connection_ = Connection::kOff;
   std::string connection_text_;
@@ -291,10 +318,15 @@ class OnlineService {
   int search_generation_ = 0;
   uint32_t search_epoch_ = 0;
   double search_answered_at_ = -1e9;
+  bool search_from_game_ = false;  // ends once the game stops asking
+  double search_asked_at_ = 0;
   std::vector<Invite> invites_;
   std::optional<AcceptedInvite> accepted_invite_;
   uint32_t accepted_generation_ = 0;
+  double accepted_deadline_ = 0;
   bool joining_ = false;
+  bool abandon_join_ = false;  // the game left while its join was on its way
+  std::string join_refused_;
   std::string notice_;
   double notice_at_ = 0;
   std::vector<std::string> notices_;
@@ -302,7 +334,15 @@ class OnlineService {
   std::optional<PartyAccess> access_;
   std::optional<Party> party_;
   uint32_t match_generation_ = 0;
+  bool party_check_ = false;      // signed in again: a party this client holds no seat in was left behind on the service
+  bool signaling_ended_ = false;  // the service ended the party; the game plays on until it leaves
   std::shared_ptr<LobbyChannel> room_;
+  // The relay sends from the game's threads, and must follow a room that reconnects.
+  struct RoomRoute {
+    std::mutex mutex;
+    std::weak_ptr<LobbyChannel> room;
+  };
+  std::shared_ptr<RoomRoute> room_route_ = std::make_shared<RoomRoute>();
   RoomStep room_step_ = RoomStep::kNone;
   double room_deadline_ = 0;
   double room_retry_at_ = 0;
@@ -331,6 +371,7 @@ class OnlineService {
   std::shared_ptr<TestState> test_probe_;
   std::optional<ConnectionReport> test_;
   bool testing_ = false;
+  bool test_needs_identity_ = false;
   int tests_finished_ = 0;
 };
 

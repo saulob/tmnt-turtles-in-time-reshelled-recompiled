@@ -76,6 +76,8 @@ struct ConnectionTestRequest {
   // STUN and UPnP use one socket bound to the first of these that is free, as the game's socket is, and never
   // another port. Empty: any free port.
   std::vector<uint16_t> game_ports = {7001, 7002, 7003, 7004};
+  // The port the game's own socket already holds: STUN then runs beside it, and the report and UPnP are about this one.
+  uint16_t game_port = 0;
   std::function<net::upnp::Status(uint16_t port)> probe_upnp = net::upnp::Probe;
 };
 

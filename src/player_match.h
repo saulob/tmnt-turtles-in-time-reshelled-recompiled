@@ -18,16 +18,24 @@ inline constexpr uint32_t kSignedInToLive = 2;
 // XUSER_SIGNIN_INFO flags: online-enabled profile, never a guest.
 inline constexpr uint32_t kSigninInfoOnlineEnabled = 0x1;
 
-// The controller that owns the title-local LIVE profile. Other local players keep their offline profiles, so the
-// game's own Live check keeps them out of an online match.
-inline constexpr uint32_t kOnlineUser = 0;
+// The controller that chose ONLINE owns the title-local LIVE profile, user 0 until one has. Other local players keep
+// their offline profiles, so the game's own Live check keeps them out of an online match.
+uint32_t OnlineUser();
 constexpr bool LocalUser(uint32_t user) { return user < 4; }
+
+constexpr bool LiveProfileUser(uint32_t user, uint32_t online_user, bool live) { return live && user == online_user; }
+// XUserCheckPrivilege: the title may also ask for any signed-in user.
+inline constexpr uint32_t kAnyUser = 0xFF;
+constexpr bool LivePrivilegeUser(uint32_t user, uint32_t online_user, bool live) {
+  return LiveProfileUser(user, online_user, live) || (live && user == kAnyUser);
+}
+
+// XUSER_SIGNIN_INFO: the fields the title reads; the gamer name is cut to 15 characters.
+inline constexpr uint32_t kSigninInfoBytes = 40;
+void WriteSigninInfo(uint8_t* info, uint64_t xuid, std::string_view name);
 
 // A stable online-style XUID (0x0009 prefix) derived only from the public friend code, never from the token.
 uint64_t VirtualXuid(std::string_view friend_code);
-
-// An online party is the host and up to three guests.
-inline constexpr uint32_t kPlayerMatchSlots = 4;
 
 // XSessionCreate flags.
 inline constexpr uint32_t kSessionCreateHost = 0x1;
@@ -49,6 +57,20 @@ std::string SessionIdText(const uint8_t* bytes);
 // nothing is written when `capacity` cannot hold them.
 uint32_t WriteSearchResults(uint8_t* header, uint32_t header_address, uint32_t capacity, uint32_t max_results,
                             const std::vector<online::PlayerMatchAd>& ads);
+
+struct SessionSlots {
+  uint32_t max_public = 0;
+  uint32_t max_private = 0;
+  constexpr uint32_t Total() const { return max_public + max_private; }
+};
+
+// The slots a search result advertises (open plus filled, public and private), as the title hands them to XSessionCreate.
+SessionSlots SearchResultSlots(const uint8_t* result);
+
+// XSessionCreate's overlapped result for a join the service answered with `code` (empty: accepted). The title's own table
+// turns these XONLINE errors into its session full, session gone and unable to connect dialogs; any other shows its
+// generic error.
+uint32_t JoinRefusalResult(const std::string& code);
 
 // XSessionSearchByID: the title requires 8 + 1326 bytes and one result in the usual search layout.
 inline constexpr uint32_t kSearchByIdBytes = 1334;

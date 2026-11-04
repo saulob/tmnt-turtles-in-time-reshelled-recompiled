@@ -290,12 +290,19 @@ test('the match as a whole has a budget too: four fast senders exceed it where t
   assert.ok(flood(4) > 0);
 });
 
-test('a peer that cannot take frames ends that pair\'s relay only', () => {
+test('a peer that stops taking frames loses them, and only one that stays behind ends that pair\'s relay', () => {
   const env = makeHub();
   const { rooms, token, match } = buildParty(env, 4);
   rooms[2].buffered = RELAY.bufferedBytes + 1;
   rooms[1].relay(encodeRelayFrame(2, 3, token, 1, bytes(1)));
   assert.equal(rooms[2].binary.length, 0);
+  assert.deepEqual(rooms[1].events('relay.closed'), []);  // a moment of congestion is not the end of the pair
+  rooms[2].buffered = 0;
+  rooms[1].relay(encodeRelayFrame(2, 3, token, 2, bytes(1)));
+  assert.equal(rooms[2].binary.length, 1);
+  rooms[2].binary.length = 0;
+  rooms[2].buffered = RELAY.bufferedBytes + 1;
+  for (let seq = 3; seq < RELAY.overrunsToClose + 3; seq++) rooms[1].relay(encodeRelayFrame(2, 3, token, seq, bytes(1)));
   assert.deepEqual(rooms[1].events('relay.closed'), [{ ev: 'relay.closed', peer: 3, reason: 'peer_backpressure' }]);
   assert.deepEqual(rooms[2].events('relay.closed'), [{ ev: 'relay.closed', peer: 2, reason: 'peer_backpressure' }]);
   rooms[2].buffered = 0;
@@ -372,7 +379,7 @@ test('pairs of one room can be direct, relayed and undecided at once, each on it
 
   rooms[2].buffered = RELAY.bufferedBytes + 1;
   clear(rooms);
-  rooms[0].relay(encodeRelayFrame(1, 3, token, 2, bytes(1)));
+  for (let seq = 2; seq < RELAY.overrunsToClose + 2; seq++) rooms[0].relay(encodeRelayFrame(1, 3, token, seq, bytes(1)));
   assert.deepEqual(rooms[0].events('relay.closed'), [{ ev: 'relay.closed', peer: 3, reason: 'peer_backpressure' }]);
   rooms[2].buffered = 0;
   clear(rooms);

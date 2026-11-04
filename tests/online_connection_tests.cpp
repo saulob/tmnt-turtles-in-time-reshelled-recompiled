@@ -755,6 +755,40 @@ void TestSecondInstanceTestsTheSecondPort() {
   CHECK(Find(report, "Direct connections")->text.find("on UDP port 58132") != std::string::npos);
 }
 
+// The game's own socket already holds its port while the launcher is open: the report and UPnP stay about that port,
+// and STUN runs beside it, even when every other port is taken too.
+void TestThePortTheGameHoldsIsTheOneReported() {
+  PortHolder game(58131);
+  PortHolder other(58132);
+  CHECK(game.held() && other.held());
+  FakeStun first;
+  ConnectionTestRequest request = RequestFor("ws://127.0.0.1:1/");
+  request.stun = first.address();
+  request.game_ports = {58131, 58132, 0};
+  request.game_port = 58131;
+  request.upnp = true;
+  std::vector<uint16_t> mapped_ports;
+  request.probe_upnp = [&mapped_ports](uint16_t port) {
+    mapped_ports.push_back(port);
+    net::upnp::Status status;
+    status.state = net::upnp::State::kFailed;
+    status.detail = "no router (test)";
+    return status;
+  };
+  const ConnectionReport report = RunConnectionTest(request);
+  CHECK(Detail(report, "the game's socket holds UDP port 58131"));
+  CHECK(mapped_ports == std::vector<uint16_t>{58131});
+  CHECK(Find(report, "Direct connections")->text.find("on UDP port 58131") != std::string::npos);
+
+  // Whether a side socket could open or not, the game's port is open.
+  ConnectionTestRequest none = RequestFor("ws://127.0.0.1:1/");
+  none.stun = first.address();
+  none.game_ports = {58131, 58132};
+  none.game_port = 58131;
+  const ConnectionReport held = RunConnectionTest(none);
+  CHECK(Find(held, "Direct connections")->text.find("Cannot open UDP port") == std::string::npos);
+}
+
 // Neither multiplayer port can be opened: said plainly, never tested from some other port instead.
 void TestBindFailureIsReportedNotWorkedAround() {
   PortHolder a(58131), b(58132);
@@ -956,6 +990,7 @@ int main() {
   TestStunAndUpnpRunFromTheGamePort();
   TestMappedPortIsReportedExactly();
   TestSecondInstanceTestsTheSecondPort();
+  TestThePortTheGameHoldsIsTheOneReported();
   TestBindFailureIsReportedNotWorkedAround();
   TestTimeout();
   if (const char* url = std::getenv("TMNT_LOBBY_TEST_URL"); url && *url) TestAgainstTheRealService(url);

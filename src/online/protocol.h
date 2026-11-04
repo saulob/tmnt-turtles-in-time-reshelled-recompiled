@@ -57,6 +57,7 @@ struct Invite {
   std::string from_player;
   std::string from_name;
   std::string session;  // the host's advertised game session; empty when the host has none
+  int slots = kMaxParty;  // the player slots of that session
 };
 
 // The invite the player accepted, kept until the game joins it or it ends.
@@ -67,6 +68,7 @@ struct AcceptedInvite {
   std::string host_name;
   std::string invite;
   bool ready = false;  // the party is joined, so the game can be told
+  int slots = kMaxParty;
 };
 
 enum class MemberState { kJoined, kConnecting, kConnected, kDisconnected };
@@ -93,6 +95,7 @@ struct Party {
   std::string host;  // the host's friend code
   int generation = 0;
   std::string session;  // the host's game-session advertisement, once the game has made one
+  int slots = kMaxParty;  // the most players that session takes
   std::vector<PartyMember> members;
   std::vector<PartyInvited> invited;
   const PartyMember* member(int slot) const;
@@ -246,8 +249,12 @@ std::vector<uint8_t> BytesOfHex(std::string_view hex);
 // "abcd 2345" and "ABCD-2345" both give "ABCD-2345"; empty when the text is not a friend code.
 std::string NormalizeFriendCode(std::string_view text);
 
+// User-facing sentence for an ended invite; empty when the ending needs no explanation.
+std::string DescribeInviteEnded(const std::string& reason, bool received);
 // User-facing sentence for a service error code.
 std::string DescribeServiceError(const std::string& code);
+// The same for a join or an accept, where "not found" is a match rather than a friend code.
+std::string DescribeJoinError(const std::string& code);
 
 // The same rule the game sessions need: same recompiled image and same netplay build.
 bool GuestsCompatible(const std::string& guest_a, int build_a, const std::string& guest_b, int build_b);

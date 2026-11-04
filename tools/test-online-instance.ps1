@@ -60,6 +60,11 @@ try {
     Check ((LineValue $a 'settings') -eq (Join-Path $userA 'settings.toml')) 'summary a shows its settings file'
     Check ((LineValue $b 'settings') -eq (Join-Path $userB 'settings.toml')) 'summary b shows its settings file'
 
+    foreach ($settings in @($settingsA, $settingsB)) {
+        $bad = @($settings | Where-Object { $_ -match '\S' -and $_ -notmatch '^\s*#' -and $_ -notmatch '^[A-Za-z0-9_]+ = (true|false|-?\d+|"[^"\\]*")$' })
+        Check ($bad.Count -eq 0) "generated settings are valid TOML values: $bad"
+    }
+
     $fileA = LineValue $a 'log file'
     $fileB = LineValue $b 'log file'
     Check ($fileA -eq (Join-Path $logsA 'tmnt_turtles_in_time_reshelled_a_001.log')) 'log a is named after the instance'

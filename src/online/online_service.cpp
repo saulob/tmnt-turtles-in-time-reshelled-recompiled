@@ -19,6 +19,7 @@ constexpr double kNameSettleSeconds = 1.5;
 constexpr double kLeaveFlushSeconds = 2.0;
 constexpr double kNoticeSeconds = 12.0;
 constexpr double kHostRefreshSeconds = 60.0;
+constexpr double kHostRetrySeconds = 5.0;
 constexpr double kSearchSeconds = 3.0;
 constexpr double kSearchFreshSeconds = 1.0;
 constexpr double kSearchTimeoutSeconds = 5.0;
@@ -27,6 +28,9 @@ constexpr double kGameStartTimeoutSeconds = 30.0;
 constexpr double kTelemetryAckSeconds = 20.0;
 constexpr double kBeaconTimeoutMs = 3000;
 constexpr int kRoomHelloRetries = 5;
+constexpr double kAcceptedInviteSeconds = 60.0;
+constexpr double kSearchIdleSeconds = 10.0;
+constexpr double kIdentityRetrySeconds = 0.25;
 
 bool Fatal(const std::string& code) {
   return code == "proto" || code == "bad_game" || code == "bad_guest" || code == "unauthorized";
@@ -35,6 +39,23 @@ bool Fatal(const std::string& code) {
 const char* Flag(bool value) { return value ? "true" : "false"; }
 
 }  // namespace
+
+class OnlineService::Locked {
+ public:
+  explicit Locked(OnlineService& service) : service_(service) { service_.mutex_.lock(); }
+  ~Locked() {
+    std::optional<AcceptedInvite> invite;
+    invite.swap(service_.announce_invite_);
+    service_.mutex_.unlock();
+    service_.FlushLog();
+    if (invite && service_.config_.invite_accepted) service_.config_.invite_accepted(*invite);
+  }
+  Locked(const Locked&) = delete;
+  Locked& operator=(const Locked&) = delete;
+
+ private:
+  OnlineService& service_;
+};
 
 struct OnlineService::TestState {
   std::mutex mutex;
@@ -97,6 +118,7 @@ void OnlineService::Disable() {
   results_.clear();
   invites_.clear();
   DropAcceptedInviteLocked("disabled");
+  if (joining_) join_refused_ = "link_lost";
   joining_ = false;
   friend_code_.clear();
   fetched_ = false;
@@ -106,13 +128,14 @@ void OnlineService::Disable() {
   notices_.clear();
   test_.reset();
   testing_ = false;
+  test_needs_identity_ = false;
   test_probe_.reset();
   retry_at_ = 0;
   retry_delay_ = 1.0;
 }
 
 void OnlineService::Update(double now) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   now_ = now;
   if (leaving_) {
     ChannelEvent event;
@@ -124,6 +147,7 @@ void OnlineService::Update(double now) {
     }
   }
   if (!settings_.enabled) return;
+  if (test_needs_identity_) StartTest();
   CollectTest();
   if (step_ == Step::kIdle && !channel_ && now >= retry_at_) OpenChannel(now);
   PumpChannel(now);
@@ -137,6 +161,7 @@ void OnlineService::Update(double now) {
     }
   }
   UpdateGameStart(now);
+  ExpireAcceptedInvite(now);
   const bool opening = step_ == Step::kOpening || step_ == Step::kGreeting;
   if (opening && now > step_deadline_) OnLinkLost("timeout", now);
   if (step_ != Step::kOnline) return;
@@ -194,7 +219,8 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
         if (channel_) channel_->Close();
         channel_.reset();
         step_ = Step::kIdle;
-        retry_at_ = now + (Fatal(message.code) ? kFatalRetrySeconds : retry_delay_);
+        retry_at_ = now + (Fatal(message.code) || message.code == "limit" ? kFatalRetrySeconds : retry_delay_);
+        retry_delay_ = std::min(retry_delay_ * 2, kMaxRetrySeconds);
         return;
       }
       OnGreeted(message, now);
@@ -232,9 +258,11 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       if (!hosting_) break;
       if (!ok) {
         Log("DEBUG_SAULO player_match advertise failed code=" + message.code);
+        if (hosting_session_.empty()) next_host_refresh_ = now_ + kHostRetrySeconds;
         break;
       }
-      if (message.access && !access_) AdoptAccess(*message.access);
+      if (message.access) AdoptHostAccess(*message.access);
+      if (!hosting_) break;
       if (message.session != hosting_session_) {
         hosting_session_ = message.session;
         Log("DEBUG_SAULO player_match advertise session_id=" + hosting_session_);
@@ -256,21 +284,28 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       ++search_generation_;
       search_answered_at_ = now_;
       break;
-    case Purpose::kPlayerMatchJoin:
+    case Purpose::kPlayerMatchJoin: {
+      const bool abandoned = abandon_join_;
       joining_ = false;
+      abandon_join_ = false;
       if (accepted_invite_ && accepted_invite_->session == pending.player) {
         DropAcceptedInviteLocked(ok ? "joined" : "join_rejected_" + message.code);
       }
       if (!ok) {
-        Notice(DescribeServiceError(message.code));
+        join_refused_ = message.code;
+        Notice(DescribeJoinError(message.code));
         Log("DEBUG_SAULO player_match join failed code=" + message.code);
         Emit({"join_failed", 0, {{"reason", message.code}}});
+      } else if (abandoned) {
+        Log("DEBUG_SAULO player_match join answered after the game left");
+        if (message.access) Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
       } else {
         Log("DEBUG_SAULO player_match join complete session=" + pending.player);
         if (message.access && !party_) AdoptAccess(*message.access);
         Emit({"join_completed", 0, {}});
       }
       break;
+    }
     case Purpose::kPartyCreate:
       if (!ok || !message.access) {
         Notice(DescribeServiceError(ok ? "bad_request" : message.code));
@@ -294,7 +329,7 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
                                     [&](const Invite& i) { return i.id == pending.player; }),
                      invites_.end());
       if (!ok || !message.access) {
-        Notice(DescribeServiceError(ok ? "bad_request" : message.code));
+        Notice(DescribeJoinError(ok ? "bad_request" : message.code));
         Log("DEBUG_SAULO party invite accept failed code=" + message.code);
         if (accepted_invite_ && accepted_invite_->invite == pending.player) DropAcceptedInviteLocked("accept_rejected_" + message.code);
         if (message.code != "party_full") Emit({"join_failed", 0, {{"reason", message.code}}});
@@ -304,8 +339,9 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       Emit({"join_completed", 0, {}});
       if (accepted_invite_ && accepted_invite_->invite == pending.player) {
         accepted_invite_->ready = true;
+        accepted_deadline_ = now + kAcceptedInviteSeconds;
         Log("DEBUG_SAULO accepted invite ready generation=" + std::to_string(accepted_invite_->generation));
-        if (config_.invite_accepted) config_.invite_accepted(*accepted_invite_);
+        announce_invite_ = accepted_invite_;
       }
       break;
     case Purpose::kTelemetry:
@@ -343,8 +379,9 @@ void OnlineService::OnGreeted(const ServerMessage& message, double now) {
     Log("DEBUG_SAULO online service capabilities protocol=legacy relay_supported=false");
   }
   if (was_reconnecting) Emit({"worker_reconnect", 0, {}});
+  party_check_ = true;
   Refresh();
-  if (hosting_) SendPlayerMatchHost();
+  if (hosting_ && !signaling_ended_) SendPlayerMatchHost();
   (void)now;
 }
 
@@ -390,9 +427,12 @@ void OnlineService::OnServerEvent(const ServerMessage& message, double now) {
       break;
     }
     case Kind::kInviteEnded: {
+      const size_t before = invites_.size();
       invites_.erase(std::remove_if(invites_.begin(), invites_.end(),
                                     [&](const Invite& i) { return i.id == message.invite_id; }),
                      invites_.end());
+      const std::string ended = DescribeInviteEnded(message.reason, invites_.size() != before);
+      if (!ended.empty()) Notice(ended);
       if (accepted_invite_ && !accepted_invite_->ready && accepted_invite_->invite == message.invite_id) {
         DropAcceptedInviteLocked("invite_ended_" + message.reason);
       }
@@ -403,7 +443,7 @@ void OnlineService::OnServerEvent(const ServerMessage& message, double now) {
       if (message.party) OnParty(*message.party);
       break;
     case Kind::kPartyEnded:
-      if (party_ && party_->match == message.match_id) EndParty(message.reason);
+      if (party_ && party_->match == message.match_id) ServiceEndedParty(message.reason);
       break;
     default:
       break;
@@ -419,9 +459,11 @@ void OnlineService::OnLinkLost(const std::string& why, double now) {
   const bool was_online = step_ == Step::kOnline;
   step_ = Step::kIdle;
   hosting_session_.clear();
+  if (joining_) join_refused_ = "link_lost";
   joining_ = false;
   invites_.clear();
-  DropAcceptedInviteLocked("link_lost");
+  // A joined party lives on its room, which this link does not carry.
+  if (accepted_invite_ && !accepted_invite_->ready) DropAcceptedInviteLocked("link_lost");
   for (Friend& f : friends_) {
     f.online = false;
     f.state = FriendState::kOffline;
@@ -435,7 +477,11 @@ void OnlineService::OnLinkLost(const std::string& why, double now) {
 }
 
 void OnlineService::PumpPlayerMatch() {
-  if (hosting_ && now_ >= next_host_refresh_) SendPlayerMatchHost();
+  if (hosting_ && !signaling_ended_ && now_ >= next_host_refresh_) SendPlayerMatchHost();
+  if (searching_ && search_from_game_ && now_ - search_asked_at_ >= kSearchIdleSeconds) {
+    Log("DEBUG_SAULO player_match search ended: the game stopped asking");
+    StopPlayerMatchSearch();
+  }
   if (searching_ && now_ >= next_search_) SendPlayerMatchSearch();
 }
 
@@ -448,7 +494,7 @@ void OnlineService::SendPlayerMatchHost() {
 }
 
 void OnlineService::HostPlayerMatch(const PlayerMatchRules& rules, int slots) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const bool fresh = !hosting_;
   hosting_ = rules;
   hosting_slots_ = std::clamp(slots, 2, kMaxParty);
@@ -457,7 +503,7 @@ void OnlineService::HostPlayerMatch(const PlayerMatchRules& rules, int slots) {
 }
 
 void OnlineService::CancelPlayerMatch() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (!hosting_) return;
   hosting_.reset();
   hosting_session_.clear();
@@ -475,21 +521,24 @@ std::vector<PlayerMatchAd> OnlineService::PlayerMatchResults() const {
     ad.session = accepted_invite_->session;
     ad.player = accepted_invite_->host;
     ad.name = accepted_invite_->host_name;
-    ad.slots = kMaxParty;
+    ad.slots = accepted_invite_->slots;
     results.push_back(ad);
   }
   return results;
 }
 
 bool OnlineService::JoinPlayerMatch(const std::string& session) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const bool known = std::any_of(results_.begin(), results_.end(), [&](const PlayerMatchAd& ad) { return ad.session == session; }) ||
                      (accepted_invite_ && accepted_invite_->ready && accepted_invite_->session == session);
   if (!Connected() || !known || joining_) {
+    join_refused_ = !Connected() ? "link_lost" : !known ? "not_found" : "busy";
     Log("DEBUG_SAULO player_match join refused");
     return false;
   }
   joining_ = true;
+  abandon_join_ = false;
+  join_refused_.clear();
   StopPlayerMatchSearch();
   Emit({"join_started", 0, {}});
   Log("DEBUG_SAULO player_match join begin");
@@ -497,17 +546,26 @@ bool OnlineService::JoinPlayerMatch(const std::string& session) {
   return true;
 }
 
-bool OnlineService::CreateParty() {
+OnlineService::PlayerMatchJoinAnswer OnlineService::JoinAnswer() const {
   std::lock_guard<std::mutex> lock(mutex_);
+  return {joining_, join_refused_};
+}
+
+bool OnlineService::CreateParty() {
+  Locked lock(*this);
   if (!Connected() || party_) return false;
   Send(Purpose::kPartyCreate, [](int seq) { return EncodePartyCreate(seq); });
   return true;
 }
 
 bool OnlineService::InviteToParty(const std::string& player) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (!Connected() || !party_ || !access_ || access_->slot != 1) {
     Notice("Start a party first.");
+    return false;
+  }
+  if (hosting_ && hosting_session_.empty()) {
+    Notice("The match is not ready yet.");
     return false;
   }
   Send(Purpose::kInviteSend, [&player](int seq) { return EncodeInviteSend(seq, player); }, player);
@@ -515,13 +573,18 @@ bool OnlineService::InviteToParty(const std::string& player) {
 }
 
 bool OnlineService::AcceptPartyInvite(const std::string& invite) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const bool known = std::any_of(invites_.begin(), invites_.end(), [&](const Invite& i) { return i.id == invite; });
-  if (!Connected() || !known || party_) return false;
+  if (!Connected() || !known) return false;
+  if (party_) {
+    Notice("Leave your party before joining another.");
+    return false;
+  }
+  if (accepted_invite_ && !accepted_invite_->ready) return false;
   const auto found = std::find_if(invites_.begin(), invites_.end(), [&](const Invite& i) { return i.id == invite; });
   DropAcceptedInviteLocked("replaced");
   if (!found->session.empty()) {
-    accepted_invite_ = AcceptedInvite{++accepted_generation_, found->session, found->from_player, found->from_name, invite, false};
+    accepted_invite_ = AcceptedInvite{++accepted_generation_, found->session, found->from_player, found->from_name, invite, false, found->slots};
     Log("DEBUG_SAULO accepted invite begin generation=" + std::to_string(accepted_generation_) + " session=" + found->session);
   }
   Emit({"join_started", 0, {}});
@@ -530,22 +593,35 @@ bool OnlineService::AcceptPartyInvite(const std::string& invite) {
 }
 
 void OnlineService::DeclinePartyInvite(const std::string& invite) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   invites_.erase(std::remove_if(invites_.begin(), invites_.end(), [&](const Invite& i) { return i.id == invite; }),
                  invites_.end());
   if (Connected()) Send(Purpose::kInviteDecline, [&invite](int seq) { return EncodeInviteDecline(seq, invite); });
 }
 
 void OnlineService::KickFromParty(const std::string& player) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (Connected() && party_ && access_ && access_->slot == 1) {
     Send(Purpose::kPartyKick, [&player](int seq) { return EncodePartyKick(seq, player); });
   }
 }
 
 void OnlineService::LeaveParty() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (!party_) return;
+  if (Connected()) Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
+  EndParty("left");
+}
+
+void OnlineService::LeaveFinishedMatch() {
+  Locked lock(*this);
+  abandon_join_ = joining_;
+  if (!party_) return;
+  if (accepted_invite_ && accepted_invite_->ready) {
+    Log("DEBUG_SAULO game left a session before joining its accepted invite; party kept");
+    return;
+  }
+  Log("DEBUG_SAULO game left its session; leaving party");
   if (Connected()) Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
   EndParty("left");
 }
@@ -567,7 +643,7 @@ std::optional<AcceptedInvite> OnlineService::AcceptedInviteInfo() const {
 }
 
 void OnlineService::DropAcceptedInvite(const std::string& reason) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   DropAcceptedInviteLocked(reason);
 }
 
@@ -575,6 +651,15 @@ void OnlineService::DropAcceptedInviteLocked(const std::string& reason) {
   if (!accepted_invite_) return;
   Log("DEBUG_SAULO accepted invite dropped generation=" + std::to_string(accepted_invite_->generation) + " reason=" + reason);
   accepted_invite_.reset();
+}
+
+// The party of an accepted invite is joined before the game is told; a game that never gets to it must not hold the seat.
+void OnlineService::ExpireAcceptedInvite(double now) {
+  if (!accepted_invite_ || !accepted_invite_->ready || joining_ || now < accepted_deadline_) return;
+  DropAcceptedInviteLocked("join_timeout");
+  Notice("The invited match could not be joined.");
+  if (Connected()) Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
+  EndParty("join_timeout");
 }
 
 std::vector<Invite> OnlineService::Invites() const {
@@ -598,21 +683,54 @@ void OnlineService::AdoptAccess(const PartyAccess& access) {
   Log("DEBUG_SAULO party joined slot=" + std::to_string(access.slot) + " diag=" + party.diag +
       " members=" + std::to_string(party.members.size()));
   party_ = party;
+  party_check_ = false;
   room_retry_at_ = 0;
   room_retry_delay_ = 1.0;
+  room_hello_failures_ = 0;
   FlushTelemetry(now_, true);
   telemetry_context_ = MakeContext(party.diag, access.slot, int(party.members.size()));
   telemetry_.SetContext(telemetry_context_, now_);
   party_started_ = now_;
 }
 
+// A host's advertisement made a party: this match's first, or a new one because the service lost the old party while
+// this client was away.
+void OnlineService::AdoptHostAccess(const PartyAccess& access) {
+  if (!access_) {
+    AdoptAccess(access);
+    return;
+  }
+  if (access.match == access_->match) return;
+  if (PlayingDirect()) {
+    Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
+    KeepPlayingWithoutService("party_replaced");
+    return;
+  }
+  const std::optional<PlayerMatchRules> hosting = hosting_;
+  const int slots = hosting_slots_;
+  const std::string qos = hosting_qos_;
+  EndParty("party_replaced");
+  hosting_ = hosting;
+  hosting_slots_ = slots;
+  hosting_qos_ = qos;
+  AdoptAccess(access);
+}
+
 void OnlineService::OnParty(const Party& party) {
-  if (access_ && !party.member(access_->slot)) {
+  if (!access_) {
+    if (!party_check_) return;
+    party_check_ = false;
+    Log("DEBUG_SAULO party left behind on the service; leaving it");
+    Send(Purpose::kPartyLeave, [](int seq) { return EncodePartyLeave(seq); });
+    return;
+  }
+  if (party.match != access_->match) return;
+  if (!party.member(access_->slot)) {
     EndParty("removed");
     return;
   }
   party_ = party;
-  if (access_) telemetry_context_.party_size = int(party.members.size());
+  telemetry_context_.party_size = int(party.members.size());
   Log("DEBUG_SAULO party update members=" + std::to_string(party.members.size()) + " invited=" +
       std::to_string(party.invited.size()));
 }
@@ -641,12 +759,39 @@ void OnlineService::EndParty(const std::string& reason) {
   DropAcceptedInviteLocked("party_ended_" + reason);
   hosting_.reset();
   hosting_session_.clear();
+  hosting_qos_.clear();
   access_.reset();
   party_.reset();
+  party_check_ = false;
+  signaling_ended_ = false;
   FlushTelemetry(now_, true);
   telemetry_.ClearReports();
   telemetry_context_ = MakeContext(lobby_diag_, 0, 0);
   telemetry_.SetContext(telemetry_context_, now_);
+}
+
+void OnlineService::ServiceEndedParty(const std::string& reason) {
+  if (reason != "kicked" && PlayingDirect()) KeepPlayingWithoutService(reason);
+  else EndParty(reason);
+}
+
+bool OnlineService::PlayingDirect() const {
+  if (!session_) return false;
+  const std::vector<PeerView> peers = session_->peers();
+  return std::any_of(peers.begin(), peers.end(), [](const PeerView& peer) {
+    return peer.transport == MatchTransport::kDirect && (peer.link == NetplayLink::kConnected || peer.link == NetplayLink::kFighting);
+  });
+}
+
+// Peers keep talking over the UDP links they proved; only the room goes away. The party ends with the game's session.
+void OnlineService::KeepPlayingWithoutService(const std::string& reason) {
+  if (signaling_ended_) return;
+  signaling_ended_ = true;
+  Log("DEBUG_SAULO party ended on the service while playing directly reason=" + reason);
+  if (room_) room_->Close();
+  room_.reset();
+  room_step_ = RoomStep::kNone;
+  if (session_) session_->OnRelayClosed(0, "service_ended", now_);
 }
 
 void OnlineService::Emit(const SessionEvent& event) {
@@ -702,7 +847,7 @@ void OnlineService::RestoreInflightTelemetry() {
 }
 
 void OnlineService::NoteGameStart() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (!session_ || !party_ || game_start_.active) return;
   game_start_ = {true, now_};
   const std::vector<PeerView> peers = session_->peers();
@@ -764,7 +909,7 @@ std::vector<ActivePeer> OnlineService::Peers() const {
 }
 
 void OnlineService::SetPeerLink(int slot, NetplayLink link) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (session_) session_->SetPeerLink(slot, link);
 }
 
@@ -838,6 +983,7 @@ void OnlineService::PumpRoom(double now) {
     if (room_) CloseRoom();
     return;
   }
+  if (signaling_ended_) return;
   if (!room_ && now >= room_retry_at_) OpenRoom(now);
   ChannelEvent event;
   while (room_ && room_->Poll(event)) OnRoomEvent(event, now);
@@ -861,8 +1007,12 @@ void OnlineService::OnRoomEvent(const ChannelEvent& event, double now) {
         break;
       }
       if (message->kind == ServerMessage::Kind::kResponse) {
-        if (message->seq == room_hello_seq_) OnRoomHello(*message, now);
-        else if (message->code != "ok") Log("DEBUG_SAULO room request failed code=" + message->code);
+        if (room_step_ == RoomStep::kGreeting && message->seq == room_hello_seq_) {
+          OnRoomHello(*message, now);
+        } else if (message->code != "ok") {
+          Log("DEBUG_SAULO room request failed code=" + message->code);
+          if (session_) session_->OnRefused(message->seq, message->code, now);
+        }
       } else {
         OnRoomMessage(*message, now);
       }
@@ -886,14 +1036,19 @@ void OnlineService::OnRoomHello(const ServerMessage& message, double now) {
       return;
     }
     if (message.code == "unauthorized" || message.code == "not_found" || message.code == "party_full") {
-      Notice(DescribeServiceError(message.code));
-      EndParty(message.code);
+      Notice(DescribeJoinError(message.code));
+      ServiceEndedParty(message.code);
       return;
     }
     OnRoomLost("refused_" + message.code, now);
     return;
   }
   room_step_ = RoomStep::kOnline;
+  // Only now: the room counts a relay frame from a connection it has not greeted against that connection.
+  {
+    std::lock_guard<std::mutex> lock(room_route_->mutex);
+    room_route_->room = room_;
+  }
   room_retry_delay_ = 1.0;
   room_hello_failures_ = 0;
   room_generation_seen_ = message.generation;
@@ -904,6 +1059,7 @@ void OnlineService::OnRoomHello(const ServerMessage& message, double now) {
   if (session_) {
     session_->OnMembers(room_members_, now);
     session_->ResendEndpoint();
+    session_->ResendReports();
   }
 }
 
@@ -924,9 +1080,12 @@ void OnlineService::StartSession(uint32_t relay_token, int generation) {
   session.full_mesh = config_.full_mesh;
   session.log = [this](const std::string& line) { Log(line); };
   session.send_text = [this](std::string&& text) { SendRoom(text); };
-  const std::weak_ptr<LobbyChannel> link = room_;
-  session.send_binary = [link](std::vector<uint8_t>&& frame) {
-    const std::shared_ptr<LobbyChannel> channel = link.lock();
+  session.send_binary = [route = room_route_](std::vector<uint8_t>&& frame) {
+    std::shared_ptr<LobbyChannel> channel;
+    {
+      std::lock_guard<std::mutex> lock(route->mutex);
+      channel = route->room.lock();
+    }
     return channel && channel->SendBinary(std::move(frame));
   };
   session.notice = [this](const std::string& text) { Notice(text); };
@@ -963,7 +1122,7 @@ void OnlineService::OnRoomMessage(const ServerMessage& message, double now) {
       break;
     case Kind::kMatchEnded:
       Log("DEBUG_SAULO room ended reason=" + message.reason);
-      if (party_) EndParty(message.reason.empty() ? "closed" : message.reason);
+      if (party_) ServiceEndedParty(message.reason.empty() ? "closed" : message.reason);
       break;
     default:
       break;
@@ -975,7 +1134,7 @@ void OnlineService::OnRoomLost(const std::string& why, double now) {
   if (room_) room_->Close();
   room_.reset();
   room_step_ = RoomStep::kNone;
-  // The relay rides this connection: a pair on it is lost, a pair still choosing goes on without it.
+  // The relay rides this connection: a pair on it waits for the room, a pair still choosing goes on without it.
   if (session_) session_->OnRelayClosed(0, "service_disconnected", now);
   room_retry_at_ = now + room_retry_delay_;
   room_retry_delay_ = std::min(room_retry_delay_ * 2, kMaxRetrySeconds);
@@ -997,7 +1156,7 @@ void OnlineService::SendRoom(const std::string& text) {
 }
 
 void OnlineService::Apply(const UserSettings& settings) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const bool was_enabled = settings_.enabled;
   const std::string before = settings_.name;
   settings_ = settings;
@@ -1007,7 +1166,7 @@ void OnlineService::Apply(const UserSettings& settings) {
 }
 
 void OnlineService::SetGuest(const std::string& guest, int build) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   config_.guest = guest;
   config_.build = build;
 }
@@ -1023,7 +1182,15 @@ void OnlineService::UpdateFriend(const Friend& entry) {
 }
 
 void OnlineService::OpenChannel(double now) {
+  now_ = now;
   if (!EnsureIdentity()) {
+    if (connection_ != Connection::kChecking) {
+      connection_ = Connection::kChecking;
+      connection_text_ = "Connecting";
+    }
+    return;
+  }
+  if (!identity_.ok()) {
     connection_ = Connection::kError;
     connection_text_ = "Online identity is unavailable.";
     retry_at_ = now + kFatalRetrySeconds;
@@ -1054,7 +1221,7 @@ void OnlineService::OnText(const std::string& text, double now) {
 }
 
 FriendRequestResult OnlineService::AddFriend(const std::string& text) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const std::string code = NormalizeFriendCode(text);
   const auto refuse = [&](FriendRequestResult result, const char* reason, const std::string& notice) {
     Log("DEBUG_SAULO online friend request failed code=" + (code.empty() ? std::string("-") : code) + " reason=" + reason);
@@ -1077,14 +1244,14 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
 }
 
 void OnlineService::AcceptFriend(const std::string& player) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   incoming_.erase(std::remove_if(incoming_.begin(), incoming_.end(), [&](const Request& r) { return r.player == player; }),
                   incoming_.end());
   Send(Purpose::kAccept, [&player](int seq) { return EncodeFriendsAccept(seq, player); });
 }
 
 void OnlineService::DeclineFriend(const std::string& player) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const auto drop = [&](std::vector<Request>& list) {
     list.erase(std::remove_if(list.begin(), list.end(), [&](const Request& r) { return r.player == player; }), list.end());
   };
@@ -1094,7 +1261,7 @@ void OnlineService::DeclineFriend(const std::string& player) {
 }
 
 void OnlineService::RemoveFriend(const std::string& player) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   friends_.erase(std::remove_if(friends_.begin(), friends_.end(), [&](const Friend& f) { return f.player == player; }),
                  friends_.end());
   Send(Purpose::kRemove, [&player](int seq) { return EncodeFriendsRemove(seq, player); });
@@ -1112,11 +1279,16 @@ void OnlineService::Send(Purpose purpose, const std::function<std::string(int)>&
 }
 
 void OnlineService::TestConnection() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (!settings_.enabled || testing_) return;
   test_.reset();
-  EnsureIdentity();
   testing_ = true;
+  StartTest();
+}
+
+void OnlineService::StartTest() {
+  test_needs_identity_ = !EnsureIdentity();
+  if (test_needs_identity_) return;
   auto state = std::make_shared<TestState>();
   test_probe_ = state;
   ConnectionTestRequest request;
@@ -1128,6 +1300,7 @@ void OnlineService::TestConnection() {
   request.stun = config_.stun;
   request.upnp = config_.upnp;
   request.game_ports = config_.game_ports;
+  if (config_.game_socket && config_.game_socket->is_open()) request.game_port = config_.game_socket->bound_port();
   auto work = [state, run = config_.test, request = std::move(request)] {
     std::optional<ConnectionReport> report;
     std::string stopped;
@@ -1186,23 +1359,40 @@ void OnlineService::Notice(const std::string& text) {
 }
 
 void OnlineService::Log(const std::string& line) {
-  if (config_.log) config_.log(line);
+  std::lock_guard<std::mutex> lock(log_mutex_);
+  log_queue_.push_back(line);
+}
+
+void OnlineService::FlushLog() {
+  std::vector<std::string> lines;
+  {
+    std::lock_guard<std::mutex> lock(log_mutex_);
+    lines.swap(log_queue_);
+  }
+  if (!config_.log) return;
+  for (const std::string& line : lines) config_.log(line);
 }
 
 std::vector<std::string> OnlineService::TakeNotices() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   std::vector<std::string> out;
   out.swap(notices_);
   return out;
 }
 
+// False while the answer is not known yet: this runs on the thread that presents, which must never wait for it.
 bool OnlineService::EnsureIdentity() {
-  if (!identity_loaded_) {
-    identity_loaded_ = true;
-    identity_ = config_.identity ? config_.identity() : Identity{};
-    if (!identity_.ok()) Log("DEBUG_SAULO online identity unavailable " + identity_.error);
+  if (identity_loaded_) return true;
+  if (now_ < next_identity_try_) return false;
+  Identity identity = config_.identity ? config_.identity() : Identity{};
+  if (identity.pending) {
+    next_identity_try_ = now_ + kIdentityRetrySeconds;
+    return false;
   }
-  return identity_.ok();
+  identity_ = std::move(identity);
+  identity_loaded_ = true;
+  if (!identity_.ok()) Log("DEBUG_SAULO online identity unavailable " + identity_.error);
+  return true;
 }
 
 std::string OnlineService::SessionName() const {
@@ -1219,7 +1409,7 @@ std::string OnlineService::NameOf(const std::string& player) const {
 }
 
 void OnlineService::SetPlayerMatchQos(const std::vector<uint8_t>& data) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   const std::string hex = HexOf(data);
   if (hex == hosting_qos_) return;
   hosting_qos_ = hex;
@@ -1228,9 +1418,10 @@ void OnlineService::SetPlayerMatchQos(const std::vector<uint8_t>& data) {
 }
 
 void OnlineService::SetPlayerMatchSearch(bool on) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   if (on) BeginPlayerMatchSearch();
   else StopPlayerMatchSearch();
+  search_from_game_ = false;
 }
 
 void OnlineService::BeginPlayerMatchSearch() {
@@ -1262,8 +1453,10 @@ bool OnlineService::PlayerMatchSearchInFlight(double* sent_at) const {
 }
 
 OnlineService::PlayerMatchSearchWait OnlineService::AskPlayerMatchSearch() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  Locked lock(*this);
   BeginPlayerMatchSearch();
+  search_from_game_ = true;
+  search_asked_at_ = now_;
   PlayerMatchSearchWait wait;
   wait.epoch = search_epoch_;
   if (!Connected()) return wait;
@@ -1274,7 +1467,7 @@ OnlineService::PlayerMatchSearchWait OnlineService::AskPlayerMatchSearch() {
     Log("DEBUG_SAULO player_match search requested for guest");
     sent_at = now_;
   }
-  const bool nothing_to_show = results_.empty();
+  const bool nothing_to_show = results_.empty() && !accepted_invite_;
   wait.pending = nothing_to_show && !fresh && now_ - sent_at < kSearchTimeoutSeconds;
   if (wait.pending) Log("DEBUG_SAULO player_match search pending");
   return wait;

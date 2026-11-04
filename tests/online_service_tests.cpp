@@ -11,10 +11,13 @@
 #include <memory>
 #include <stdexcept>
 #include <regex>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "netplay/online_game_socket.h"
 #include "online/friend_view.h"
 #include "online/online_service.h"
 #include "online/telemetry.h"
@@ -42,6 +45,15 @@ constexpr char kFriendB[] = "EFGH-6789";
 constexpr char kSession[] = "00112233445566aa";
 
 bool Contains(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+std::string ReadSource(const char* name) {
+  std::ifstream in(std::string(TMNT_SOURCE_DIR) + "/src/" + name, std::ios::binary);
+  std::stringstream text;
+  text << in.rdbuf();
+  std::string source = text.str();
+  source.erase(std::remove(source.begin(), source.end(), '\r'), source.end());
+  return source;
+}
 
 struct ChannelState {
   std::string url;
@@ -97,8 +109,13 @@ struct Rig {
   std::unique_ptr<OnlineService> service;
   std::string me;
   double now = 100;
+  int identity_pending = 0;
+  int identity_asked = 0;
+  bool delivered_probe = false;
+  bool probe_saw_party = false;
 
-  explicit Rig(const std::string& guest = kGuestBase, bool ephemeral = false, const std::string& token = kToken) {
+  explicit Rig(const std::string& guest = kGuestBase, bool ephemeral = false, const std::string& token = kToken,
+               tmnt::netplay::OnlineGameSocket* socket = nullptr) {
     ServiceConfig config;
     config.url = "wss://example.test/";
     config.guest = guest;
@@ -106,8 +123,16 @@ struct Rig {
     config.platform = "Windows";
     config.synchronous_probes = true;
     config.lan = {"127.0.0.1", "192.168.1.5"};
-    config.identity = [ephemeral, token] {
+    config.game_socket = socket;
+    config.resolve_stun = [](const std::string&) { return std::vector<tmnt::netplay::Endpoint>(); };
+    config.identity = [this, ephemeral, token] {
+      ++identity_asked;
       Identity id;
+      if (identity_pending > 0) {
+        --identity_pending;
+        id.pending = true;
+        return id;
+      }
       id.token = token;
       id.player_id = DerivePlayerId(token);
       id.ephemeral = ephemeral;
@@ -126,7 +151,10 @@ struct Rig {
       if (test_throws) throw std::runtime_error("test broke");
       return test_result;
     };
-    config.invite_accepted = [this](const AcceptedInvite& invite) { delivered.push_back(invite); };
+    config.invite_accepted = [this](const AcceptedInvite& invite) {
+      delivered.push_back(invite);
+      if (delivered_probe) probe_saw_party = service->party().has_value();
+    };
     config.test_beacon = [this](const std::string& path) {
       beacons.push_back(path);
       if (beacon_throws) throw std::runtime_error("beacon broke");
@@ -728,6 +756,549 @@ void TestInviteRefusalsAndEndings() {
   CHECK(rig.channels.size() == 1);  // no room was ever opened
 }
 
+void TestInviteEndingsAreExplainedToTheirAudience() {
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"}}");
+  rig.Feed("{\"ev\":\"invite.ended\",\"invite\":\"i1\",\"reason\":\"expired\"}");
+  CHECK(rig.service->snapshot().notice == "The invite expired.");
+  rig.Feed("{\"ev\":\"invite\",\"invite\":\"i2\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"}}");
+  rig.Feed("{\"ev\":\"invite.ended\",\"invite\":\"i2\",\"reason\":\"host_left\"}");
+  CHECK(rig.service->snapshot().notice == "The host has already left.");
+  rig.Feed("{\"ev\":\"invite\",\"invite\":\"i3\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"}}");
+  rig.Feed("{\"ev\":\"invite.ended\",\"invite\":\"i3\",\"reason\":\"party_full\"}");
+  CHECK(rig.service->snapshot().notice == "The party is full.");
+
+  // The sender hears refusals; an acceptance needs no explanation.
+  rig.Feed("{\"ev\":\"invite.ended\",\"invite\":\"sent1\",\"reason\":\"declined\"}");
+  CHECK(rig.service->snapshot().notice == "A friend declined your invite.");
+  rig.Feed("{\"ev\":\"invite.ended\",\"invite\":\"sent2\",\"reason\":\"accepted\"}");
+  CHECK(rig.service->snapshot().notice == "A friend declined your invite.");
+  CHECK(DescribeInviteEnded("accepted_elsewhere", true).empty());
+}
+
+void TestAcceptingWhileInAPartyIsExplained() {
+  Rig rig;
+  InPartyAsHost(rig);
+  rig.Feed(InviteWithSession("i1", kSession));
+  CHECK(!rig.service->AcceptPartyInvite("i1"));
+  CHECK(Contains(rig.service->snapshot().notice, "Leave your party"));
+  CHECK(rig.Count("invite.accept") == 0 && rig.service->Invites().size() == 1);
+}
+
+// A party serves one game session: whoever was in the session leaves when the game does, so the next match starts on a
+// new party, room and relay, and a former host can be a guest.
+void TestTheGameLeavingItsSessionLeavesTheParty() {
+  Rig guest;
+  guest.SignInWithFriends();
+  guest.Feed("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"},\"session\":\"\"}");
+  AcceptInviteIntoParty(guest, "i1");
+  CHECK(guest.service->party().has_value() && guest.service->my_slot() == 3);
+  guest.service->LeaveFinishedMatch();
+  CHECK(!guest.service->party() && guest.Count("party.leave") == 1);
+
+  Rig host;
+  InPartyAsHost(host);
+  OpenRoom(host);
+  host.service->HostPlayerMatch({}, 3);
+  host.service->LeaveFinishedMatch();
+  CHECK(!host.service->party() && host.Count("party.leave") == 1 && host.Room().closed);
+  CHECK(!host.service->snapshot().player_match.hosting);
+  const size_t channels = host.channels.size();
+  host.service->HostPlayerMatch({}, 4);
+  CHECK(Contains(host.LastRequest("pm.host"), "\"slots\":4"));
+  host.Reply("pm.host", std::string("\"session\":\"") + kSession + "\"," + AccessBody(1, PartyJson({MemberJson(1, host.me.c_str(), "Saulo")})));
+  host.Tick(0.1);
+  CHECK(host.channels.size() == channels + 1);  // the second match has a room of its own
+
+  Rig none;
+  none.SignInWithFriends();
+  none.service->LeaveFinishedMatch();
+  CHECK(none.Count("party.leave") == 0);
+}
+
+// The title may tear down an older session while it is on its way to the invited one.
+void TestAnAcceptedInviteSurvivesTheGamesOwnTeardown() {
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(rig, "i1");
+  rig.service->CancelPlayerMatch();
+  rig.service->LeaveFinishedMatch();
+  CHECK(rig.service->party().has_value() && rig.service->AcceptedInviteInfo().has_value());
+  CHECK(rig.Count("party.leave") == 0 && rig.CountLogs("party kept") == 1);
+  CHECK(rig.service->JoinPlayerMatch(kSession));
+  rig.Reply("pm.join", std::string("\"session\":\"") + kSession + "\"");
+  CHECK(!rig.service->AcceptedInviteInfo());
+  rig.service->LeaveFinishedMatch();
+  CHECK(!rig.service->party() && rig.Count("party.leave") == 1);
+}
+
+void TestAnAcceptedInviteOutlivesALinkLossButNotTheJoinDeadline() {
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(rig, "i1");
+  rig.Tick(0.1);
+  rig.Event(ChannelEvent::Kind::kClosed, "closed");
+  CHECK(rig.service->AcceptedInviteInfo().has_value() && rig.service->party().has_value());
+
+  // Accepted but not answered yet: the service forgets a request of a closed link, so nothing can complete it.
+  Rig early;
+  early.SignInWithFriends();
+  early.Feed(InviteWithSession("i1", kSession));
+  CHECK(early.service->AcceptPartyInvite("i1"));
+  early.Event(ChannelEvent::Kind::kClosed, "closed");
+  CHECK(early.CountLogs("accepted invite dropped generation=1 reason=link_lost") == 1);
+
+  // A game that never reaches the invited session gives its seat back.
+  Rig idle;
+  idle.SignInWithFriends();
+  idle.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(idle, "i1");
+  idle.Tick(59.0);
+  CHECK(idle.service->AcceptedInviteInfo().has_value());
+  idle.Tick(1.5);
+  CHECK(!idle.service->AcceptedInviteInfo() && !idle.service->party() && idle.Count("party.leave") == 1);
+  CHECK(idle.service->snapshot().notice == "The invited match could not be joined.");
+  CHECK(idle.CountLogs("reason=join_timeout") >= 1);
+
+  // A join on its way is not cut off.
+  Rig joining;
+  joining.SignInWithFriends();
+  joining.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(joining, "i1");
+  CHECK(joining.service->JoinPlayerMatch(kSession));
+  joining.Tick(70.0);
+  CHECK(joining.service->party().has_value() && joining.Count("party.leave") == 0);
+}
+
+void TestAJoinAnsweredAfterTheGameLeftIsUndone() {
+  Rig rig;
+  rig.SignInWithFriends();
+  CHECK(rig.service->AskPlayerMatchSearch().pending);
+  rig.Reply("pm.search", SearchAnswerFor(4));
+  CHECK(rig.service->JoinPlayerMatch(kSession));
+  rig.service->LeaveFinishedMatch();
+  rig.Reply("pm.join", std::string("\"session\":\"") + kSession + "\"," + AccessBody(2, PartyJson({MemberJson(1, kFriendA, "SauloB"), MemberJson(2, rig.me.c_str(), "Saulo")})));
+  CHECK(!rig.service->party() && rig.service->my_slot() == 0 && rig.Count("party.leave") == 1);
+}
+
+void TestASecondAcceptWaitsForTheFirst() {
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed(InviteWithSession("i1", kSession));
+  rig.Feed(InviteWithSession("i2", "aabbccddeeff0011"));
+  CHECK(rig.service->AcceptPartyInvite("i1"));
+  CHECK(!rig.service->AcceptPartyInvite("i2"));
+  CHECK(rig.Count("invite.accept") == 1 && rig.service->Invites().size() == 2);
+}
+
+// The session's own capacity reaches the game; a service that does not say offers the whole party.
+void TestAnInviteCarriesItsSessionsSlots() {
+  for (const int slots : {2, 3, 4}) {
+    Rig rig;
+    rig.SignInWithFriends();
+    rig.Feed(std::string("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"},\"session\":\"") +
+             kSession + "\",\"slots\":" + std::to_string(slots) + "}");
+    CHECK(rig.service->Invites()[0].slots == slots);
+    AcceptInviteIntoParty(rig, "i1");
+    CHECK(rig.service->AcceptedInviteInfo()->slots == slots && rig.delivered[0].slots == slots);
+    const auto results = rig.service->PlayerMatchResults();
+    CHECK(results.size() == 1 && results[0].slots == slots);
+  }
+  Rig old;
+  old.SignInWithFriends();
+  old.Feed(InviteWithSession("i1", kSession));
+  CHECK(old.service->Invites()[0].slots == kMaxParty);
+
+  Snapshot state;
+  Friend ann;
+  ann.player = "AAAA-1111";
+  ann.name = "Ann";
+  ann.online = true;
+  ann.state = FriendState::kOnline;
+  state.friends = {ann};
+  state.party = Party{};
+  state.my_slot = 1;
+  state.party->slots = 2;
+  PartyMember host;
+  host.slot = 1;
+  host.player = "HOST-0000";
+  PartyMember guest;
+  guest.slot = 2;
+  guest.player = "BBBB-2222";
+  state.party->members = {host};
+  CHECK(PartyInviteChoices(state)[0].selectable);
+  state.party->members = {host, guest};  // a two-player session is full, whatever the party's maximum
+  const std::vector<InviteChoice> full = PartyInviteChoices(state);
+  CHECK(!full[0].selectable && full[0].status == "Party full");
+}
+
+void TestAnInviteWaitsForTheAdvertisement() {
+  Rig rig;
+  InPartyAsHost(rig);
+  rig.service->HostPlayerMatch({}, 4);
+  CHECK(!rig.service->InviteToParty(kFriendA));
+  CHECK(rig.service->snapshot().notice == "The match is not ready yet." && rig.Count("invite.send") == 0);
+  rig.Reply("pm.host", std::string("\"session\":\"") + kSession + "\"");
+  CHECK(rig.service->InviteToParty(kFriendA) && rig.Count("invite.send") == 1);
+}
+
+void TestSearchEndsOnceTheGameStopsAsking() {
+  Rig rig;
+  rig.SignIn();
+  const auto first = rig.service->AskPlayerMatchSearch();
+  rig.Reply("pm.search", "\"sessions\":[]");
+  rig.Tick(4.0);
+  const int asked = rig.Count("pm.search");
+  CHECK(asked >= 2 && rig.service->snapshot().player_match.searching);
+  rig.Tick(4.0);
+  rig.Tick(4.0);
+  CHECK(!rig.service->snapshot().player_match.searching && rig.CountLogs("the game stopped asking") == 1);
+  const int stopped = rig.Count("pm.search");
+  for (int i = 0; i < 10; ++i) rig.Tick(5.0);
+  CHECK(rig.Count("pm.search") == stopped);
+  const auto next = rig.service->AskPlayerMatchSearch();  // a new Find Match
+  CHECK(next.epoch != first.epoch && rig.Count("pm.search") == stopped + 1);
+
+  // An invite is on its way: the game is not told to wait for a search.
+  Rig invited;
+  invited.SignInWithFriends();
+  invited.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(invited, "i1");
+  CHECK(!invited.service->AskPlayerMatchSearch().pending);
+}
+
+void TestAPartyLeftBehindOnTheServiceIsLeftAfterSigningIn() {
+  Rig rig;
+  rig.SignIn();
+  rig.Feed(std::string("{\"ev\":\"party.update\",\"party\":") + PartyJson({MemberJson(1, kFriendA, "SauloB"), MemberJson(2, rig.me.c_str(), "Saulo")}) + "}");
+  CHECK(!rig.service->party() && rig.service->snapshot().my_slot == 0);
+  CHECK(rig.Count("party.leave") == 1 && rig.CountLogs("left behind") == 1);
+  CHECK(rig.service->CreateParty());
+
+  // Only once per sign-in: a late update of a party just left must not leave the next one.
+  Rig left;
+  left.SignInWithFriends();
+  left.Feed("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"},\"session\":\"\"}");
+  AcceptInviteIntoParty(left, "i1");
+  left.service->LeaveParty();
+  const int leaves = left.Count("party.leave");
+  left.Feed(std::string("{\"ev\":\"party.update\",\"party\":") + PartyJson({MemberJson(1, kFriendA, "SauloB")}) + "}");
+  CHECK(left.Count("party.leave") == leaves && !left.service->party());
+}
+
+void TestAHostWhosePartyWasLostMovesToTheNewOne() {
+  Rig rig;
+  InPartyAsHost(rig);
+  OpenRoom(rig);
+  rig.service->HostPlayerMatch({}, 3);
+  rig.Reply("pm.host", std::string("\"session\":\"") + kSession + "\"");
+  rig.Event(ChannelEvent::Kind::kClosed, "closed");
+  rig.Tick(1.5);
+  rig.Event(ChannelEvent::Kind::kOpen);
+  rig.Reply("hello", "\"player\":\"" + rig.me + "\",\"name\":\"Saulo\",\"friend_code\":\"" + rig.me + "\"");
+  CHECK(rig.Count("pm.host") == 1);  // advertised again
+
+  const char* replaced = "11ff11ff11ff11ff";
+  std::string access = AccessBody(1, PartyJson({MemberJson(1, rig.me.c_str(), "Saulo")}));
+  access.replace(access.find(kMatch), 16, replaced);
+  access.replace(access.find(kMatch), 16, replaced);
+  rig.Reply("pm.host", "\"session\":\"aabbccddeeff0011\"," + access);
+  CHECK(rig.service->party()->match == replaced && rig.service->snapshot().player_match.hosting);
+  CHECK(rig.channels[1]->closed);
+  rig.Tick(0.1);
+  CHECK(Contains(rig.Room().url, replaced));
+  rig.Feed(std::string("{\"ev\":\"party.update\",\"party\":") + PartyJson({MemberJson(9, kFriendA, "Old")}) + "}");  // the old party's
+  CHECK(rig.service->party()->match == replaced);
+}
+
+void TestARoomRefusalIsNotHeldAgainstTheNextParty() {
+  Rig rig;
+  InPartyAsHost(rig);
+  for (int i = 0; i < 7 && rig.service->party(); ++i) {
+    rig.Tick(30.0);
+    rig.EventRoom(ChannelEvent::Kind::kOpen);
+    rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) + ",\"code\":\"not_found\"}");
+  }
+  CHECK(!rig.service->party());
+  CHECK(rig.service->CreateParty());
+  rig.Reply("party.create", AccessBody(1, PartyJson({MemberJson(1, rig.me.c_str(), "Saulo")})));
+  rig.Tick(0.1);
+  rig.EventRoom(ChannelEvent::Kind::kOpen);
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) + ",\"code\":\"not_found\"}");
+  CHECK(rig.service->party().has_value());  // the first refusal of a new party still races its roster
+}
+
+void TestOnlyTheHelloAnswerIsTakenForTheHello() {
+  Rig rig;
+  InPartyAsHost(rig);
+  OpenRoom(rig);
+  const int seq = SeqOf(rig.LastRoomRequest("match.hello"));
+  CHECK(rig.CountLogs("room joined") == 1);
+  // The session numbers its own requests, so one of its answers can carry the hello's sequence number.
+  rig.FeedRoom("{\"re\":" + std::to_string(seq) + ",\"code\":\"ok\"}");
+  CHECK(rig.CountLogs("room joined") == 1 && rig.service->snapshot().room_state == "online");
+}
+
+void TestAnIdentityThatIsNotReadyNeverHoldsUpTheFrame() {
+  Rig rig;
+  rig.identity_pending = 3;
+  rig.Enable();
+  rig.Tick(0.1);
+  CHECK(rig.channels.empty() && rig.identity_asked == 1);
+  CHECK(rig.service->snapshot().connection == Connection::kChecking);
+  rig.Tick(0.01);
+  CHECK(rig.identity_asked == 1);  // not asked every frame
+  rig.service->TestConnection();
+  CHECK(rig.test_calls == 0 && rig.service->snapshot().testing);
+  for (int i = 0; i < 4; ++i) rig.Tick(0.3);
+  CHECK(rig.identity_asked == 4 && rig.channels.size() == 1 && rig.test_calls == 1);
+  CHECK(rig.test_request.identity.ok());
+}
+
+void TestAnAcceptedInviteIsAnnouncedOutsideTheServiceLock() {
+  Rig rig;
+  rig.delivered_probe = true;
+  rig.SignInWithFriends();
+  rig.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(rig, "i1");
+  CHECK(rig.delivered.size() == 1 && rig.probe_saw_party);
+}
+
+void TestALimitedSignInBacksOff() {
+  Rig rig;
+  rig.Enable();
+  rig.Tick();
+  rig.Event(ChannelEvent::Kind::kOpen);
+  rig.Reply("hello", {}, "limit");
+  const size_t opened = rig.channels.size();
+  rig.Tick(30.0);
+  CHECK(rig.channels.size() == opened);
+  rig.Tick(31.0);
+  CHECK(rig.channels.size() == opened + 1);
+
+  Rig busy;
+  busy.Enable();
+  busy.Tick();
+  busy.Event(ChannelEvent::Kind::kOpen);
+  busy.Reply("hello", {}, "internal");
+  busy.Tick(1.5);
+  busy.Event(ChannelEvent::Kind::kOpen);
+  busy.Reply("hello", {}, "internal");
+  const size_t again = busy.channels.size();
+  busy.Tick(1.5);
+  CHECK(busy.channels.size() == again);  // the delay doubled
+  busy.Tick(1.0);
+  CHECK(busy.channels.size() == again + 1);
+}
+
+std::string PeerEvent(int slot, uint16_t port) {
+  return "{\"ev\":\"match.peer\",\"slot\":" + std::to_string(slot) + ",\"name\":\"Peer\",\"ip\":\"127.0.0.1\",\"port\":" +
+         std::to_string(port) + ",\"lan\":[\"127.0.0.1\"],\"same_network\":true,\"service_forwards_public\":true}";
+}
+
+constexpr char kRoomOfTwo[] = "[{\"slot\":1,\"name\":\"A\",\"state\":\"connecting\",\"links\":[]},{\"slot\":2,\"name\":\"B\",\"state\":\"connecting\",\"links\":[]}]";
+
+// Two services on loopback, with the room scripted, until each has a Direct link to the other.
+struct DirectPair {
+  tmnt::netplay::OnlineGameSocket host_socket, guest_socket;
+  Rig host, guest;
+  DirectPair() : host(kGuestBase, false, kToken, &host_socket), guest(kGuestBase, false, std::string(64, 'c'), &guest_socket) {
+    CHECK(host_socket.Open({58151}, true) && guest_socket.Open({58152}, true));
+    InPartyAsHost(host);
+    OpenDirectRoom(host, 1);
+    guest.SignIn();
+    guest.Feed("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"},\"session\":\"\"}");
+    CHECK(guest.service->AcceptPartyInvite("i1"));
+    guest.Reply("invite.accept", AccessBody(2, PartyJson({MemberJson(1, kFriendA, "A"), MemberJson(2, guest.me.c_str(), "B")})));
+    OpenDirectRoom(guest, 2);
+    host.Feed(std::string("{\"ev\":\"party.update\",\"party\":") + PartyJson({MemberJson(1, host.me.c_str(), "A"), MemberJson(2, kFriendB, "B")}) + "}");
+    host.FeedRoom(PeerEvent(2, 58152));
+    guest.FeedRoom(PeerEvent(1, 58151));
+    for (int i = 0; i < 200 && !(host.service->Assignment(2) && guest.service->Assignment(1)); ++i) {
+      host.Tick(0.02);
+      guest.Tick(0.02);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(host.service->Assignment(2).has_value() && guest.service->Assignment(1).has_value());
+  }
+  static void OpenDirectRoom(Rig& rig, int) {
+    rig.Tick(0.1);
+    rig.EventRoom(ChannelEvent::Kind::kOpen);
+    rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) + ",\"code\":\"ok\",\"generation\":1,\"relay_token\":0,\"members\":" +
+                 kRoomOfTwo + "}");
+  }
+};
+
+void TestALiveDirectGameOutlivesTheService() {
+  DirectPair pair;
+  CHECK(pair.host.service->Peers().size() == 1);
+  pair.host.service->SetPeerLink(2, NetplayLink::kConnected);
+  CHECK(Contains(pair.host.LastRoomRequest("match.link"), "\"state\":\"connected\"") &&
+        Contains(pair.host.LastRoomRequest("match.link"), "\"peer\":2"));
+  pair.host.Room().sent.clear();
+  pair.host.service->SetPeerLink(2, NetplayLink::kConnected);
+  CHECK(pair.host.LastRoomRequest("match.link").empty());  // on change only
+
+  const size_t channels = pair.host.channels.size();
+  ChannelState& room = pair.host.Room();
+  pair.host.FeedRoom("{\"ev\":\"match.ended\",\"reason\":\"expired\"}");
+  CHECK(pair.host.service->party().has_value() && pair.host.service->Peers().size() == 1);
+  CHECK(pair.host.service->Assignment(2).has_value() && room.closed);
+  CHECK(pair.host.CountLogs("while playing directly reason=expired") == 1);
+  for (int i = 0; i < 5; ++i) pair.host.Tick(5.0);
+  CHECK(pair.host.channels.size() == channels);  // nothing to come back to
+  pair.host.Feed(std::string("{\"ev\":\"party.ended\",\"match\":\"") + kMatch + "\",\"reason\":\"host_left\"}");
+  CHECK(pair.host.service->party().has_value());
+
+  pair.host.service->LeaveFinishedMatch();
+  CHECK(!pair.host.service->party() && pair.host.service->Peers().empty() && pair.host.service->Assignments().empty());
+
+  // Nobody played: the party ends as it always did.
+  CHECK(pair.guest.service->party().has_value());
+  pair.guest.FeedRoom("{\"ev\":\"match.ended\",\"reason\":\"host_left\"}");
+  CHECK(!pair.guest.service->party());
+}
+
+void TestAKickEndsEvenALiveDirectGame() {
+  DirectPair pair;
+  pair.guest.service->SetPeerLink(1, NetplayLink::kConnected);
+  pair.guest.Feed(std::string("{\"ev\":\"party.ended\",\"match\":\"") + kMatch + "\",\"reason\":\"kicked\"}");
+  CHECK(!pair.guest.service->party());
+}
+
+void TestJoinAnswerTellsTheGame() {
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(rig, "i1");
+  CHECK(!rig.service->JoinAnswer().pending);
+  CHECK(rig.service->JoinPlayerMatch(kSession));
+  CHECK(rig.service->JoinAnswer().pending && rig.service->JoinAnswer().refused.empty());
+  CHECK(!rig.service->JoinPlayerMatch(kSession));
+  CHECK(rig.service->JoinAnswer().pending && rig.service->JoinAnswer().refused == "busy");
+  rig.Reply("pm.join", {}, "party_full");
+  CHECK(!rig.service->JoinAnswer().pending && rig.service->JoinAnswer().refused == "party_full");
+  CHECK(!rig.service->JoinPlayerMatch("ffffffffffffffff"));
+  CHECK(rig.service->JoinAnswer().refused == "not_found");
+
+  Rig accepted;
+  accepted.SignInWithFriends();
+  accepted.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(accepted, "i1");
+  CHECK(accepted.service->JoinPlayerMatch(kSession));
+  accepted.Reply("pm.join", AccessBody(3, PartyJson({MemberJson(1, kFriendA, "SauloB", "connected"), MemberJson(3, accepted.me.c_str(), "Saulo")})));
+  CHECK(!accepted.service->JoinAnswer().pending && accepted.service->JoinAnswer().refused.empty());
+
+  Rig lost;
+  lost.SignInWithFriends();
+  lost.Feed(InviteWithSession("i1", kSession));
+  AcceptInviteIntoParty(lost, "i1");
+  CHECK(lost.service->JoinPlayerMatch(kSession));
+  lost.Last().in.push_back({ChannelEvent::Kind::kClosed, "closed"});
+  lost.Tick();
+  CHECK(!lost.service->JoinAnswer().pending && lost.service->JoinAnswer().refused == "link_lost");
+}
+
+void TestARefusedAdvertisementIsRetriedSoon() {
+  Rig rig;
+  rig.SignIn();
+  rig.service->HostPlayerMatch({});
+  rig.Reply("pm.host", {}, "limit");
+  CHECK(rig.Count("pm.host") == 1);
+  rig.Tick(4.9);
+  CHECK(rig.Count("pm.host") == 1);
+  rig.Tick(0.2);
+  CHECK(rig.Count("pm.host") == 2);
+  rig.Reply("pm.host", std::string("\"session\":\"") + kSession + "\"");
+  CHECK(rig.service->snapshot().player_match.session == kSession);
+  rig.Tick(30);
+  CHECK(rig.Count("pm.host") == 2);
+}
+
+struct RelayRig {
+  tmnt::netplay::OnlineGameSocket socket;
+  Rig rig;
+  std::vector<uint8_t> data{1, 2, 3};
+  RelayRig() : rig(kGuestBase, false, kToken, &socket) {
+    CHECK(socket.Open({58154}, true));
+    InPartyAsHost(rig);
+    Greet();
+    rig.FeedRoom(PeerEvent(2, 58155));
+    rig.Tick(3);
+    rig.Tick(0.1);
+    rig.FeedRoom("{\"ev\":\"match.transport\",\"a\":1,\"b\":2,\"transport\":\"relay\",\"by\":1}");
+    CHECK(rig.service->Assignment(2).has_value() && socket.relay_selected(2));
+  }
+  void Greet() {
+    rig.Tick(0.1);
+    rig.EventRoom(ChannelEvent::Kind::kOpen);
+    rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) +
+                 ",\"code\":\"ok\",\"generation\":1,\"relay_token\":7,\"members\":" + kRoomOfTwo + "}");
+  }
+  size_t Relayed() {  // the session's own round-trip probes ride the relay too
+    const size_t before = rig.Room().binary.size();
+    CHECK(socket.Send(tmnt::netplay::RelayPeerEndpoint(2), data.data(), data.size()));
+    return rig.Room().binary.size() - before;
+  }
+};
+
+void TestARelayedPairFollowsTheRoomBack() {
+  RelayRig relay;
+  Rig& rig = relay.rig;
+  CHECK(relay.Relayed() == 1);
+  rig.EventRoom(ChannelEvent::Kind::kClosed, "closed");
+  CHECK(rig.service->Assignment(2).has_value() && rig.service->party().has_value());
+  CHECK(relay.Relayed() == 0);
+  rig.Tick(1.5);
+  // The new connection carries nothing before the room greets it.
+  rig.EventRoom(ChannelEvent::Kind::kOpen);
+  CHECK(relay.Relayed() == 0 && rig.CountLogs("relay suspended peer=2") == 1);
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) +
+               ",\"code\":\"ok\",\"generation\":2,\"relay_token\":7,\"members\":" + kRoomOfTwo + "}");
+  CHECK(relay.Relayed() == 1 && rig.CountLogs("relay resumed peer=2") == 1);
+  rig.Tick(40);
+  CHECK(rig.service->snapshot().peers.front().failure.empty());
+}
+
+void TestARelayedPairThatNeverGetsItsRoomBackFails() {
+  RelayRig relay;
+  Rig& rig = relay.rig;
+  rig.EventRoom(ChannelEvent::Kind::kClosed, "closed");
+  for (int i = 0; i < 300; ++i) rig.Tick(0.1);
+  rig.Tick(1);
+  CHECK(rig.CountLogs("transport lost peer=2 reason=relay_closed") == 1);
+}
+
+void TestLinkStatesReachANewRoomConnection() {
+  DirectPair pair;
+  pair.host.service->SetPeerLink(2, NetplayLink::kConnected);
+  pair.host.EventRoom(ChannelEvent::Kind::kClosed, "closed");
+  pair.host.Tick(1.5);
+  pair.host.EventRoom(ChannelEvent::Kind::kOpen);
+  pair.host.FeedRoom("{\"re\":" + std::to_string(SeqOf(pair.host.LastRoomRequest("match.hello"))) + ",\"code\":\"ok\",\"generation\":2,\"relay_token\":0,\"members\":" + kRoomOfTwo + "}");
+  CHECK(Contains(pair.host.LastRoomRequest("match.link"), "\"state\":\"connected\""));
+}
+
+void TestConnectionTestNamesThePortTheGameHolds() {
+  tmnt::netplay::OnlineGameSocket socket;
+  Rig rig(kGuestBase, false, kToken, &socket);
+  CHECK(socket.Open({58153}, true));
+  rig.SignIn();
+  rig.service->TestConnection();
+  rig.Tick();
+  CHECK(rig.test_calls == 1 && rig.test_request.game_port == 58153);
+
+  Rig closed;
+  closed.SignIn();
+  closed.service->TestConnection();
+  closed.Tick();
+  CHECK(closed.test_request.game_port == 0);
+}
+
+
 void TestRoomHelloThatRacesTheRosterIsRetried() {
   Rig rig;
   InPartyAsHost(rig);
@@ -799,6 +1370,82 @@ void TestRoomLossReconnectsWithItsGeneration() {
   rig.EventRoom(ChannelEvent::Kind::kOpen);
   const std::string hello = rig.LastRoomRequest("match.hello");
   CHECK(Contains(hello, "\"generation_seen\":1") && Contains(hello, "\"slot\":1"));
+}
+
+Friend OnlineFriend(const char* code, const char* name) {
+  Friend entry;
+  entry.player = code;
+  entry.name = name;
+  entry.online = true;
+  entry.state = FriendState::kOnline;
+  return entry;
+}
+
+PartyMember Member(int slot, const char* code, const char* name) {
+  PartyMember member;
+  member.slot = slot;
+  member.player = code;
+  member.name = name;
+  return member;
+}
+
+const InviteChoice* ChoiceFor(const std::vector<InviteChoice>& choices, const char* code) {
+  for (const InviteChoice& choice : choices) {
+    if (choice.player == code) return &choice;
+  }
+  return nullptr;
+}
+
+void TestInGameInviteListFollowsThePartyPlaces() {
+  Snapshot state;
+  state.friends = {OnlineFriend("AAAA-1111", "Ann"), OnlineFriend("BBBB-2222", "Bo"), OnlineFriend("CCCC-3333", "Cy"),
+                   OnlineFriend("DDDD-4444", "Di")};
+  state.friends[3].online = false;
+  state.friends[3].state = FriendState::kOffline;
+  for (const InviteChoice& choice : PartyInviteChoices(state)) CHECK(!choice.selectable);  // no party yet
+
+  state.party = Party{};
+  state.my_slot = 1;
+  state.party->members = {Member(1, "HOST-0000", "Host")};
+  std::vector<InviteChoice> choices = PartyInviteChoices(state);  // 2 players: one invite
+  CHECK(choices.size() == 4 && ChoiceFor(choices, "AAAA-1111")->selectable && ChoiceFor(choices, "BBBB-2222")->selectable);
+  CHECK(!ChoiceFor(choices, "DDDD-4444")->selectable && ChoiceFor(choices, "DDDD-4444")->status == "Offline");
+
+  state.party->invited = {PartyInvited{"AAAA-1111", "Ann"}};  // a repeated invite is not offered
+  choices = PartyInviteChoices(state);
+  CHECK(!ChoiceFor(choices, "AAAA-1111")->selectable && ChoiceFor(choices, "AAAA-1111")->status == "Invited");
+  CHECK(ChoiceFor(choices, "BBBB-2222")->selectable);
+
+  state.party->members.push_back(Member(2, "AAAA-1111", "Ann"));  // 3 players
+  state.party->invited = {PartyInvited{"BBBB-2222", "Bo"}};
+  choices = PartyInviteChoices(state);
+  CHECK(ChoiceFor(choices, "AAAA-1111")->status == "In your party" && !ChoiceFor(choices, "AAAA-1111")->selectable);
+  CHECK(ChoiceFor(choices, "CCCC-3333")->selectable);
+
+  state.party->members.push_back(Member(3, "BBBB-2222", "Bo"));  // 4 players: the party is full
+  state.party->invited = {PartyInvited{"CCCC-3333", "Cy"}};
+  choices = PartyInviteChoices(state);
+  CHECK(!ChoiceFor(choices, "CCCC-3333")->selectable);
+  state.party->invited.clear();
+  state.party->members.push_back(Member(4, "CCCC-3333", "Cy"));
+  choices = PartyInviteChoices(state);
+  for (const InviteChoice& choice : choices) CHECK(!choice.selectable);
+  CHECK(ChoiceFor(choices, "DDDD-4444")->status == "Offline");
+
+  state.my_slot = 2;  // only the host invites
+  choices = PartyInviteChoices(state);
+  for (const InviteChoice& choice : choices) CHECK(!choice.selectable);
+}
+
+void TestInGameInviteHooksOpenTheListAndAnswerThePrompt() {
+  const std::string hook = ReadSource("player_match_invite_hook.cpp");
+  const std::string ui = ReadSource("invite_ui.cpp");
+  CHECK(Contains(hook, "TMNT_INVITE_HOOK(826EDB40, ShowFriendsUi)") && Contains(hook, "OpenInvitePicker()"));
+  CHECK(Contains(ui, "Online().InviteToParty(choice.player)") && Contains(ui, "PartyInviteChoices(state)"));
+  CHECK(Contains(ui, "Online().AcceptPartyInvite(invite_.id)") && Contains(ui, "Online().DeclinePartyInvite(invite_.id)"));
+  CHECK(Contains(ui, "g_prompted.insert(invite.id)") && Contains(ui, "Online().party()"));
+  CHECK(Contains(ReadSource("tmnt_turtles_in_time_reshelled_app.h"), "tmnt::CreateInviteUi(imgui_drawer()"));
+  CHECK(Contains(ReadSource("online_runtime.cpp"), "config.invite_accepted = DeliverAcceptedInvite;"));
 }
 
 void TestSlotsAreStableAndShownForEveryMember() {
@@ -1136,11 +1783,38 @@ int main() {
   TestRejectedInviteAcceptAndRejectedJoinEndOnlyThatInvite();
   TestEndedOrReplacedInviteFailsItsGeneration();
   TestInviteRefusalsAndEndings();
+  TestInviteEndingsAreExplainedToTheirAudience();
+  TestAcceptingWhileInAPartyIsExplained();
+  TestTheGameLeavingItsSessionLeavesTheParty();
+  TestAnAcceptedInviteSurvivesTheGamesOwnTeardown();
+  TestAnAcceptedInviteOutlivesALinkLossButNotTheJoinDeadline();
+  TestAJoinAnsweredAfterTheGameLeftIsUndone();
+  TestASecondAcceptWaitsForTheFirst();
+  TestAnInviteCarriesItsSessionsSlots();
+  TestAnInviteWaitsForTheAdvertisement();
+  TestSearchEndsOnceTheGameStopsAsking();
+  TestAPartyLeftBehindOnTheServiceIsLeftAfterSigningIn();
+  TestAHostWhosePartyWasLostMovesToTheNewOne();
+  TestARoomRefusalIsNotHeldAgainstTheNextParty();
+  TestOnlyTheHelloAnswerIsTakenForTheHello();
+  TestAnIdentityThatIsNotReadyNeverHoldsUpTheFrame();
+  TestAnAcceptedInviteIsAnnouncedOutsideTheServiceLock();
+  TestALimitedSignInBacksOff();
+  TestALiveDirectGameOutlivesTheService();
+  TestAKickEndsEvenALiveDirectGame();
+  TestLinkStatesReachANewRoomConnection();
+  TestJoinAnswerTellsTheGame();
+  TestARefusedAdvertisementIsRetriedSoon();
+  TestARelayedPairFollowsTheRoomBack();
+  TestARelayedPairThatNeverGetsItsRoomBackFails();
+  TestConnectionTestNamesThePortTheGameHolds();
   TestRoomHelloThatRacesTheRosterIsRetried();
   TestPartyEndsWhenTheServiceSaysSo();
   TestLeavingAndTurningOnlineOffLeavesTheParty();
   TestRoomLossReconnectsWithItsGeneration();
   TestSlotsAreStableAndShownForEveryMember();
+  TestInGameInviteListFollowsThePartyPlaces();
+  TestInGameInviteHooksOpenTheListAndAnswerThePrompt();
   TestGameSessionAdvertisementUsesTheParty();
   TestGuestJoinsAFriendsHostedSessionWithoutAParty();
   TestHostedSessionStaysAdvertisedUntilTheGameDeletesIt();

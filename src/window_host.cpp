@@ -303,8 +303,14 @@ GuestFrameStats GetGuestFrameStats() {
 REX_HOOK_RAW(__imp__VdSwap) {
   // The game's present returns as soon as the swap is queued, so the console's vertical blank is what
   // limits it to one frame per refresh: the wait goes here, before the game produces the next frame.
+  const auto started = std::chrono::steady_clock::now();
   tmnt::PaceGuestFrame();
+  const auto paced = std::chrono::steady_clock::now();
   rex::ppc::HostToGuestFunction<rex::kernel::xboxkrnl::VdSwap_entry>(ctx, base);
+  const auto microseconds = [](auto span) {
+    return uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(span).count());
+  };
+  tmnt::NotePresentPhases(microseconds(paced - started), microseconds(std::chrono::steady_clock::now() - paced));
   CountGuestFrame();
   tmnt::PumpOnlineNetwork(base);
 }

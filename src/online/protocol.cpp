@@ -151,6 +151,12 @@ MemberState MemberStateOf(const std::string& text) {
   return MemberState::kJoined;
 }
 
+// A service that does not say offers the whole party.
+int SlotsOf(const json::Value* v) {
+  const int slots = IntOf(v);
+  return slots >= 2 && slots <= kMaxParty ? slots : kMaxParty;
+}
+
 std::optional<Party> ReadParty(const json::Value* v) {
   if (!v || !v->IsObject()) return std::nullopt;
   Party party;
@@ -159,6 +165,7 @@ std::optional<Party> ReadParty(const json::Value* v) {
   party.host = StringOf(v->Find("host"));
   party.generation = IntOf(v->Find("generation"));
   party.session = StringOf(v->Find("session"));
+  party.slots = SlotsOf(v->Find("slots"));
   if (party.match.empty()) return std::nullopt;
   if (const json::Value* members = v->Find("members"); members && members->IsArray()) {
     for (const json::Value& row : members->AsArray()) {
@@ -268,6 +275,7 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
     if (id.empty() || !from || !from->IsObject()) return std::nullopt;
     message.kind = Kind::kInvite;
     message.invite = Invite{id, StringOf(from->Find("player")), StringOf(from->Find("name")), StringOf(root->Find("session"))};
+    message.invite->slots = SlotsOf(root->Find("slots"));
     return message.invite->from_player.empty() ? std::nullopt : std::optional<ServerMessage>(message);
   }
   if (event == "invite.ended") {
@@ -476,6 +484,24 @@ std::string NormalizeFriendCode(std::string_view text) {
     if (!letter && !digit) return {};
   }
   return compact.substr(0, 4) + "-" + compact.substr(4);
+}
+
+std::string DescribeInviteEnded(const std::string& reason, bool received) {
+  if (received) {
+    if (reason == "expired") return "The invite expired.";
+    if (reason == "host_left") return "The host has already left.";
+    if (reason == "party_full") return "The party is full.";
+    if (reason == "cancelled") return "The invite was cancelled.";
+    return {};
+  }
+  if (reason == "declined") return "A friend declined your invite.";
+  if (reason == "expired") return "Your invite expired.";
+  return {};
+}
+
+std::string DescribeJoinError(const std::string& code) {
+  if (code == "not_found" || code == "bad_request") return "That match is no longer available.";
+  return DescribeServiceError(code);
 }
 
 std::string DescribeServiceError(const std::string& code) {

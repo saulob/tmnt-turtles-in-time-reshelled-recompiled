@@ -1,4 +1,6 @@
 #include <atomic>
+#include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <thread>
 #include <string>
@@ -6,6 +8,7 @@
 #include <rex/cvar.h>
 #include <rex/hook.h>
 #include <rex/logging.h>
+#include <rex/system/kernel_state.h>
 
 #include "gamer_card_rules.h"
 #include "guest_memory.h"
@@ -40,6 +43,13 @@ void LogLocalProfileAccepted(int32_t controller) {
 
 }  // namespace
 
+// DEBUG_SAULO: CSL_StartGame. The caller tells CSL_OnStart (master) from the RPC_StartGame case (slave).
+REX_EXTERN(__imp__sub_875E8A10);
+REX_HOOK_RAW(sub_875E8A10) {
+  REXLOG_INFO("DEBUG_SAULO start trace CSL_StartGame lr={:08X}", uint32_t(ctx.lr));
+  __imp__sub_875E8A10(ctx, base);
+}
+
 // PLT_IsSignedIntoFullAccountOnline(controller in r5): the shared check behind every Live gate in the scripts.
 REX_EXTERN(__imp__sub_876AE008);
 REX_HOOK_RAW(sub_876AE008) {
@@ -48,6 +58,17 @@ REX_HOOK_RAW(sub_876AE008) {
   if (ctx.r3.u32 || !LocalProfileAccepted(controller)) return;
   ctx.r3.u64 = 1;
   LogLocalProfileAccepted(controller);
+}
+
+// SessionManager_CheckIfCanPlayOnline(this, controller, retry): the ONLINE row's gate. The controller that pressed it owns
+// the LIVE profile the gate is about to read; the gate itself answers from the real sign-in state.
+REX_EXTERN(__imp__sub_875D4DF0);
+REX_HOOK_RAW(sub_875D4DF0) {
+  const int32_t controller = ctx.r4.s32;
+  const int32_t retry = ctx.r5.s32;
+  if (IsLocalController(controller)) rex::cvar::SetFlagByName("tmnt_online_user", std::to_string(controller));
+  __imp__sub_875D4DF0(ctx, base);
+  REXLOG_INFO("DEBUG_SAULO online gate controller={} retry={} result={}", controller, retry, ctx.r3.s32);
 }
 
 // Leaderboard_SwitchPage: refuses the page while the player is not online.
@@ -195,6 +216,16 @@ void LogStep(const char* what, const char* phase, uint8_t* base, uint32_t fire, 
 
 #define TMNT_FIRE_STEP_HOOK(sub, label)                                  REX_EXTERN(__imp__sub_##sub);                                          REX_HOOK_RAW(sub_##sub) {                                                const uint32_t fire = ctx.r3.u32;                                      const uint32_t arg = ctx.r4.u32;                                       const uint32_t lr = uint32_t(ctx.lr);                                  LogStep(label, "ENTER", base, fire, arg, lr);                          __imp__sub_##sub(ctx, base);                                           LogStep(label, "EXIT", base, fire, arg, lr);                         }
 
+// FireCommunicator_GetMaxPlayers(this): the slots the title configured when it created the session. A guest never
+// creates one, so its value is never written; the joined session's slots stand in.
+REX_EXTERN(__imp__sub_875CCEC8);
+REX_HOOK_RAW(sub_875CCEC8) {
+  __imp__sub_875CCEC8(ctx, base);
+  const std::string joined = rex::cvar::GetFlagByName("tmnt_online_joined_slots");
+  const int slots = joined.empty() ? 0 : std::atoi(joined.c_str());
+  if (slots > 0) ctx.r3.u64 = uint32_t(slots);
+}
+
 // FireCommunicator_SetPkg(this, id, int values, string pointers): every UI event the game hands to the FIRE movie.
 std::atomic<int> g_pkg_budget{400};
 
@@ -208,16 +239,51 @@ std::string PkgText(uint8_t* base, uint32_t strings) {
   return out;
 }
 
+// DEBUG_SAULO: a package repeats every few ticks while a screen is up; only a change of its first value or text is logged.
+bool PkgChanged(uint32_t id, uint32_t first, const std::string& text) {
+  struct Last {
+    uint32_t id = 0;
+    uint32_t first = 0;
+    std::string text;
+  };
+  static Last last[16];
+  Last& slot = last[id % 16];
+  if (slot.id == id && slot.first == first && slot.text == text) return false;
+  slot = {id, first, text};
+  return true;
+}
+
+constexpr uint32_t kMenuTextPackage = 968;
+constexpr char kXboxLiveLabel[] = "XBOX LIVE";
+constexpr char kOnlineLabel[] = "ONLINE";
+
+// A menu entry that names the Xbox LIVE service stands for this port's online service.
+void RenameXboxLiveLabel(uint8_t* base, uint32_t strings) {
+  const uint32_t pointer = LoadBE32(base, strings);
+  if (pointer < 0x10000 || pointer >= 0xA0000000) return;
+  if (std::memcmp(GuestHost(base, pointer), kXboxLiveLabel, sizeof kXboxLiveLabel) != 0) return;
+  static const uint32_t label = [base] {
+    const uint32_t address = REX_KERNEL_MEMORY()->SystemHeapAlloc(sizeof kOnlineLabel);
+    if (address) std::memcpy(GuestHost(base, address), kOnlineLabel, sizeof kOnlineLabel);
+    return address;
+  }();
+  if (label) StoreBE32(base, strings, label);
+}
+
 REX_EXTERN(__imp__sub_875ADBC0);
 REX_HOOK_RAW(sub_875ADBC0) {
   const uint32_t id = ctx.r4.u32;
   const uint32_t ints = ctx.r5.u32;
   const uint32_t strings = ctx.r6.u32;
   const uint32_t lr = uint32_t(ctx.lr);
-  if (g_pkg_budget.fetch_sub(1) > 0 && ints) {
-    REXLOG_INFO("DEBUG_SAULO FirePkg id={} ints={},{},{},{} str=\"{}\" lr={:08X} fire_tick={}", id, LoadBE32(base, ints),
-                LoadBE32(base, ints + 4), LoadBE32(base, ints + 8), LoadBE32(base, ints + 12), PkgText(base, strings), lr,
-                g_fire_ticks.load());
+  if (id == kMenuTextPackage && strings) RenameXboxLiveLabel(base, strings);
+  if (ints && g_pkg_budget.load() > 0) {
+    const std::string text = PkgText(base, strings);
+    if (PkgChanged(id, LoadBE32(base, ints), text) && g_pkg_budget.fetch_sub(1) > 0) {
+      REXLOG_INFO("DEBUG_SAULO FirePkg id={} ints={},{},{},{} str=\"{}\" lr={:08X} fire_tick={}", id, LoadBE32(base, ints),
+                  LoadBE32(base, ints + 4), LoadBE32(base, ints + 8), LoadBE32(base, ints + 12), text, lr,
+                  g_fire_ticks.load());
+    }
   }
   __imp__sub_875ADBC0(ctx, base);
 }

@@ -54,7 +54,7 @@ std::vector<Candidate> PeerCandidates(const PeerInfo& peer, const std::vector<st
   if (peer.same_network || (has_public && my_public.address == peer_public)) {
     std::vector<std::string> remote;
     for (const std::string& ip : peer.lan) {
-      if (!IsLoopbackText(ip)) remote.push_back(ip);
+      if (!IsLoopbackText(ip) && net::IsLan(net::ParseIp(ip))) remote.push_back(ip);
     }
     const bool same_pc = remote.empty() || std::any_of(remote.begin(), remote.end(), [&](const std::string& ip) {
       return std::find(my_lan.begin(), my_lan.end(), ip) != my_lan.end();

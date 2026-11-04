@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { Hub } from '../src/hub.js';
-import { CAPABILITIES, LIMITS, MAX_PARTY, PROTOCOL, RELAY, normalizeFriendCode, playerIdFor } from '../src/protocol.js';
+import { BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, PROTOCOL, RELAY, normalizeFriendCode, playerIdFor } from '../src/protocol.js';
 import { befriend, buildParty, greeted, identity, makeHub } from './harness.js';
 
 const HEX16 = /^[0-9a-f]{16}$/;
@@ -243,7 +243,7 @@ test('an invite carries the sender and a lifetime; accepting joins the sender pa
   assert.match(sent.invite, HEX16);
   const [received] = b.events('invite');
   assert.deepEqual(received, { ev: 'invite', invite: sent.invite, from: { player: host.who.player, name: host.fields.name },
-    expires_ms: LIMITS.inviteMs, session: '' });
+    expires_ms: LIMITS.inviteMs, session: '', slots: MAX_PARTY });
   assert.deepEqual(host.events('party.update').at(-1).party.invited, [{ player: b.who.player, name: b.fields.name }]);
 
   const accepted = b.call('invite.accept', { invite: sent.invite });
@@ -533,6 +533,38 @@ test('pm.search lists the own party advertisement to its guests and the open ses
   assert.deepEqual(other.call('pm.search').sessions, []);
 });
 
+test('pm.search answers with at most the service\'s limit of sessions', () => {
+  const env = makeHub();
+  const seeker = greeted(env, 1);
+  for (let i = 0; i < LIMITS.searchResults + 3; i++) {
+    const host = greeted(env, 100 + i, { ip: `198.18.2.${i + 1}` });
+    env.host.sql.run('INSERT INTO friends (player, friend, since) VALUES (?, ?, 1)', seeker.who.player, host.who.player);
+    assert.equal(host.call('pm.host', {}).code, 'ok');
+  }
+  assert.equal(seeker.call('pm.search').sessions.length, LIMITS.searchResults);
+});
+
+test('a new advertisement on an existing party counts as creating one', () => {
+  const env = makeHub();
+  const host = greeted(env, 1);
+  assert.equal(host.call('pm.host', {}).code, 'ok');
+  let refused = null;
+  for (let i = 0; i < 20 && !refused; i++) {
+    assert.equal(host.call('pm.cancel').code, 'ok');
+    const again = host.call('pm.host', {});
+    if (again.code !== 'ok') refused = again.code;
+  }
+  assert.equal(refused, 'limit');
+  env.clock.now += 60000;
+  assert.equal(host.call('pm.host', {}).code, 'ok');
+  // The refresh of a standing advertisement costs no creation.
+  env.clock.now += 200000;
+  for (let i = 0; i < 8; i++) {
+    env.clock.now += 30000;
+    assert.equal(host.call('pm.host', {}).code, 'ok');
+  }
+});
+
 test('a friend in no party joins the hosted game session directly and becomes the next member', () => {
   const env = makeHub();
   const { host, friends: [b, c] } = hostWithFriends(env, 2);
@@ -629,7 +661,7 @@ test('joining the game session needs the own party advertisement; it marks the m
   const env = makeHub();
   const { host, created, friends: [b, c] } = hostWithFriends(env, 2);
   const stranger = greeted(env, 30);
-  const hosted = host.call('pm.host', {});
+  const hosted = host.call('pm.host', { slots: 3 });
   const slotB = b.call('invite.accept', { invite: invite(host, b).invite }).slot;
   c.call('invite.accept', { invite: invite(host, c).invite });
   assert.equal(stranger.call('pm.join', { session: hosted.session }).code, 'not_found');
@@ -863,4 +895,110 @@ test('a join token is shown only to its owner and the hub keeps only its hash', 
   assert.ok(!everything.includes(a.who.token));
   assert.ok(!everything.includes(b.who.token));
   for (const d of data) assert.ok(!env.logs.join('\n').includes(d.join_token));
+});
+
+test('an invite and a party report the slots of the game session, and a smaller session fills sooner', () => {
+  for (const slots of [2, 3, 4]) {
+    const env = makeHub();
+    const { host, friends } = hostWithFriends(env, 4);
+    const { session } = host.call('pm.host', { slots });
+    assert.equal(host.events('party.update').at(-1).party.slots, slots);
+    const sent = host.call('invite.send', { player: friends[0].who.player });
+    const [received] = friends[0].events('invite');
+    assert.deepEqual([received.session, received.slots], [session, slots]);
+    assert.equal(friends[0].call('invite.accept', { invite: sent.invite }).code, 'ok');
+    for (let joined = 2; joined < slots; joined++) {
+      const next = friends[joined - 1];
+      assert.equal(next.call('invite.accept', { invite: host.call('invite.send', { player: next.who.player }).invite }).code, 'ok');
+    }
+    assert.equal(host.call('invite.send', { player: friends[3].who.player }).code, 'party_full');
+  }
+});
+
+test('an invite out for the last place ends for the others once that place is taken, by invite or by a join', () => {
+  const env = makeHub();
+  const { host, friends: [b, c] } = hostWithFriends(env, 2);
+  host.call('pm.host', { slots: 2 });
+  const first = invite(host, b);
+  const second = invite(host, c);
+  assert.equal(b.call('invite.accept', { invite: first.invite }).code, 'ok');
+  assert.equal(c.events('invite.ended').at(-1).reason, 'party_full');
+  assert.equal(c.call('invite.accept', { invite: second.invite }).code, 'party_full');
+
+  const quick = makeHub();
+  const { host: other, friends: [d, e] } = hostWithFriends(quick, 2);
+  const { session } = other.call('pm.host', { slots: 2 });
+  invite(other, e);
+  assert.equal(d.call('pm.join', { session }).code, 'ok');
+  assert.equal(e.events('invite.ended').at(-1).reason, 'party_full');
+});
+
+test('cancelling the advertisement ends the invites to it and takes everyone out of the game', () => {
+  const env = makeHub();
+  const { host, friends: [b, c] } = hostWithFriends(env, 2);
+  const { session } = host.call('pm.host', { slots: 3 });
+  assert.equal(b.call('pm.join', { session }).code, 'ok');
+  const sent = invite(host, c);
+  assert.equal(host.call('friends.list').friends.find((f) => f.player === b.who.player).state, 'connecting');
+  assert.equal(host.call('pm.cancel').code, 'ok');
+  assert.equal(c.events('invite.ended').at(-1).reason, 'cancelled');
+  assert.equal(c.call('invite.accept', { invite: sent.invite }).code, 'not_found');
+  assert.equal(host.call('friends.list').friends.find((f) => f.player === b.who.player).state, 'party');
+  assert.equal(b.call('friends.list').friends.find((f) => f.player === host.who.player).state, 'party');
+  assert.equal(env.hub.stats().invites, 0);
+});
+
+test('presence follows a player through a match and back, for the host and for a guest', () => {
+  const env = makeHub();
+  const { host, created, friends: [b, watcher] } = hostWithFriends(env, 2);
+  befriend(b, watcher);
+  const stateOf = (who) => watcher.call('friends.list').friends.find((f) => f.player === who.who.player).state;
+  assert.deepEqual([stateOf(host), stateOf(b)], ['party', 'online']);
+  const { session } = host.call('pm.host', { slots: 2 });
+  const joined = b.call('pm.join', { session });
+  assert.deepEqual([stateOf(host), stateOf(b)], ['connecting', 'connecting']);
+  const hostRoom = env.room(created.match, host.who);
+  const guestRoom = env.room(created.match, b.who);
+  hostRoom.hello(created);
+  guestRoom.hello(joined);
+  hostRoom.call('match.link', { peer: 2, state: 'connected' });
+  guestRoom.call('match.link', { peer: 1, state: 'connected' });
+  assert.deepEqual([stateOf(host), stateOf(b)], ['in_game', 'in_game']);
+
+  // The guest's game ends: the guest is free at once and the host is no longer in a game.
+  assert.equal(b.call('party.leave').code, 'ok');
+  assert.equal(stateOf(b), 'online');
+  assert.equal(watcher.events('friend.status').filter((e) => e.friend.player === b.who.player).at(-1).friend.state, 'online');
+  assert.equal(stateOf(host), 'party');
+
+  // The host's game ends: the party is gone with it, and the next match starts from nothing.
+  assert.equal(host.call('pm.cancel').code, 'ok');
+  assert.equal(host.call('party.leave').code, 'ok');
+  assert.equal(stateOf(host), 'online');
+  assert.equal(env.hub.stats().parties, 0);
+  const second = host.call('pm.host', { slots: 2 });
+  assert.notEqual(second.match, created.match);
+  assert.notEqual(second.session, session);
+});
+
+test('a former host can join a friend as soon as its own party is over', () => {
+  const env = makeHub();
+  const { host, friends: [b] } = hostWithFriends(env, 1);
+  host.call('pm.host', { slots: 2 });
+  host.call('pm.cancel');
+  host.call('party.leave');
+  const { session } = b.call('pm.host', { slots: 2 });
+  assert.equal(host.call('pm.search').sessions.length, 1);
+  assert.equal(host.call('pm.join', { session }).code, 'ok');
+});
+
+test('a search has a budget of its own, which a client searching every few seconds never reaches', () => {
+  const env = makeHub();
+  const { host } = hostWithFriends(env, 1);
+  for (let i = 0; i < 40; i++) {
+    assert.equal(host.call('pm.search').code, 'ok');
+    env.clock.now += 3000;
+  }
+  const replies = Array.from({ length: BUCKETS.search.burst + 2 }, () => host.call('pm.search').code);
+  assert.ok(replies.includes('limit'));
 });

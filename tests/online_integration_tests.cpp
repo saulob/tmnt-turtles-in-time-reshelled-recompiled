@@ -2,12 +2,15 @@
 //   TMNT_LOBBY_TEST_URL=ws://127.0.0.1:8791/ tmnt_online_integration_tests
 // Exits 77 (not run) without the variable. Only the online protocol and loopback UDP run; no game, no window.
 // One host and three guests: friends, three invites into one hidden match, 4/4, a Direct or Relay path for every pair
-// (mixed, when a simulated firewall blocks some pairs), a fifth player turned away, one guest leaving.
+// (mixed, when a simulated firewall blocks some pairs), a fifth player turned away, one guest leaving. Then several
+// matches in one run, by search and by invite, with the host changing, each starting from nothing.
 
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -41,6 +44,27 @@ double Now() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
+// A room connection the test can lose, as a dropped network would.
+class LosableChannel final : public LobbyChannel {
+ public:
+  LosableChannel(std::unique_ptr<LobbyChannel> inner, std::atomic<bool>& lose) : inner_(std::move(inner)), lose_(lose) {}
+  bool Poll(ChannelEvent& out) override {
+    if (lose_.exchange(false)) {
+      inner_->Close();
+      out = {ChannelEvent::Kind::kClosed, "lost"};
+      return true;
+    }
+    return inner_->Poll(out);
+  }
+  void Send(const std::string& text) override { inner_->Send(text); }
+  bool SendBinary(std::vector<uint8_t>&& bytes) override { return inner_->SendBinary(std::move(bytes)); }
+  void Close() override { inner_->Close(); }
+
+ private:
+  std::unique_ptr<LobbyChannel> inner_;
+  std::atomic<bool>& lose_;
+};
+
 struct Client {
   np::OnlineGameSocket socket;  // outlives the service, which taps it
   OnlineService service;
@@ -48,6 +72,8 @@ struct Client {
   std::string name;
   std::mutex mutex;
   std::vector<std::string> events;
+  std::vector<std::string> logs;
+  std::atomic<bool> lose_room{false};
 
   Client(const std::string& url, char fill, const char* display_name, uint16_t port)
       : service(Config(url, fill)), player(DerivePlayerId(std::string(64, fill))), name(display_name) {
@@ -74,7 +100,24 @@ struct Client {
       std::lock_guard<std::mutex> lock(mutex);
       events.push_back(event.name);
     };
+    config.log = [this](const std::string& line) {
+      std::lock_guard<std::mutex> lock(mutex);
+      logs.push_back(line);
+    };
+    config.open_channel = [this](const std::string& channel_url) -> std::unique_ptr<LobbyChannel> {
+      std::unique_ptr<LobbyChannel> link = OpenLobbyLink(channel_url);
+      if (channel_url.find("/match/") == std::string::npos) return link;
+      return std::make_unique<LosableChannel>(std::move(link), lose_room);
+    };
     return config;
+  }
+
+  bool Logged(const std::string& part) {
+    std::lock_guard<std::mutex> lock(mutex);
+    for (const std::string& line : logs) {
+      if (line.find(part) != std::string::npos) return true;
+    }
+    return false;
   }
 
   bool Saw(const std::string& event) {
@@ -267,6 +310,38 @@ void TestFourPlayersAllDirect(const std::string& url) {
   Leave(with_e);
 }
 
+void TestARelayedPairOutlivesALostRoom(const std::string& url) {
+  std::printf("  a relayed pair outlives a lost room connection\n");
+  Client a(url, '5', "Alpha", 58221), b(url, '6', "Bravo", 58222);
+  const Clients clients = {&a, &b};
+  const uint16_t a_port = a.socket.bound_port();
+  const uint16_t b_port = b.socket.bound_port();
+  a.socket.SetDirectFilter([b_port](const np::Endpoint& endpoint) { return endpoint.port != b_port; });
+  b.socket.SetDirectFilter([a_port](const np::Endpoint& endpoint) { return endpoint.port != a_port; });
+  CHECK(BecomeFriends(a, b, clients));
+  CHECK(a.service.CreateParty());
+  CHECK(WaitFor([&] { return a.service.party().has_value(); }, clients));
+  CHECK(a.service.InviteToParty(b.service.snapshot().friend_code));
+  CHECK(WaitFor([&] { return !b.service.Invites().empty(); }, clients));
+  CHECK(b.service.AcceptPartyInvite(b.service.Invites().front().id));
+  CHECK(WaitFor([&] { return AllPairsConnected(clients, {1, 2}); }, clients, 40.0));
+  CHECK(a.PeerOf(2)->transport == MatchTransport::kRelay && b.PeerOf(1)->transport == MatchTransport::kRelay);
+  CHECK(Delivers(a, b, clients) && Delivers(b, a, clients));
+
+  // The guest's connection goes, then the host's: each side waits, and the pair carries on over the new one.
+  b.lose_room = true;
+  CHECK(WaitFor([&] { return b.Logged("relay resumed peer=1") && a.Logged("relay resumed peer=2"); }, clients));
+  CHECK(a.Logged("relay suspended peer=2") && b.Logged("relay suspended peer=1"));
+  CHECK(Delivers(a, b, clients) && Delivers(b, a, clients));
+  a.lose_room = true;
+  CHECK(WaitFor([&] { return a.service.snapshot().room_state != "online"; }, clients, 2.0));
+  CHECK(WaitFor([&] { return a.service.snapshot().room_state == "online"; }, clients));
+  CHECK(WaitFor([&] { return Delivers(a, b, clients) && Delivers(b, a, clients); }, clients, 10.0));
+  CHECK(a.PeerOf(2)->failure.empty() && b.PeerOf(1)->failure.empty());
+  CHECK(a.service.party() && b.service.party() && a.service.Assignment(2) && b.service.Assignment(1));
+  Leave(clients);
+}
+
 void TestMixedDirectAndRelay(const std::string& url) {
   std::printf("  mixed direct and relay\n");
   Client a(url, '1', "Alpha", 58211), b(url, '2', "Bravo", 58212), c(url, '3', "Charlie", 58213), d(url, '4', "Delta", 58214);
@@ -345,6 +420,120 @@ void TestInviteRefusals(const std::string& url) {
   Leave(clients);
 }
 
+void HostMatch(Client& host, int slots, const Clients& clients) {
+  host.service.HostPlayerMatch({}, slots);
+  CHECK(WaitFor([&] { return !host.service.snapshot().player_match.session.empty() && host.service.party(); }, clients));
+}
+
+// The way the game's Quick Match goes: search until the friend's session shows, then join it.
+void JoinBySearch(Client& guest, const Clients& clients) {
+  CHECK(WaitFor([&] {
+    guest.service.AskPlayerMatchSearch();
+    return !guest.service.PlayerMatchResults().empty();
+  }, clients));
+  CHECK(guest.service.JoinPlayerMatch(guest.service.PlayerMatchResults().front().session));
+  CHECK(WaitFor([&] { return guest.service.party().has_value(); }, clients));
+}
+
+// The way an accepted invite goes: the party first, then the game joins the session the invite names.
+void JoinByInvite(Client& host, Client& guest, const Clients& clients) {
+  CHECK(host.service.InviteToParty(guest.service.snapshot().friend_code));
+  CHECK(WaitFor([&] { return !guest.service.Invites().empty(); }, clients));
+  CHECK(guest.service.AcceptPartyInvite(guest.service.Invites().front().id));
+  CHECK(WaitFor([&] { return guest.service.AcceptedInviteInfo().has_value(); }, clients));
+  const AcceptedInvite accepted = *guest.service.AcceptedInviteInfo();
+  CHECK(accepted.slots == host.service.party()->slots);
+  CHECK(guest.service.JoinPlayerMatch(accepted.session));
+  CHECK(WaitFor([&] { return !guest.service.AcceptedInviteInfo().has_value(); }, clients));
+}
+
+void EndMatch(const Clients& players, const Clients& clients) {
+  for (Client* player : players) {
+    player->service.CancelPlayerMatch();
+    player->service.LeaveFinishedMatch();
+  }
+  CHECK(WaitFor([&] {
+    for (Client* player : players) {
+      if (player->service.party() || !player->service.Peers().empty() || !player->service.Assignments().empty()) return false;
+      if (player->service.snapshot().player_match.hosting) return false;
+      for (const Friend& f : player->service.snapshot().friends) {
+        if (f.state != FriendState::kOnline) return false;
+      }
+    }
+    return true;
+  }, clients));
+}
+
+// A datagram sent before a match ended never reaches the next one: its socket starts empty.
+void CheckNothingCarriedOver(const Clients& players) {
+  for (Client* player : players) {
+    uint8_t buffer[64];
+    np::Endpoint origin;
+    while (const size_t size = player->socket.Receive(buffer, sizeof buffer, origin)) {
+      CHECK(std::memcmp(buffer, "HELLO", std::min<size_t>(size, 5)) != 0);
+    }
+  }
+}
+
+void TestMatchesInARow(const std::string& url) {
+  std::printf("  matches in a row\n");
+  Client a(url, '7', "Alpha", 58231), b(url, '8', "Bravo", 58232), c(url, '9', "Charlie", 58233);
+  const Clients clients = {&a, &b, &c};
+  CHECK(BecomeFriends(a, b, clients) && BecomeFriends(a, c, clients) && BecomeFriends(b, c, clients));
+  std::set<std::string> matches, sessions;
+  const auto play = [&](Client& host, const Clients& guests, const Clients& players) {
+    const std::string match = host.service.party()->match;
+    CHECK(matches.insert(match).second);
+    CHECK(sessions.insert(host.service.snapshot().player_match.session).second);
+    std::set<int> slots;
+    for (Client* player : players) {
+      CHECK(player->service.party() && player->service.party()->match == match);
+      slots.insert(player->service.my_slot());
+    }
+    CHECK(slots.size() == players.size() && host.service.my_slot() == 1);
+    CHECK(WaitFor([&] { return AllPairsConnected(players, slots); }, clients));
+    for (Client* guest : guests) CHECK(Delivers(host, *guest, clients) && Delivers(*guest, host, clients));
+  };
+
+  // Create, Quick Match, leave.
+  HostMatch(a, 4, clients);
+  JoinBySearch(b, clients);
+  play(a, {&b}, {&a, &b});
+  EndMatch({&a, &b}, clients);
+  CheckNothingCarriedOver({&a, &b});
+
+  // Create again, joined by invite.
+  HostMatch(a, 2, clients);
+  JoinByInvite(a, b, clients);
+  play(a, {&b}, {&a, &b});
+  CHECK(!a.service.InviteToParty(c.service.snapshot().friend_code) || WaitFor([&] {
+    return a.service.snapshot().notice == "The party is full.";
+  }, clients));  // two slots, both taken
+  EndMatch({&a, &b}, clients);
+  CheckNothingCarriedOver({&a, &b});
+
+  // The first guest hosts and the first host joins, by search.
+  HostMatch(b, 3, clients);
+  JoinBySearch(a, clients);
+  play(b, {&a}, {&a, &b});
+
+  // A third player joins the same match by invite, with a guest already in the lobby.
+  JoinByInvite(b, c, clients);
+  CHECK(WaitFor([&] { return AllPairsConnected({&a, &b, &c}, {1, 2, 3}); }, clients));
+  CHECK(Delivers(a, c, clients) && Delivers(c, a, clients));
+  EndMatch({&a, &b, &c}, clients);
+  CheckNothingCarriedOver({&a, &b, &c});
+
+  // And once more with everyone back where they started.
+  HostMatch(a, 3, clients);
+  JoinBySearch(c, clients);
+  JoinByInvite(a, b, clients);
+  CHECK(WaitFor([&] { return AllPairsConnected({&a, &b, &c}, {1, 2, 3}); }, clients));
+  CHECK(Delivers(a, b, clients) && Delivers(b, c, clients));
+  EndMatch({&a, &b, &c}, clients);
+  Leave(clients);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -358,7 +547,9 @@ int main(int argc, char** argv) {
   std::printf("online integration tests (four clients)\n");
   if (only.empty() || only == "direct") TestFourPlayersAllDirect(url);
   if (only.empty() || only == "mixed") TestMixedDirectAndRelay(url);
+  if (only.empty() || only == "resume") TestARelayedPairOutlivesALostRoom(url);
   if (only.empty() || only == "invites") TestInviteRefusals(url);
+  if (only.empty() || only == "repeat") TestMatchesInARow(url);
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

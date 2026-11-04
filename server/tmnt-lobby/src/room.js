@@ -50,6 +50,21 @@ export class MatchRoom {
     this.gone = false;
     this.resetMemory();
     this.createSchema();
+    this.reconcile();
+  }
+
+  // After the object restarted: a socket that did not survive sends no close, so its seat starts the usual grace here.
+  reconcile() {
+    if (!this.id || this.getMeta('ended') !== null) return;
+    const held = new Set(this.sockets().filter((s) => s.att.hello).map((s) => s.att.slot));
+    const now = this.host.now();
+    for (const member of this.members()) {
+      if (!member.seen || member.grace !== null || held.has(member.slot)) continue;
+      this.host.sql.run('UPDATE members SET grace = ? WHERE slot = ?', now + LIMITS.graceMs, member.slot);
+      this.host.sql.run('DELETE FROM links WHERE slot = ?', member.slot);
+    }
+    if (!this.liveSockets().length && this.num('ever') && this.getMeta('empty_since') === null) this.setMeta('empty_since', now);
+    this.scheduleAlarm();
   }
 
   resetMemory() {
@@ -61,6 +76,7 @@ export class MatchRoom {
     this.budgets = new Map();
     this.shared = {};
     this.overruns = new Map();
+    this.stalled = new Map();
     this.closedPairs = new Set();
     this.told = new Set();
     this.activity = new Map();
@@ -277,11 +293,15 @@ export class MatchRoom {
     this.broadcast({ ev: 'match.members', members: this.membersView(), generation: this.num('rev') }, exceptCid);
   }
 
-  peerEvent(member, recipientIp) {
+  // A member's LAN addresses are private and of use only behind the same public address.
+  peerEvent(member, recipient) {
+    const sameNetwork = member.ip === recipient.ip;
+    const samePublic = Boolean(member.pub_port) && member.pub_ip === recipient.pub_ip;
     return {
-      ev: 'match.peer', slot: member.slot, name: member.name, ip: member.ip, port: member.port, lan: JSON.parse(member.lan),
+      ev: 'match.peer', slot: member.slot, name: member.name, ip: member.ip, port: member.port,
+      lan: sameNetwork || samePublic ? JSON.parse(member.lan) : [],
       ...(member.pub_port ? { public_ip: member.pub_ip, public_port: member.pub_port } : {}),
-      same_network: member.ip === recipientIp, service_forwards_public: true,
+      same_network: sameNetwork, service_forwards_public: true,
     };
   }
 
@@ -426,7 +446,11 @@ export class MatchRoom {
           this.closed(s.conn);
         }
       }
-      if (!this.id) return;
+      if (!this.id) {
+        // A connection to a room no party ever opened leaves nothing behind.
+        if (this.sockets().every((s) => s.att.done)) this.destroy();
+        return;
+      }
       if (this.num('created') + LIMITS.matchMaxMs <= now) return this.endRoom('expired');
       const members = this.members();
       const host = members.find((m) => m.slot === HOST_SLOT);
@@ -629,9 +653,14 @@ export class MatchRoom {
     }
     const buffered = target.conn.bufferedAmount;
     if (typeof buffered === 'number' && buffered > RELAY.bufferedBytes) {
-      this.closePair(frame.src, frame.dst, 'peer_backpressure');
+      // A moment of congestion loses frames, as a network would; only a peer that stays behind ends the pair.
+      this.drop('peer_backpressure', att, frame);
+      const stalled = (this.stalled.get(key) ?? 0) + 1;
+      this.stalled.set(key, stalled);
+      if (stalled >= RELAY.overrunsToClose) this.closePair(frame.src, frame.dst, 'peer_backpressure');
       return;
     }
+    this.stalled.delete(key);
     try {
       target.conn.sendBinary(bytes);
     } catch {
@@ -680,6 +709,7 @@ export class MatchRoom {
     if (this.closedPairs.has(key)) return;
     this.closedPairs.add(key);
     this.overruns.delete(key);
+    this.stalled.delete(key);
     this.host.log(`relay close match=${this.id} pair=${key} reason=${reason}`);
     this.report('relay_closed', { a: Math.min(a, b), b: Math.max(a, b), reason });
     for (const [slot, peer] of [[a, b], [b, a]]) {
@@ -740,7 +770,7 @@ const HANDLERS = {
       this.broadcastMembers(att.cid);
       for (const other of this.members()) {
         if (other.slot === member.slot || !other.endpoint_gen || other.endpoint_gen !== other.generation) continue;
-        if (this.socketOf(other)) this.send(conn, this.peerEvent(other, att.ip));
+        if (this.socketOf(other)) this.send(conn, this.peerEvent(other, { ip: att.ip, pub_ip: member.pub_ip }));
       }
       this.reportState(member.slot);
     });
@@ -751,7 +781,7 @@ const HANDLERS = {
     return { time: this.host.now() };
   },
 
-  'match.endpoint'(att, msg) {
+  'match.endpoint'(att, msg, conn) {
     const member = this.current(att);
     if (member.endpoint_gen === member.generation) fail('already_set');
     const endpoint = parseEndpoint(msg);
@@ -761,7 +791,12 @@ const HANDLERS = {
     this.later(() => {
       const fresh = this.member(member.slot);
       for (const s of this.liveSockets()) {
-        if (s.att.slot !== member.slot) this.send(s.conn, this.peerEvent(fresh, s.att.ip));
+        if (s.att.slot === member.slot) continue;
+        const other = this.member(s.att.slot);
+        this.send(s.conn, this.peerEvent(fresh, { ip: s.att.ip, pub_ip: other?.pub_ip }));
+        // Its LAN addresses were held back until this member's public address showed they share a network.
+        const owes = other?.endpoint_gen === other?.generation && other?.pub_port && other.pub_ip === fresh.pub_ip && other.ip !== att.ip;
+        if (owes) this.send(conn, this.peerEvent(other, { ip: att.ip, pub_ip: fresh.pub_ip }));
       }
     });
     return {};

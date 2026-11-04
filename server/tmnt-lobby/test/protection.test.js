@@ -643,6 +643,34 @@ test('alarms: an earlier deadline replaces a later alarm, and expiry still fires
   assert.equal(friend.events('invite.ended').at(-1).invite, sent.invite);
 });
 
+// What the aggregates must find, whatever the other parties look like.
+test('alarms: the next deadline is the earliest of every party', () => {
+  const env = makeHub();
+  env.hub.diagnosticsDueAt = () => null;
+  const next = () => {
+    env.hub.alarmAt = null;
+    env.host.alarmAt = null;
+    env.hub.scheduleAlarm();
+    return env.host.alarmAt;
+  };
+  assert.equal(next(), null);
+  const started = env.clock.now;
+  const { clients } = buildParty(env, 2, { first: 700, connect: false });
+  env.host.sql.run('DELETE FROM party_invites');
+  assert.equal(next(), started + LIMITS.matchMaxMs);
+
+  env.clock.now += 1000;
+  const solo = greeted(env, 710);
+  solo.call('party.create');
+  assert.equal(next(), env.clock.now + LIMITS.partyIdleMs);
+
+  // Only a seat nobody holds counts as gone.
+  clients[1].drop();
+  assert.equal(next(), env.clock.now + LIMITS.graceMs);
+  env.host.sql.run("UPDATE party_members SET state = 'connected' WHERE offline_since IS NOT NULL");
+  assert.equal(next(), env.clock.now + LIMITS.partyIdleMs);
+});
+
 test('alarms: a woken hub that knows its stored alarm does not write it again', () => {
   const env = makeHub();
   const host = greeted(env, 1);

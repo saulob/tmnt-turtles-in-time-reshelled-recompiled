@@ -233,6 +233,7 @@ set(TMNT_SOURCES
     src/graphics_adapters.cpp
     src/guest_functions.cpp
     src/imgui_gamepad.cpp
+    src/invite_ui.cpp
     src/input_summary.cpp
     src/launcher.cpp
     src/launcher_achievements.cpp
@@ -240,7 +241,10 @@ set(TMNT_SOURCES
     src/live_fix.cpp
     src/live_stats.cpp
     src/local_stats.cpp
+    src/fire_menu_hook.cpp
+    src/fire_movie_patch.cpp
     src/frame_trace.cpp
+    src/frame_block_sampler.cpp
     src/lobby_trace_hook.cpp
     src/log_filter.cpp
     src/log_path.cpp
@@ -876,8 +880,8 @@ if(NOT WIN32)
     target_link_libraries(tmnt_online_websocket_tls_tests PRIVATE ${TMNT_ONLINE_LIBS})
 endif()
 
-add_executable(tmnt_online_setting_tests EXCLUDE_FROM_ALL tests/online_setting_tests.cpp)
-target_include_directories(tmnt_online_setting_tests PRIVATE src)
+add_executable(tmnt_online_setting_tests EXCLUDE_FROM_ALL tests/online_setting_tests.cpp src/legacy_settings.cpp)
+target_include_directories(tmnt_online_setting_tests PRIVATE src "${TMNT_SDK_DIR}/include")
 target_link_libraries(tmnt_online_setting_tests PRIVATE trg::launcher)
 target_compile_definitions(tmnt_online_setting_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -898,6 +902,11 @@ target_compile_options(tmnt_player_match_net_tests PRIVATE -Wall -Wextra)
 if(WIN32)
     target_link_libraries(tmnt_player_match_net_tests PRIVATE ws2_32)
 endif()
+
+add_executable(tmnt_fire_movie_patch_tests EXCLUDE_FROM_ALL tests/fire_movie_patch_tests.cpp src/fire_movie_patch.cpp)
+target_include_directories(tmnt_fire_movie_patch_tests PRIVATE src)
+target_compile_definitions(tmnt_fire_movie_patch_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(tmnt_fire_movie_patch_tests PRIVATE -Wall -Wextra)
 
 add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)
 target_include_directories(tmnt_search_ticket_tests PRIVATE src)

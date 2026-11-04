@@ -15,6 +15,7 @@ struct Identity {
   std::string token;
   std::string player_id;
   bool ephemeral = false;
+  bool pending = false;  // not known yet: ask again later
   std::string error;
   bool ok() const { return token.size() == 64 && player_id.size() == 9; }
 };

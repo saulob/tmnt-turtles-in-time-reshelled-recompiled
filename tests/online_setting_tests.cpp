@@ -10,14 +10,18 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include <toml++/toml.hpp>
+
 #include "connection_test_gate.h"
 #include "corner_overlay.h"
+#include "legacy_settings.h"
 #include "online_page.h"
 #include "online_setting.h"
 #include "ping_display.h"
@@ -336,7 +340,7 @@ void TestTheMatchAssignmentDrivesTheGamesTransport() {
   CHECK(Has(bridge, "PumpOnlineService();"));
   CHECK(Has(bridge, "Online().SetPeerLink(assignment.slot,"));  // the per-peer link; the measured round trip is the peer's own
   CHECK(Has(bridge, "g_mux = std::make_unique<np::LobbyMux>(GameSocket());"));
-  CHECK(Has(bridge, "np::RelayPeerEndpoint(assignment.slot)"));
+  CHECK(Has(ReadSource("netplay/lobby_mux.cpp"), "if (relay) return RelayPeerEndpoint(slot);"));
   CHECK(Has(bridge, "g_hold.Hold(g_tag, slot, datagram)"));
 }
 
@@ -348,7 +352,7 @@ void TestGameRuntimeReconnectsWithoutTheLauncher() {
   CHECK(skipped != std::string::npos && configured != std::string::npos && configured < applied);
   const std::string runtime = ReadSource("online_runtime.cpp");
   CHECK(Has(runtime, "DEBUG_SAULO online runtime reconnect begin"));
-  CHECK(Has(runtime, "kLockAttempts"));
+  CHECK(Has(runtime, "kLockWaitSeconds"));
   CHECK(Has(ReadSource("window_host.cpp"), "tmnt::PumpOnlineNetwork(base);"));
   CHECK(Has(app, "tmnt::StopOnline();"));
   CHECK(Has(runtime, "if (!g_configured || g_stopped) return;"));
@@ -654,7 +658,7 @@ void TestLauncherGatesPlayOnTheConnectionTest() {
   CHECK(Has(page, "return ConnectionTestNeeded(settings, Online().snapshot().testing, TestConfiguration());"));
   const std::string settings = ReadSource("settings.cpp");
   CHECK(Has(settings, "      kConnectionTestSetting,\n"));
-  CHECK(Has(settings, "file.Set(key, value);\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
+  CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
                       "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  return true;"));
   CHECK(Has(ReadSource("online_runtime.cpp"), "REXCVAR_DEFINE_STRING(tmnt_online_connection_test, \"\", \"TMNT\","));
 }
@@ -667,6 +671,164 @@ void TestGameplaySocketLifecycleIsUntouched() {
   CHECK(!Has(runtime, "kConnectionTestSetting") && !Has(runtime, "ConnectionTestNeeded"));
   const std::string test = ReadSource("online/connection_test.cpp");
   CHECK(!Has(test, "OnlineGameSocket") && Has(test, "if (handle != net::kNoSocket) net::CloseSocket(handle);"));
+}
+
+constexpr char kTestedConfiguration[] =
+    "udp 7001-7004; service wss://tmnt-lobby.saulobenigno.workers.dev/; protocol 4; build 1; network 192.168.68";
+
+std::optional<toml::table> ParsedToml(const std::string& text) {
+  try {
+    return toml::parse(text);
+  } catch (const toml::parse_error&) {
+    return std::nullopt;
+  }
+}
+
+// The string settings the way GameSettings writes them: only registered string settings are quoted.
+void SaveString(const std::string& path, const std::string& key, const std::string& value) {
+  trg::TextFileSettings file(path);
+  file.Set(key, TomlString(value));
+  CHECK(file.Save());
+}
+
+// A launcher session of one instance, as tools/online-instance.ps1 leaves the file and the launcher then changes it:
+// Online play on, a Connection test whose result reaches the file at once, and the save behind Play.
+struct InstanceFile {
+  std::filesystem::path dir;
+  std::string path;
+
+  explicit InstanceFile(const std::string& name) {
+    dir = std::filesystem::temp_directory_path() / ("tmnt_online_instance_toml_" + name);
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    path = (dir / "settings.toml").string();
+    std::ofstream(path) << "resolution_scale = 2\ntmnt_aspect_ratio = \"16:9\"\ntmnt_online_name = \"Test-" << name << "\"\n";
+  }
+  ~InstanceFile() { std::filesystem::remove_all(dir); }
+
+  std::string Text() const { return ReadFile(path); }
+  std::optional<toml::table> Parsed() const { return ParsedToml(Text()); }
+
+  void TurnOnlineOn() {
+    trg::TextFileSettings file(path);
+    file.Set(kOnlineEnabledSetting, "true");
+    file.Set(kOnlinePingSetting, "true");
+    CHECK(file.Save());
+  }
+};
+
+void CheckSavedForRelaunch(const InstanceFile& instance, const std::string& name, const std::string& test) {
+  const std::optional<toml::table> table = instance.Parsed();
+  CHECK(table.has_value());
+  if (!table) return;
+  CHECK((*table)[kOnlineEnabledSetting].value_or(false));
+  CHECK((*table)[kOnlineNameSetting].value_or(std::string()) == name);
+  CHECK((*table)[kConnectionTestSetting].value_or(std::string()) == test);
+  CHECK((*table)["resolution_scale"].value_or(0) == 2);
+}
+
+// The defect itself: a bare value parses in the launcher's line reader and fails the whole file in the game's.
+void TestABareConnectionTestRejectsTheWholeFile() {
+  InstanceFile instance("bare");
+  instance.TurnOnlineOn();
+  trg::TextFileSettings file(instance.path);
+  file.Set(kConnectionTestSetting, kTestedConfiguration);
+  CHECK(file.Save());
+  CHECK(trg::TextFileSettings(instance.path).Get(kConnectionTestSetting) == kTestedConfiguration);
+  CHECK(!instance.Parsed().has_value());
+  trg::TextFileSettings(instance.path).Set(kConnectionTestSetting, "");
+  std::ofstream(instance.path, std::ios::app) << kOnlineNameSetting << " = \n";
+  CHECK(!instance.Parsed().has_value());
+}
+
+void TestInstanceSettingsStayValidThroughTheLauncher() {
+  for (const char* name : {"a", "b"}) {
+    InstanceFile instance(name);
+    const std::string online_name = std::string("Test-") + name;
+    CHECK(instance.Parsed().has_value());
+    instance.TurnOnlineOn();
+    CHECK(instance.Parsed().has_value());
+    // The first test, its repeat with the value already saved, and the save behind Play, which then has nothing to write.
+    SaveString(instance.path, kConnectionTestSetting, kTestedConfiguration);
+    CheckSavedForRelaunch(instance, online_name, kTestedConfiguration);
+    SaveString(instance.path, kConnectionTestSetting, kTestedConfiguration);
+    CheckSavedForRelaunch(instance, online_name, kTestedConfiguration);
+    // A test that was not usable clears the value.
+    SaveString(instance.path, kConnectionTestSetting, "");
+    CheckSavedForRelaunch(instance, online_name, "");
+    SaveString(instance.path, kConnectionTestSetting, kTestedConfiguration);
+    SaveString(instance.path, kOnlineNameSetting, "Saulo-" + std::string(name));
+    CheckSavedForRelaunch(instance, "Saulo-" + std::string(name), kTestedConfiguration);
+    // What the restarted process finds is what it writes back.
+    const std::string once = instance.Text();
+    trg::TextFileSettings reread(instance.path);
+    CHECK(reread.Save());
+    CHECK(instance.Text() == once);
+  }
+}
+
+void TestPlayIsOpenAfterRelaunchWithoutAnotherTest() {
+  InstanceFile instance("relaunch");
+  instance.TurnOnlineOn();
+  SaveString(instance.path, kConnectionTestSetting, kTestedConfiguration);
+  const std::optional<toml::table> table = instance.Parsed();
+  CHECK(table.has_value());
+  trg::MemorySettings restarted;
+  restarted.true_value = "true";
+  restarted.false_value = "false";
+  restarted.SetBool(kOnlineEnabledSetting, true);
+  restarted.Set(kConnectionTestSetting, table ? (*table)[kConnectionTestSetting].value_or(std::string()) : std::string());
+  CHECK(!ConnectionTestNeeded(restarted, false, kTestedConfiguration));
+  CHECK(ConnectionTestNeeded(restarted, false, "udp 7001-7004; service wss://other/; protocol 4; build 1; network 192.168.68"));
+}
+
+// Files the earlier launcher already left behind load again, with their test still counted.
+void TestBareValuesAlreadyWrittenAreRepaired() {
+  const std::string key = kConnectionTestSetting;
+  const std::string broken = "# Set from the launcher\r\n" + key + " = " + kTestedConfiguration + "\r\n\r\ntmnt_online_enabled = true\r\n";
+  CHECK(!ParsedToml(broken).has_value());
+  std::size_t repaired = 0;
+  const std::string fixed = RepairBareString(broken, key, repaired);
+  CHECK(repaired == 1);
+  CHECK(Has(fixed, (key + " = \"" + kTestedConfiguration + "\"\r\n").c_str()));
+  const std::optional<toml::table> table = ParsedToml(fixed);
+  CHECK(table.has_value());
+  if (table) CHECK((*table)[key].value_or(std::string()) == kTestedConfiguration && (*table)[kOnlineEnabledSetting].value_or(false));
+  repaired = 0;
+  CHECK(RepairBareString(fixed, key, repaired) == fixed && repaired == 0);
+
+  const std::string empty = key + " = \ntmnt_online_enabled = true\n";
+  CHECK(!ParsedToml(empty).has_value());
+  const std::string filled = RepairBareString(empty, key, repaired);
+  CHECK(repaired == 1 && filled == key + " = \"\"\ntmnt_online_enabled = true\n");
+  CHECK(ParsedToml(filled).has_value());
+
+  repaired = 0;
+  const std::string other = "# " + key + " = a b\n" + key + "_x = 1\nname = \"x\"";
+  CHECK(RepairBareString(other, key, repaired) == other && repaired == 0);
+  CHECK(TomlString("a\"b\\c") == "\"a\\\"b\\\\c\"");
+  CHECK(ParsedToml("x = " + TomlString("a\"b\\c")).has_value());
+}
+
+void TestEveryLauncherWriteQuotesStrings() {
+  const std::string settings = ReadSource("settings.cpp");
+  CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
+                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  saved_ = pending_;"));
+  CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
+                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  return true;"));
+  CHECK(!Has(settings, "file.Set(key, value);"));
+  CHECK(Has(settings, "RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired)"));
+}
+
+// Play relaunches into the same user folder and log; the new process signs in by itself on the production service.
+void TestRelaunchKeepsTheInstance() {
+  const std::string app = ReadSource("tmnt_turtles_in_time_reshelled_app.h");
+  CHECK(Has(app, "tmnt::RelaunchSelf(L\"--tmnt_skip_launcher=true\")"));
+  CHECK(Has(app, "tmnt::ConfigureOnline(defaults.user_data_root);"));
+  const std::string script = ReadFile(std::filesystem::path(TMNT_SOURCE_DIR) / "tools" / "online-instance.ps1");
+  CHECK(Has(script, "--user_data_root=") && Has(script, "Remove-Item Env:TMNT_LOBBY"));
+  CHECK(!Has(script, "online_identity.ini') -Destination") && !Has(script, "Copy-Item"));
+  CHECK(Has(ReadSource("online_runtime.cpp"), "return online::LoadOrCreateIdentity(g_user_dir);"));
 }
 
 void TestDefaultServiceAddressAndVersionSource() {
@@ -700,6 +862,12 @@ int main() {
   TestPlayerMatchHooksAreBuilt();
   TestOnlineOffIsTheOnlyGateForTheNetwork();
   TestDefaultServiceAddressAndVersionSource();
+  TestABareConnectionTestRejectsTheWholeFile();
+  TestInstanceSettingsStayValidThroughTheLauncher();
+  TestPlayIsOpenAfterRelaunchWithoutAnotherTest();
+  TestBareValuesAlreadyWrittenAreRepaired();
+  TestEveryLauncherWriteQuotesStrings();
+  TestRelaunchKeepsTheInstance();
   TestPlayWaitsForAConnectionTestOnlyWithOnlinePlayOn();
   TestOnlyAUsableTestUnlocksPlay();
   TestAFailedTestKeepsPlayBlocked();

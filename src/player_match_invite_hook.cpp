@@ -10,6 +10,7 @@
 #include <rex/system/kernel_state.h>
 
 #include "guest_memory.h"
+#include "invite_ui.h"
 #include "online_runtime.h"
 #include "player_match.h"
 #include "player_match_net.h"
@@ -43,7 +44,7 @@ uint64_t LiveXuid() {
 void InviteAcceptedInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t out = ctx.r4.u32;
-  const std::optional<tmnt::online::AcceptedInvite> invite = user == tmnt::kOnlineUser && out ? CurrentInvite() : std::nullopt;
+  const std::optional<tmnt::online::AcceptedInvite> invite = user == tmnt::OnlineUser() && out ? CurrentInvite() : std::nullopt;
   const uint64_t xuid = invite ? LiveXuid() : 0;
   REXLOG_INFO("DEBUG_SAULO invite info read user={} out={:08X} answered={}", user, out, invite && xuid);
   if (!invite || !xuid) {
@@ -80,7 +81,7 @@ void SessionSearchById(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   ad.session = invite->session;
   ad.player = invite->host;
   ad.name = invite->host_name;
-  ad.slots = tmnt::kPlayerMatchSlots;
+  ad.slots = invite->slots;
   tmnt::WriteSearchByIdResult(GuestHost(base, header), header, capacity, ad);
   if (overlapped) {
     REX_KERNEL_STATE()->CompleteOverlappedImmediate(overlapped, 0);
@@ -90,6 +91,19 @@ void SessionSearchById(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
 }
 
+// XamShowFriendsUI(user): the lobby's Invite Friends opens the Xbox Guide, which this port does not have. The friend
+// list of the online service opens instead.
+void ShowFriendsUi(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
+  const uint32_t user = ctx.r3.u32;
+  const bool live = user == tmnt::OnlineUser() && LiveXuid() != 0;
+  REXLOG_INFO("DEBUG_SAULO invite friend list requested user={} live={}", user, live);
+  if (live && tmnt::OpenInvitePicker()) {
+    ctx.r3.u64 = 0;
+    return;
+  }
+  original(ctx, base);
+}
+
 }  // namespace
 
 namespace tmnt {
@@ -97,7 +111,11 @@ namespace tmnt {
 void DeliverAcceptedInvite(const online::AcceptedInvite& invite) {
   REXLOG_INFO("DEBUG_SAULO invite delivered generation={} session={} host={}", invite.generation, invite.session,
               invite.host);
-  REX_KERNEL_STATE()->BroadcastNotification(kInviteAcceptedNotification, kOnlineUser);
+  if (auto* kernel = REX_KERNEL_STATE()) {
+    kernel->BroadcastNotification(kInviteAcceptedNotification, OnlineUser());
+  } else {
+    REXLOG_INFO("DEBUG_SAULO invite notification deferred: no kernel state yet");
+  }
 }
 
 }  // namespace tmnt
@@ -108,3 +126,4 @@ void DeliverAcceptedInvite(const online::AcceptedInvite& invite) {
 
 TMNT_INVITE_HOOK(823C76A8, InviteAcceptedInfo)
 TMNT_INVITE_HOOK(8243CB30, SessionSearchById)
+TMNT_INVITE_HOOK(826EDB40, ShowFriendsUi)

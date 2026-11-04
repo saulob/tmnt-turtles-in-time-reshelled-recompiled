@@ -28,6 +28,7 @@
 #include "game_files.h"
 #include "gamer_card.h"
 #include "gamer_card_overlay.h"
+#include "invite_ui.h"
 #include "gpu_plugin_check.h"
 #include "guest_functions.h"
 #include "input_summary.h"
@@ -269,6 +270,9 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (window() && imgui_drawer()) {
       tmnt::CreateFrameCounter(imgui_drawer());
       tmnt::CreatePingDisplay(imgui_drawer());
+      tmnt::CreateInviteUi(imgui_drawer(), [this](std::function<void()> work) {
+        app_context().CallInUIThreadDeferred(std::move(work));
+      });
       CreateCursorSync(imgui_drawer());
       tmnt::ModalDialog::AttachEscapeKey(window());
     }

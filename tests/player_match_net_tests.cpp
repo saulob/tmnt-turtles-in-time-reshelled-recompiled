@@ -5,6 +5,7 @@
 #include <cstring>
 #include <deque>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <set>
 #include <string>
@@ -47,7 +48,8 @@ online::ActivePeer Peer(const char* match, int slot, const char* player, bool ho
 }
 
 std::vector<PeerRoute> Routes(std::initializer_list<online::ActivePeer> peers) {
-  return RoutesFor(std::vector<online::ActivePeer>(peers));
+  SyntheticAddressBook book;
+  return RoutesFor(std::vector<online::ActivePeer>(peers), 0, 0, book);
 }
 
 class FakeLink final : public LobbyLink {
@@ -85,11 +87,17 @@ class FakeTransport final : public np::Transport {
   std::deque<std::pair<np::Endpoint, std::vector<uint8_t>>> inbox;
 };
 
-std::string ReadSource(const char* name) {
-  std::ifstream in(std::string(TMNT_SOURCE_DIR) + "/src/" + name, std::ios::binary);
+std::string ReadPath(const std::string& path) {
+  std::ifstream in(path, std::ios::binary);
   std::stringstream text;
   text << in.rdbuf();
   return text.str();
+}
+
+std::string ReadSource(const char* name) {
+  std::string source = ReadPath(std::string(TMNT_SOURCE_DIR) + "/src/" + name);
+  source.erase(std::remove(source.begin(), source.end(), '\r'), source.end());
+  return source;
 }
 
 bool Has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
@@ -477,7 +485,6 @@ void TestSearchResultsDescribeTheFriendsSession() {
   CHECK((SessionIdBytes("not-hex-at-all!!") == std::vector<uint8_t>(8, 0)));
   CHECK(VirtualXuid(kHostCode) >> 48 == 0x0009 && VirtualXuid(kHostCode) != VirtualXuid(kJoinCode));
   CHECK(LiveAvailable(true, true) && !LiveAvailable(false, true) && !LiveAvailable(true, false));
-  CHECK(kOnlineUser == 0 && kPlayerMatchSlots == 4);
 }
 
 void TestSearchByIdAnswersOneResultInTheSearchLayout() {
@@ -514,7 +521,7 @@ void TestInviteInfoIsAnXInviteInfoOfTheHostsSession() {
 void TestInviteHooksCoverTheTitlesInviteCalls() {
   const std::string hook = ReadSource("player_match_invite_hook.cpp");
   CHECK(Has(hook, "TMNT_INVITE_HOOK(823C76A8, InviteAcceptedInfo)") && Has(hook, "TMNT_INVITE_HOOK(8243CB30, SessionSearchById)"));
-  CHECK(Has(hook, "BroadcastNotification(kInviteAcceptedNotification, kOnlineUser)"));
+  CHECK(Has(hook, "BroadcastNotification(kInviteAcceptedNotification, OnlineUser())"));
   CHECK(Has(hook, "CompleteOverlappedImmediate(overlapped, 0)") && Has(hook, "ctx.r3.u64 = kInsufficientBuffer;"));
   CHECK(!Has(ReadSource("player_match_hook.cpp"), "8243CB30"));
 }
@@ -543,14 +550,14 @@ void TestDetailsOfAHostOnlySessionThenTwoAndFourMembers() {
   details.max_private = 1;
   details.state = kSessionStateLobby;
   details.session = "0123456789abcdef";
-  details.members.push_back({VirtualXuid(kHostCode), kOnlineUser});
+  details.members.push_back({VirtualXuid(kHostCode), 0});
   std::vector<uint8_t> out, members;
   write(details, out, members);
   CHECK(LoadBE32(out.data(), 16) == 3 && LoadBE32(out.data(), 20) == 1);
   CHECK(LoadBE32(out.data(), 24) == 3 && LoadBE32(out.data(), 28) == 0);  // the host takes the private slot
   CHECK(LoadBE32(out.data(), 32) == 1 && LoadBE32(out.data(), 36) == 1 && LoadBE32(out.data(), 40) == kSessionStateLobby);
   CHECK(LoadBE32(out.data(), 124) == 0x40003000 && LoadBE64(members.data(), 0) == VirtualXuid(kHostCode));
-  CHECK(LoadBE32(members.data(), 8) == kOnlineUser);
+  CHECK(LoadBE32(members.data(), 8) == 0);
   CHECK(SessionIdText(out.data() + 56) == details.session);
 
   details.members.push_back({VirtualXuid(kJoinCode), kRemoteUserIndex});
@@ -599,12 +606,14 @@ void TestShimReadinessAndConnectedPeer() {
 void TestSocketHooksCoverSendRecvSelectConnect() {
   const std::string net = ReadSource("player_match_net_hook.cpp");
   for (const char* name : {"8243D120, Connect", "8243D138, Select", "8243D178, Recv", "8243D208, Send"}) {
-    CHECK(Has(net, std::string("TMNT_NET_HOOK(") + name + ")"));
+    CHECK(Has(net, std::string("_HOOK(") + name + ")"));
   }
   const size_t select = net.find("void Select(");
   const std::string body = net.substr(select, net.find("\n}\n", select) - select);
   CHECK(Has(body, "g_shim.Readable(handle, routes, g_link)") && Has(body, "tmnt::SelectMixed(requested"));
   CHECK(Has(body, "original(ctx, base);"));
+  CHECK(Has(body, "timeout.milliseconds = tmnt::OnFrameThread() ? 0 : seconds * 1000 + microseconds / 1000;"));
+  CHECK(Has(body, "tmnt::NoteSelect(now() - select_started,"));
   CHECK(!Has(net, "SocketProbe"));
 }
 
@@ -616,11 +625,12 @@ struct SelectHarness {
   int polls = 0;
   uint32_t clock = 0;
   bool real_fails = false;
+  uint32_t shim_readable_at = 0xFFFFFFFFu;
 
   SelectOutcome Run(FdSets requested, SelectTimeout timeout) {
     return SelectMixed(
         requested, [&](uint32_t h) { return shim.count(h) != 0; },
-        [&](uint32_t h) { return shim_readable.count(h) != 0; },
+        [&](uint32_t h) { return shim_readable.count(h) != 0 || clock >= shim_readable_at; },
         [&](FdSets& sets) {
           ++polls;
           if (real_fails) return -1;
@@ -651,10 +661,27 @@ void TestMixedSelect() {
   auto r = h.Run({{kShimA, kShimB}, {kShimB}, {}}, {false, 50});
   CHECK(r.count == 2 && r.ready.read == std::vector<uint32_t>{kShimA} && r.ready.write == std::vector<uint32_t>{kShimB});
   CHECK(h.polls == 0);
-  // shim only, nothing readable: no wait even with a finite timeout
+  // shim only, nothing readable: the caller's timeout passes, so a thread paced by select does not spin
   h = SelectHarness();
   r = h.Run({{kShimA}, {}, {}}, {false, 50});
-  CHECK(r.count == 0 && r.ready.empty() && h.clock == 0);
+  CHECK(r.count == 0 && r.ready.empty() && h.clock == 50 && h.polls == 0);
+  // shim only, a datagram arrives during the wait: returned as soon as it is there
+  h = SelectHarness();
+  h.shim_readable_at = 7;
+  r = h.Run({{kShimA}, {}, {}}, {false, 50});
+  CHECK(r.count == 1 && r.ready.read == std::vector<uint32_t>{kShimA} && h.clock == 7);
+  // shim only, zero timeout: an immediate poll
+  h = SelectHarness();
+  r = h.Run({{kShimA}, {}, {}}, {false, 0});
+  CHECK(r.count == 0 && h.clock == 0);
+  // shim only, writable: a datagram socket can always take one, and write readiness never waits
+  h = SelectHarness();
+  r = h.Run({{kShimA}, {kShimB}, {}}, {false, 50});
+  CHECK(r.count == 1 && r.ready.read.empty() && r.ready.write == std::vector<uint32_t>{kShimB} && h.clock == 0);
+  // shim only, infinite: never blocks the caller
+  h = SelectHarness();
+  r = h.Run({{kShimA}, {}, {}}, {true, 0});
+  CHECK(r.count == 0 && h.clock == 0);
   // real only: forwarded, honours the finite timeout by repeating the zero-timeout poll
   h = SelectHarness();
   h.real_ready = {kRealA};
@@ -706,20 +733,306 @@ void TestMixedSelect() {
   CHECK(r.count == -1);
 }
 
+// Delivers what is queued for it and nothing else, as the mux does.
+class BurstLink final : public LobbyLink {
+ public:
+  explicit BurstLink(int count) : left_(count) {}
+  bool Send(int, const np::LobbyDatagram&) override { return true; }
+  bool Take(int& slot, np::LobbyDatagram& out) override {
+    if (left_ == 0) return false;
+    --left_;
+    slot = 2;
+    out = {};
+    out.to_port = 9876;
+    out.data = {1};
+    return true;
+  }
+
+ private:
+  int left_;
+};
+
+void TestShimQueuesStayBoundedAndCountTheirLosses() {
+  VdpShim shim;
+  const uint32_t handle = shim.Create();
+  shim.Bind(handle, 9876);
+  PeerRoute route;
+  route.slot = 2;
+  route.address = 0x0A530001;
+  route.tag = 7;
+  const std::vector<PeerRoute> routes = {route};
+  BurstLink quiet(0);
+  CHECK(!shim.Readable(handle, routes, quiet) && !shim.RecvFrom(handle, routes, quiet));
+  CHECK(shim.deepest_queue() == 0 && shim.dropped() == 0);
+  BurstLink one(1);
+  CHECK(shim.Readable(handle, routes, one) && shim.Readable(handle, routes, quiet));
+  CHECK(shim.RecvFrom(handle, routes, quiet).has_value());
+  CHECK(!shim.Readable(handle, routes, quiet) && !shim.RecvFrom(handle, routes, quiet));
+  BurstLink burst(300);
+  CHECK(shim.Readable(handle, routes, burst));
+  CHECK(shim.deepest_queue() == 128 && shim.dropped() == 172);
+  int drained = 0;
+  while (shim.RecvFrom(handle, routes, quiet)) ++drained;
+  CHECK(drained == 128 && shim.deepest_queue() == 0 && !shim.Readable(handle, routes, quiet));
+}
+
+// A model of the title's UDP transport around one receive slot and the socket's hooks: the guest side mirrors
+// sub_82490320, sub_82490158, sub_824A7CE0 and sub_824A6F78; the wait is the hook's WaitInSlices.
+class NetZReceiveModel {
+ public:
+  static constexpr uint32_t kOverlapped = 0x40001000;
+  static constexpr uint32_t kIdle = 0;
+  static constexpr uint32_t kPending = 1;
+  static constexpr uint32_t kDone = 2;
+
+  void Arrive(std::vector<uint8_t> datagram) { queue_.push_back(std::move(datagram)); }
+
+  void IssueReceive() {
+    error_.Clear();
+    if (TakeInto(sync_bytes_)) {
+      event_ = false;  // sub_82490320 resets the event of a receive that finished at once
+      slot_ = kDone;
+      overlapped_done_ = true;
+      return;
+    }
+    event_ = false;
+    overlapped_done_ = false;
+    tmnt::PendingReceive receive;
+    receive.handle = 1;
+    receive.overlapped = kOverlapped;
+    pending_.Add(receive);
+    error_.Set(tmnt::kIoPending);
+    CHECK(error_.Get() == tmnt::kIoPending);
+    slot_ = kPending;
+    if (error_.Get() != tmnt::kIoPending) slot_ = kDone;
+  }
+
+  void Pump() {
+    while (pending_.Has(1) && !queue_.empty()) {
+      pending_.Take(1);
+      TakeInto(sync_bytes_);
+      overlapped_done_ = true;
+      event_ = true;
+    }
+  }
+
+  // sub_824A7CE0 with the title's 10 ms: true when the slot has a finished operation.
+  bool Wait(const std::function<void(uint32_t)>& during_slice, uint32_t milliseconds = 10) {
+    if (slot_ == kDone) return true;
+    uint32_t clock = 0;
+    const uint32_t status = WaitInSlices(
+        milliseconds, [&] { Pump(); },
+        [&](uint32_t slice) {
+          ++slices_;
+          if (event_) return 0u;
+          during_slice(clock);
+          clock += slice;
+          return kWaitSliceTimedOut;
+        },
+        [&] { return clock; });
+    waited_ms_ += clock;
+    if (status == kWaitSliceTimedOut) return false;
+    CHECK(status == 0);
+    CHECK(event_);
+    event_ = false;  // the 1-event poll that follows, then WSAResetEvent
+    slot_ = kDone;
+    return true;
+  }
+
+  // sub_824A6F78: the size is valid only when WSAGetOverlappedResult succeeds.
+  uint32_t Consume() {
+    CHECK(slot_ == kDone);
+    error_.Clear();
+    Pump();
+    const uint32_t bytes = overlapped_done_ ? sync_bytes_ : 0;
+    if (!overlapped_done_) error_.Set(tmnt::kIoIncomplete);
+    slot_ = kIdle;
+    return bytes;
+  }
+
+  bool event() const { return event_; }
+  uint32_t slot() const { return slot_; }
+  uint32_t slices() const { return slices_; }
+  uint32_t waited_ms() const { return waited_ms_; }
+  uint32_t last_error() const { return error_.Get(); }
+  size_t pending() const { return pending_.size(); }
+
+ private:
+  bool TakeInto(uint32_t& bytes) {
+    if (queue_.empty()) return false;
+    bytes = uint32_t(queue_.front().size());
+    queue_.pop_front();
+    return true;
+  }
+
+  std::deque<std::vector<uint8_t>> queue_;
+  tmnt::PendingReceives pending_;
+  tmnt::SocketLastError error_;
+  bool event_ = true;
+  bool overlapped_done_ = false;
+  uint32_t slot_ = kIdle;
+  uint32_t sync_bytes_ = 0;
+  uint32_t slices_ = 0;
+  uint32_t waited_ms_ = 0;
+};
+
+void TestReceiveCompletedWhileWaiting() {
+  for (uint32_t arrival : {0u, 5u}) {
+    NetZReceiveModel net;
+    net.IssueReceive();
+    CHECK(net.slot() == NetZReceiveModel::kPending && net.last_error() == tmnt::kIoPending);
+    CHECK(!net.event());
+    CHECK(net.Wait([&](uint32_t clock) {
+      if (clock == arrival) net.Arrive(std::vector<uint8_t>(42));
+    }));
+    CHECK(net.slot() == NetZReceiveModel::kDone && !net.event());
+    CHECK(net.pending() == 0);
+    CHECK(net.Consume() == 42);
+    net.IssueReceive();
+    CHECK(net.slot() == NetZReceiveModel::kPending && net.pending() == 1);
+  }
+}
+
+void TestIdleReceiveBlocksThroughTheWholeWait() {
+  NetZReceiveModel net;
+  net.IssueReceive();
+  CHECK(!net.Wait([](uint32_t) {}));
+  CHECK(net.slot() == NetZReceiveModel::kPending);
+  CHECK(net.waited_ms() == 10 && net.slices() == 3);
+  CHECK(net.pending() == 1);
+}
+
+void TestDatagramQueuedBeforeTheReceiveFinishesAtOnce() {
+  NetZReceiveModel net;
+  net.Arrive(std::vector<uint8_t>(19));
+  net.IssueReceive();
+  CHECK(net.slot() == NetZReceiveModel::kDone && net.last_error() == 0 && !net.event());
+  CHECK(net.Wait([](uint32_t) { CHECK(false); }));
+  CHECK(net.waited_ms() == 0);
+  CHECK(net.Consume() == 19);
+}
+
+void TestDatagramInTheLastSliceIsNotAFalseTimeout() {
+  NetZReceiveModel net;
+  net.IssueReceive();
+  CHECK(net.Wait([&](uint32_t clock) {
+    if (clock == 5) net.Arrive(std::vector<uint8_t>(7));
+  }));
+  CHECK(net.Consume() == 7);
+}
+
+void TestReceiveStartLeavesItsEventClear() {
+  NetZReceiveModel net;
+  CHECK(net.event());
+  net.IssueReceive();
+  CHECK(!net.event());
+  const std::string hook = ReadSource("player_match_net_hook.cpp");
+  CHECK(Has(hook, "ClearEvent(LoadBE32(GuestHost(base, receive.overlapped), tmnt::kOverlappedEvent));"));
+}
+
+void TestANewReceiveReplacesAnAbandonedOneOnTheSameOverlapped() {
+  tmnt::PendingReceives pending;
+  tmnt::PendingReceive first;
+  first.handle = 1;
+  first.overlapped = 0x100;
+  first.buffers = 0x200;
+  tmnt::PendingReceive second = first;
+  second.buffers = 0x300;
+  pending.Add(first);
+  pending.Add(second);
+  CHECK(pending.size() == 1 && pending.Take(1)->buffers == 0x300);
+  tmnt::PendingReceive other = first;
+  other.overlapped = 0x180;
+  pending.Add(first);
+  pending.Add(other);
+  CHECK(pending.size() == 2);
+}
+
+void TestLastErrorLeftAloneByNonSocketCalls() {
+  const std::string net = ReadSource("player_match_net_hook.cpp");
+  CHECK(Has(net, "TMNT_NET_HOOK(8243D2C0, WsaWaitForEvents)"));
+  CHECK(Has(net, "TMNT_NET_HOOK(823CB410, XnAddrToInAddr)"));
+  CHECK(Has(net, "TMNT_SOCKET_HOOK(8243D1B0, WsaRecvFrom)") && Has(net, "TMNT_SOCKET_HOOK(8243D158, GetOverlappedResult)"));
+}
+
+constexpr uint32_t kSlotPending = 1;
+constexpr uint32_t kSlotDone = 2;
+
+// sub_82490320 reads the error once, then sub_82490158 reads it again to pick the slot state.
+uint32_t GuestSlotAfterFailedReceive(const tmnt::SocketLastError& error) {
+  if (error.Get() != tmnt::kIoPending) return kSlotDone;
+  return error.Get() == tmnt::kIoPending ? kSlotPending : kSlotDone;
+}
+
+void TestAPendingReceiveStaysPendingForBothGuestReads() {
+  tmnt::SocketLastError error;
+  error.Set(tmnt::kIoPending);
+  CHECK(GuestSlotAfterFailedReceive(error) == kSlotPending);
+  CHECK(error.Get() == tmnt::kIoPending);
+  error.Clear();
+  CHECK(error.Get() == 0);
+  CHECK(GuestSlotAfterFailedReceive(error) == kSlotDone);
+  error.Set(tmnt::kWouldBlock);
+  CHECK(GuestSlotAfterFailedReceive(error) == kSlotDone);
+
+  const std::string net = ReadSource("player_match_net_hook.cpp");
+  const size_t hook = net.find("void LastError(");
+  const std::string body = net.substr(hook, net.find("\n}", hook) - hook);
+  CHECK(Has(body, "g_last_error.Get()") && !Has(body, "Clear") && !Has(body, "Set("));
+  CHECK(Has(net, "g_last_error.Clear();"));
+}
+
+void TestFramePhasesReachTheHeartbeat() {
+  const std::string bridge = ReadSource("online_bridge.cpp");
+  for (const char* field : {"tick_ms+{}", "pace_ms+{}", "swap_ms+{}", "frame_cpu_ms+{}", "process_cpu_ms+{}", "select_calls+{}",
+                            "select_read+{}", "select_write+{}", "select_except+{}", "shim_queue_max={}", "shim_dropped+{}",
+                            "stages_ms={}"}) {
+    CHECK(Has(bridge, field));
+  }
+  CHECK(Has(ReadSource("window_host.cpp"), "tmnt::NotePresentPhases("));
+  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::TickScope tick;"));
+  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::StageScope scope(0x##addr, slot);"));
+  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::NoteFrameThreadForSampler(&ctx, base);"));
+  CHECK(Has(bridge, "DEBUG_SAULO frame block {}"));
+  CHECK(Has(bridge, "SetFrameSamplerActive(game - last_game < kSlowTicksPerSecond);"));
+}
+
+void TestTheSamplerOnlyRunsWhileTicksAreSlowAndNeverLogsWhileSuspended() {
+  const std::string sampler = ReadSource("frame_block_sampler.cpp");
+  CHECK(Has(sampler, "if (!g_active.load()) continue;"));
+  CHECK(Has(sampler, "if (!FrameSamplerEnabled() ||"));
+  const size_t suspended = sampler.find("SuspendThread(thread)");
+  const size_t resumed = sampler.find("ResumeThread(thread)");
+  CHECK(suspended != std::string::npos && resumed != std::string::npos && suspended < resumed);
+  const std::string held = sampler.substr(suspended, resumed - suspended);
+  CHECK(!Has(held, "Count(") && !Has(held, "fmt::") && !Has(held, "std::string"));
+}
+
+void TestTheGameRunsItsOwnNetworking() {
+  for (const char* source : {"online_bridge.cpp", "player_match_net_hook.cpp", "player_match_hook.cpp", "online_runtime.cpp",
+                             "netplay/online_game_socket.cpp", "netplay/lobby_mux.cpp"}) {
+    const std::string text = ReadSource(source);
+    for (const char* banned : {"RollbackCore", "GuestSimulation", "SaveSnapshot", "LoadSnapshot", "Resimulate"}) {
+      CHECK(!Has(text, banned));
+    }
+  }
+}
+
 void TestWaitSlices() {
   CHECK(NextWaitSlice(kInfiniteWait, 0) == 5 && NextWaitSlice(kInfiniteWait, 100000) == 5);
   CHECK(NextWaitSlice(0, 0) == 0 && NextWaitSlice(3, 0) == 3 && NextWaitSlice(100, 0) == 5);
   CHECK(NextWaitSlice(100, 98) == 2 && NextWaitSlice(100, 100) == 0 && NextWaitSlice(100, 500) == 0);
-  CHECK(!WaitExpired(0, 0, true) && WaitExpired(0, 0, false));
-  CHECK(!WaitExpired(100, 99, false) && WaitExpired(100, 100, false));
-  CHECK(!WaitExpired(kInfiniteWait, 4000000000u, false));
   uint32_t waited = 0;
   uint32_t slices = 0;
-  for (bool first = true; !WaitExpired(23, waited, first); first = false) {
-    waited += NextWaitSlice(23, waited);
-    ++slices;
-  }
-  CHECK(waited == 23 && slices == 5);
+  const uint32_t status = WaitInSlices(
+      23, [] {},
+      [&](uint32_t slice) {
+        waited += slice;
+        ++slices;
+        return kWaitSliceTimedOut;
+      },
+      [&] { return waited; });
+  CHECK(status == kWaitSliceTimedOut && waited == 23 && slices == 6);
 }
 
 void TestOverlappedAndSessionHookFixes() {
@@ -739,7 +1052,85 @@ void TestOverlappedAndSessionHookFixes() {
   const std::string created = live.substr(create, live.find("\n}\n", create) - create);
   CHECK(created.find("ctx.r5.u32") < created.find("original(ctx, base);"));
   CHECK(Has(created, "const uint32_t public_slots = ctx.r5.u32;") && !Has(created, "original(ctx, base);\n  if (!live) return;\n  if (flags & tmnt::kSessionCreateHost) {\n    const uint32_t public_slots"));
-  CHECK(Has(live, "user == kAnyUser"));
+  CHECK(Has(ReadSource("player_match.h"), "user == kAnyUser"));
+}
+
+// PLT_IsSignedIntoFullAccountOnline as the title computes it: state 2 (sub_822FD0F0) and no guest flag (sub_822FD120).
+constexpr bool TitleSeesFullAccountOnline(uint32_t state, uint32_t info_flags) {
+  constexpr uint32_t kGuestFlag = 0x2;
+  return state == kSignedInToLive && !(info_flags & kGuestFlag);
+}
+
+void TestOnlyTheOnlineUserIsOnLive() {
+  CHECK(LiveAvailable(true, true) && !LiveAvailable(true, false) && !LiveAvailable(false, true) && !LiveAvailable(false, false));
+  for (uint32_t online_user = 0; online_user < 4; ++online_user) {
+    for (uint32_t user = 0; user < 4; ++user) {
+      CHECK(LiveProfileUser(user, online_user, true) == (user == online_user));
+      CHECK(LivePrivilegeUser(user, online_user, true) == (user == online_user));
+      CHECK(!LiveProfileUser(user, online_user, false) && !LivePrivilegeUser(user, online_user, false));
+    }
+    CHECK(!LiveProfileUser(kAnyUser, online_user, true) && LivePrivilegeUser(kAnyUser, online_user, true));
+    CHECK(!LivePrivilegeUser(kAnyUser, online_user, false));
+  }
+  CHECK(!LocalUser(4) && !LocalUser(uint32_t(-1)));
+}
+
+void TestSigninInfoIsTheLiveProfile() {
+  const uint64_t xuid = VirtualXuid(kHostCode);
+  std::vector<uint8_t> info(kSigninInfoBytes, 0xCC);
+  WriteSigninInfo(info.data(), xuid, "Saulo-b");
+  CHECK(LoadBE64(info.data(), 0) == xuid);
+  CHECK(LoadBE32(info.data(), 8) == kSigninInfoOnlineEnabled && LoadBE32(info.data(), 12) == kSignedInToLive);
+  CHECK(std::string(reinterpret_cast<const char*>(info.data() + 24)) == "Saulo-b");
+  CHECK(TitleSeesFullAccountOnline(LoadBE32(info.data(), 12), LoadBE32(info.data(), 8)));
+  WriteSigninInfo(info.data(), xuid, "ABCDEFGHIJKLMNOP");
+  CHECK(std::string(reinterpret_cast<const char*>(info.data() + 24)) == "ABCDEFGHIJKLMNO");
+  // The offline answers the title gets without the service: its own LOC_ERR_XLA_NOT_SIGNED_IN.
+  CHECK(!TitleSeesFullAccountOnline(1, kSigninInfoOnlineEnabled) && !TitleSeesFullAccountOnline(0, 0));
+  CHECK(!TitleSeesFullAccountOnline(kSignedInToLive, 0x2));
+  CHECK(VirtualXuid(kHostCode) == xuid && VirtualXuid(kJoinCode) != xuid);
+}
+
+uint32_t ImageWord(const std::string& image, uint32_t offset) {
+  return offset + 4 <= image.size() ? LoadBE32(reinterpret_cast<const uint8_t*>(image.data()), offset) : 0;
+}
+
+bool ImageRangeHas(const std::string& image, uint32_t base, uint32_t address, uint32_t bytes, uint32_t word, uint32_t mask) {
+  for (uint32_t at = address; at < address + bytes; at += 4) {
+    if ((ImageWord(image, at - base) & mask) == word) return true;
+  }
+  return false;
+}
+
+// The addresses behind the sign-in gate, against the game's own code; skipped when the extracted images are absent.
+void TestTheOnlineGateIsTheTitlesOwn() {
+  const std::string analysis = std::string(TMNT_SOURCE_DIR) + "/game/analysis/";
+  const std::string exe = ReadPath(analysis + "default.image.bin");
+  const std::string dll = ReadPath(analysis + "tmnt_r.image.bin");
+  if (exe.empty() || dll.empty()) {
+    std::printf("  SKIP online gate images not found\n");
+  } else {
+    constexpr uint32_t kExeBase = 0x82000000;
+    constexpr uint32_t kDllBase = 0x87500000;
+    constexpr uint32_t kBranchAndLink = 0x48000001;
+    const uint32_t state_call = ImageWord(exe, 0x822FD0F0 - kExeBase + 0x0C);
+    CHECK((state_call & 0xFC000003) == kBranchAndLink);
+    CHECK(0x822FD0FC + (uint32_t(int32_t(state_call << 6) >> 6) & ~3u) == 0x826EDD50);
+    constexpr uint32_t kLiRegister196 = 0x380000C4;
+    CHECK(ImageRangeHas(dll, kDllBase, 0x875D4DF0, 0x370, kLiRegister196, 0xFC1FFFFF));
+    CHECK(!ImageRangeHas(dll, kDllBase, 0x875D3AA0, 0x370, kLiRegister196, 0xFC1FFFFF));
+  }
+  const std::string gate = ReadSource("live_hooks_tmnt_r.cpp");
+  CHECK(Has(gate, "REX_HOOK_RAW(sub_875D4DF0)"));
+  CHECK(Has(gate, "rex::cvar::SetFlagByName(\"tmnt_online_user\", std::to_string(controller));"));
+  const std::string hook = ReadSource("player_match_hook.cpp");
+  CHECK(Has(hook, "REXCVAR_DEFINE_INT32(tmnt_online_user, 0,"));
+  CHECK(Has(hook, "tmnt::LiveProfileUser(user, online_user, CurrentLive().available)"));
+  CHECK(Has(hook, "tmnt::LivePrivilegeUser(user, CurrentOnlineUser(), CurrentLive().available)"));
+  CHECK(Has(hook, "tmnt::WriteSigninInfo(GuestHost(base, info), live.xuid, live.name);"));
+  CHECK(Has(hook, "if (!tmnt::OnlineRunning()) return live;"));
+  CHECK(Has(hook, "live.available = tmnt::LiveAvailable(true, profile.signed_in) && !profile.friend_code.empty();"));
+  CHECK(!Has(hook, "kOnlineUser") && !Has(ReadSource("player_match_invite_hook.cpp"), "kOnlineUser"));
 }
 
 void TestHooksCoverTheTitlesWrappers() {
@@ -747,12 +1138,13 @@ void TestHooksCoverTheTitlesWrappers() {
   for (const char* name : {"823CB410, XnAddrToInAddr", "823CB450, QosListen", "823CB470, QosLookup",
                            "8243D090, Socket", "8243D0A8, Close", "8243D108, Bind", "8243D158, GetOverlappedResult",
                            "8243D190, RecvFrom", "8243D1B0, WsaRecvFrom", "8243D220, SendTo", "8243D240, WsaSendTo",
-                           "8243D2A0, LastError"}) {
-    CHECK(Has(net, std::string("TMNT_NET_HOOK(") + name + ")"));
+                           "8243D2C0, WsaWaitForEvents"}) {
+    CHECK(Has(net, std::string("_HOOK(") + name + ")"));
   }
+  CHECK(Has(net, "REX_HOOK_RAW(sub_8243D2A0) { LastError(ctx, base, __imp__sub_8243D2A0); }"));
   CHECK(Has(net, "!tmnt::ShimSocket(type, protocol) || !LiveNow()"));
   for (const char* name : {"823CB3E0, XNetCreateKey", "823CB3F0, XNetKeyRegistration", "823CB400, XNetKeyRegistration"}) {
-    CHECK(Has(net, std::string("TMNT_NET_HOOK(") + name + ")"));
+    CHECK(Has(net, std::string("_HOOK(") + name + ")"));
   }
   CHECK(Has(net, "if (!id || !key || !LiveNow())") && Has(net, "ctx.r3.u64 = 0;"));
   const std::string live = ReadSource("player_match_hook.cpp");
@@ -777,9 +1169,129 @@ void TestHooksCoverTheTitlesWrappers() {
   CHECK(Has(ReadSource("window_host.cpp"), "CountGuestFrame();\n  tmnt::PumpOnlineNetwork(base);"));
 }
 
+
+void TestJoinedSessionSlotsAreTheAdvertisedPlayerCount() {
+  online::PlayerMatchAd ad;
+  ad.session = "0123456789abcdef";
+  ad.player = kHostCode;
+  for (const int slots : {2, 3, 4}) {
+    ad.slots = slots;
+    std::vector<uint8_t> out(kSearchHeaderBytes + kSearchResultBytes, 0);
+    CHECK(WriteSearchResults(out.data(), 0x40003000, uint32_t(out.size()), 1, {ad}) == 1);
+    const SessionSlots joined = SearchResultSlots(out.data() + kSearchHeaderBytes);
+    CHECK(joined.max_public == uint32_t(slots) && joined.max_private == 0 && joined.Total() == uint32_t(slots));
+  }
+  std::vector<uint8_t> raw(kSearchResultBytes, 0);
+  StoreBE32(raw.data(), kSessionInfoBytes + 0, 1);
+  StoreBE32(raw.data(), kSessionInfoBytes + 4, 2);
+  StoreBE32(raw.data(), kSessionInfoBytes + 8, 3);
+  StoreBE32(raw.data(), kSessionInfoBytes + 12, 4);
+  const SessionSlots mixed = SearchResultSlots(raw.data());
+  CHECK(mixed.max_public == 4 && mixed.max_private == 6 && mixed.Total() == 10);
+  const std::string live = ReadSource("player_match_hook.cpp");
+  const std::string dll = ReadSource("live_hooks_tmnt_r.cpp");
+  CHECK(Has(live, "tmnt::SearchResultSlots(GuestHost(base, info))") && Has(live, "PublishJoinedSlots(slots.Total())"));
+  CHECK(Has(live, "PublishJoinedSlots(0);\n    }\n    if (info) tmnt::WriteXnAddr"));
+  CHECK(Has(dll, "REX_HOOK_RAW(sub_875CCEC8)") && Has(dll, "tmnt_online_joined_slots") && Has(dll, "if (slots > 0) ctx.r3.u64"));
+  CHECK(dll.find("__imp__sub_875CCEC8(ctx, base);") < dll.find("tmnt_online_joined_slots"));
+}
+
+// Two members can hash to one address. The test forces it: only the two low bytes of an XUID choose the address.
+void TestAddressCollisionsResolveTheSameOnEveryConsole() {
+  const uint64_t base = 0x0009000000004142ull;
+  const uint64_t host = base | 0x1111ull << 32, two = base | 0x2222ull << 32, three = base | 0x3333ull << 32,
+                 four = base | 0x4444ull << 32;
+  CHECK(SyntheticAddress(host) == SyntheticAddress(two) && SyntheticAddress(two) == SyntheticAddress(four));
+
+  SyntheticAddressBook first, second;
+  first.Update({{1, host}, {2, two}, {3, three}, {4, four}});
+  second.Update({{4, four}, {3, three}, {1, host}, {2, two}});  // another console's order
+  const uint32_t a = first.AddressOf(host), b = first.AddressOf(two), c = first.AddressOf(three), d = first.AddressOf(four);
+  CHECK(a == SyntheticAddress(host));  // the address the host's search result shows
+  CHECK(a != b && a != c && a != d && b != c && b != d && c != d);
+  CHECK(second.AddressOf(host) == a && second.AddressOf(two) == b && second.AddressOf(three) == c && second.AddressOf(four) == d);
+  for (const uint32_t address : {a, b, c, d}) {
+    CHECK(IsSyntheticAddress(address));
+    CHECK((address & 0xFF) != 0 && (address & 0xFF) != 255 && ((address >> 8) & 0xFF) != 0 && ((address >> 8) & 0xFF) != 255);
+  }
+
+  // A member keeps its address for the whole session, even when the member it collided with leaves.
+  first.Update({{1, host}, {3, three}, {4, four}});
+  CHECK(first.AddressOf(three) == c && first.AddressOf(four) == d);
+  CHECK(first.AddressOf(two) == SyntheticAddress(two));  // cleaned on leave
+  first.Update({{1, host}, {2, two}, {3, three}, {4, four}});
+  CHECK(first.AddressOf(two) == b);  // and the free address is the one a later member takes
+  first.Update({});
+  CHECK(first.AddressOf(three) == SyntheticAddress(three));
+
+  // The last address of the block wraps to the first, never to a reserved one.
+  const uint64_t last = 0x000900000000FDFDull, also_last = 0x000900010000FDFDull;
+  CHECK((SyntheticAddress(last) & 0xFFFF) == 0xFEFE);
+  SyntheticAddressBook wrap;
+  wrap.Update({{1, last}, {2, also_last}});
+  CHECK((wrap.AddressOf(also_last) & 0xFFFF) == 0x0101);
+
+  // The game reaches a moved member through its XNADDR, and both directions of the route use the moved address.
+  uint8_t xnaddr[kXnAddrBytes];
+  WriteXnAddr(xnaddr, two, b);
+  CHECK(XnAddrXuid(xnaddr) == two && LoadBE32(xnaddr, 0) == b);
+  SyntheticAddressBook book;
+  book.Update({{1, host}, {2, two}});
+  online::ActivePeer peer = Peer("m1", 2, "", false);
+  peer.player = kJoinCode;
+  CHECK(RouteFor(peer, book)->address == SyntheticAddress(VirtualXuid(kJoinCode)));  // a member the book does not list
+  const std::vector<PeerRoute> routes = RoutesFor({Peer("m1", 1, kHostCode, true), Peer("m1", 3, kThirdCode, false)}, 2,
+                                                  VirtualXuid(kJoinCode), book);
+  CHECK(routes.size() == 2 && routes[0].address == book.AddressOf(VirtualXuid(kHostCode)) &&
+        routes[1].address == book.AddressOf(VirtualXuid(kThirdCode)));
+  const std::string hook = ReadSource("player_match_net_hook.cpp");
+  CHECK(Has(hook, "tmnt::ActiveSyntheticAddress(*xuid)") && !Has(hook, "tmnt::SyntheticAddress(*xuid)"));
+  CHECK(Has(ReadSource("player_match_hook.cpp"), "tmnt::WriteXnAddr(GuestHost(base, xnaddr), live.xuid, tmnt::ActiveSyntheticAddress(live.xuid));"));
+}
+
+// PLT_IsPlayerMuted: nobody is muted, friend or not.
+void TestMuteListQueryAnswersNotMuted() {
+  const std::string live = ReadSource("player_match_hook.cpp");
+  const size_t query = live.find("void MuteListQuery(");
+  const std::string body = live.substr(query, live.find("\n}\n", query) - query);
+  CHECK(Has(live, "TMNT_LIVE_HOOK(823C7F20, MuteListQuery)") && !Has(live, "UsersAreFriends"));
+  CHECK(Has(body, "StoreBE32(GuestHost(base, ctx.r5.u32), 0, 0);") && Has(body, "ctx.r3.u64 = 0;"));
+  CHECK(!Has(body, "original(ctx, base)") && !Has(body, "Online()"));
+}
+
+void TestInviteLookupUsesTheSessionsRealSlots() {
+  online::PlayerMatchAd ad;
+  ad.session = "0123456789abcdef";
+  ad.player = kHostCode;
+  for (const int slots : {2, 3, 4}) {
+    ad.slots = slots;
+    std::vector<uint8_t> out(kSearchByIdBytes, 0);
+    CHECK(WriteSearchByIdResult(out.data(), 0x40002000, uint32_t(out.size()), ad));
+    CHECK(SearchResultSlots(out.data() + kSearchHeaderBytes).Total() == uint32_t(slots));
+  }
+  CHECK(Has(ReadSource("player_match_invite_hook.cpp"), "ad.slots = invite->slots;"));
+  const std::string live = ReadSource("player_match_hook.cpp");
+  CHECK(Has(live, "slots = {uint32_t(ad.slots), 0};"));
+  CHECK(live.find("slots = {uint32_t(ad.slots), 0};") < live.find("PublishJoinedSlots(slots.Total());"));
+}
+
 }  // namespace
 
+void TestJoinRefusalsReachTheTitlesOwnDialogs() {
+  CHECK(JoinRefusalResult("") == 0);
+  CHECK(JoinRefusalResult("party_full") == 0x80155202);
+  for (const char* code : {"not_found", "offline", "host_left", "expired"}) CHECK(JoinRefusalResult(code) == 0x80155200);
+  for (const char* code : {"link_lost", "limit", "rate_limited"}) CHECK(JoinRefusalResult(code) == 0x80151100);
+  CHECK(JoinRefusalResult("version_mismatch") == 0x80004005);
+  CHECK(JoinRefusalResult("busy") == 0x80004005);
+  const std::string live = ReadSource("player_match_hook.cpp");
+  CHECK(Has(live, "CompleteJoinWhenAnswered(started, overlapped)"));
+  CHECK(Has(live, "EndOnlineMatch(\"join_refused\")"));
+  CHECK(live.find("void EndOnlineMatch(") < live.find("void CompleteJoinWhenAnswered("));
+}
+
 int main() {
+  TestJoinRefusalsReachTheTitlesOwnDialogs();
   TestActiveMatchCreatesARoute();
   TestXnAddrMapsBothWays();
   TestQosReturnsTheAdvertisedPeer();
@@ -797,6 +1309,10 @@ int main() {
   TestMixedSelect();
   TestWaitSlices();
   TestOverlappedAndSessionHookFixes();
+  TestJoinedSessionSlotsAreTheAdvertisedPlayerCount();
+  TestAddressCollisionsResolveTheSameOnEveryConsole();
+  TestMuteListQueryAnswersNotMuted();
+  TestInviteLookupUsesTheSessionsRealSlots();
   TestSocketHooksCoverSendRecvSelectConnect();
   TestOnlySocketReceivesAnUnboundPort();
   TestSearchResultsDescribeTheFriendsSession();
@@ -806,6 +1322,21 @@ int main() {
   TestNetKeyIsASystemLinkIdAndAnExchangeKey();
   TestDetailsOfAHostOnlySessionThenTwoAndFourMembers();
   TestHooksCoverTheTitlesWrappers();
+  TestShimQueuesStayBoundedAndCountTheirLosses();
+  TestAPendingReceiveStaysPendingForBothGuestReads();
+  TestReceiveCompletedWhileWaiting();
+  TestIdleReceiveBlocksThroughTheWholeWait();
+  TestDatagramQueuedBeforeTheReceiveFinishesAtOnce();
+  TestDatagramInTheLastSliceIsNotAFalseTimeout();
+  TestReceiveStartLeavesItsEventClear();
+  TestANewReceiveReplacesAnAbandonedOneOnTheSameOverlapped();
+  TestLastErrorLeftAloneByNonSocketCalls();
+  TestFramePhasesReachTheHeartbeat();
+  TestTheSamplerOnlyRunsWhileTicksAreSlowAndNeverLogsWhileSuspended();
+  TestTheGameRunsItsOwnNetworking();
+  TestOnlyTheOnlineUserIsOnLive();
+  TestSigninInfoIsTheLiveProfile();
+  TestTheOnlineGateIsTheTitlesOwn();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

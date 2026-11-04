@@ -6,6 +6,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,9 @@ inline constexpr size_t kMaxLobbyPayload = 1400;
 std::vector<uint8_t> EncodeLobby(uint32_t tag, const LobbyDatagram& datagram);
 // Nothing for anything that is not a lobby datagram.
 std::optional<std::pair<uint32_t, LobbyDatagram>> DecodeLobby(const uint8_t* data, size_t size);
+
+// Where a participant's transport says it is reached: its relayed address, or its direct endpoint when that parses.
+std::optional<Endpoint> LobbyPeerEndpoint(int slot, bool relay, const std::string& address, uint16_t port);
 
 inline constexpr size_t kMaxHeldLobby = 32;
 

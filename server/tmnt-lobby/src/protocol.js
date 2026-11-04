@@ -38,6 +38,7 @@ export const BUCKETS = {
   any: { burst: 60, perSecond: 20 },
   social: { burst: 10, perSecond: 1 },
   signal: { burst: 40, perSecond: 5 },
+  search: { burst: 6, perSecond: 1 },
   telemetry: { burst: 6, perSecond: 0.2 },
   telemetryAll: { burst: 120, perSecond: 10 },
   beacon: { burst: 6, perSecond: 0.2 },
@@ -194,6 +195,8 @@ export function ipv4Kind(ip) {
   const [a, b, c, d] = m.slice(1).map(Number);
   if ([a, b, c, d].some((n) => n > 255)) return null;
   if (a === 127) return 'loopback';
+  if (a === 0 || a >= 224) return 'reserved';
+  if (a === 100 && b >= 64 && b <= 127) return 'carrier';
   if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)) {
     return 'private';
   }

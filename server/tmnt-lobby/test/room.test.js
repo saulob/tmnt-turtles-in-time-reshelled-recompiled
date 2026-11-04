@@ -315,6 +315,56 @@ test('endpoints are published once per socket generation and reach every other m
   assert.equal(rooms[1].events('match.peer').length, 0);
 });
 
+test('LAN addresses reach only a member behind the same address', () => {
+  const env = makeHub();
+  const { data, match } = buildParty(env, 3, { connect: false });
+  const a = env.room(match, null, { ip: '203.0.113.9' });
+  const near = env.room(match, null, { ip: '203.0.113.9' });
+  const far = env.room(match, null, { ip: '198.51.100.20' });
+  a.hello(data[0]);
+  near.hello(data[1]);
+  far.hello(data[2]);
+  a.call('match.endpoint', { port: 7001, lan: ['127.0.0.1', '192.168.1.5'] });
+  assert.deepEqual(near.events('match.peer').at(-1).lan, ['127.0.0.1', '192.168.1.5']);
+  const [toFar] = far.events('match.peer');
+  assert.deepEqual([toFar.lan, toFar.same_network], [[], false]);
+
+  // A late member gets the same answer.
+  const late = env.room(match, null, { ip: '198.51.100.20' });
+  late.hello(data[2]);
+  assert.deepEqual(late.events('match.peer').at(-1).lan, []);
+});
+
+// One connection over IPv6 and one over IPv4 share no observed address; the STUN result shows the same network.
+test('the same public endpoint address hands over the LAN addresses held back so far', () => {
+  const env = makeHub();
+  const { data, match } = buildParty(env, 2, { connect: false });
+  const a = env.room(match, null, { ip: '2804:14d::1' });
+  const b = env.room(match, null, { ip: '203.0.113.9' });
+  a.hello(data[0]);
+  b.hello(data[1]);
+  a.call('match.endpoint', { port: 7001, lan: ['192.168.1.5'], public_ip: '179.113.149.63', public_port: 54114 });
+  assert.deepEqual(b.events('match.peer').at(-1).lan, []);
+  b.inbox = [];
+  b.call('match.endpoint', { port: 7002, lan: ['192.168.1.9'], public_ip: '179.113.149.63', public_port: 61000 });
+  assert.deepEqual(a.events('match.peer').at(-1).lan, ['192.168.1.9']);
+  const [resent] = b.events('match.peer');
+  assert.deepEqual([resent.slot, resent.lan, resent.same_network], [1, ['192.168.1.5'], false]);
+
+  // A different public address hears nothing more.
+  const other = makeHub();
+  const party = buildParty(other, 2, { connect: false });
+  const c = other.room(party.match, null, { ip: '2804:14d::1' });
+  const d = other.room(party.match, null, { ip: '203.0.113.9' });
+  c.hello(party.data[0]);
+  d.hello(party.data[1]);
+  c.call('match.endpoint', { port: 7001, lan: ['192.168.1.5'], public_ip: '179.113.149.63', public_port: 54114 });
+  d.inbox = [];
+  d.call('match.endpoint', { port: 7002, lan: ['192.168.1.9'], public_ip: '179.113.149.64', public_port: 61000 });
+  assert.equal(d.events('match.peer').length, 0);
+  assert.deepEqual(c.events('match.peer').at(-1).lan, []);
+});
+
 test('endpoint messages are validated and need a current socket', () => {
   const env = makeHub();
   const { rooms } = buildParty(env, 2);
@@ -561,4 +611,72 @@ test('a hibernated room wakes with its seats, pairs, generations and sockets int
   assert.equal(rooms[1].closedWith.code, 4001);
   assert.equal(rooms[1].call('match.link', { peer: 1, state: 'connected' }).code, 'stale');
   assert.equal(memberStates(env)[0], '1:connected');
+});
+
+// The sockets a restarted object still holds are the ones that survived; the others never report a close.
+function restart(env, match, gone) {
+  const entry = env.rooms.ensure(match);
+  for (const client of gone) entry.host.conns.delete(client.conn);
+  entry.host.alarmAt = null;
+  entry.room = new MatchRoom(entry.host, { local: true });
+  return entry;
+}
+
+test('after a restart a seat whose socket did not survive gets the grace and then ends', () => {
+  const env = makeHub();
+  const { rooms, match, clients } = buildParty(env, 3);
+  keepAlive(rooms);
+  const { room } = restart(env, match, [rooms[2]]);
+  assert.deepEqual(room.members().map((m) => [m.slot, m.grace !== null]), [[1, false], [2, false], [3, true]]);
+  rooms[0].room = room;
+  rooms[1].room = room;
+  env.clock.now += LIMITS.graceMs / 2;
+  keepAlive(rooms.slice(0, 2));
+  env.clock.now += LIMITS.graceMs / 2 + 1;
+  keepAlive(rooms.slice(0, 2));
+  env.rooms.tick();
+  assert.deepEqual(room.members().map((m) => m.slot), [1, 2]);
+  assert.equal(env.hub.stats().members, 2);
+  assert.equal(clients[0].call('friends.list').code, 'ok');
+});
+
+test('after a restart with no socket left the room ends and frees its party', () => {
+  const env = makeHub();
+  const { rooms, match, clients } = buildParty(env, 2);
+  const { room } = restart(env, match, rooms);
+  assert.ok(room.members().every((m) => m.grace !== null));
+  env.clock.now += LIMITS.graceMs + 1;
+  env.rooms.tick();
+  assert.equal(room.getMeta('ended'), 'expired');
+  assert.equal(env.hub.stats().parties, 0);
+  assert.equal(clients[0].call('party.create').code, 'ok');
+});
+
+test('a restart leaves a room that kept its sockets, or never opened, as it was', () => {
+  const env = makeHub();
+  const { rooms, match } = buildParty(env, 2);
+  const { room } = restart(env, match, []);
+  assert.ok(room.members().every((m) => m.grace === null));
+  assert.equal(room.getMeta('empty_since'), null);
+  assert.equal(rooms.length, 2);
+});
+
+test('a connection to a room no party opened leaves nothing behind', () => {
+  const env = makeHub();
+  const id = '0123456789abcdef';
+  const stray = env.room(id);
+  assert.ok(env.rooms.rooms.has(id));
+  env.clock.now += LIMITS.helloMs + 1;
+  env.rooms.tick();
+  assert.equal(stray.closedWith?.code, 4003);
+  assert.ok(!env.rooms.rooms.has(id));
+});
+
+test('addresses no peer can reach are refused as a public endpoint', () => {
+  const env = makeHub();
+  const { rooms } = buildParty(env, 2);
+  for (const bad of ['0.0.0.0', '0.1.2.3', '100.64.0.1', '100.127.255.254', '224.0.0.1', '240.0.0.1', '255.255.255.255']) {
+    assert.equal(rooms[0].call('match.endpoint', { port: 7001, public_ip: bad, public_port: 54114 }).code, 'bad_request', bad);
+  }
+  assert.equal(rooms[0].call('match.endpoint', { port: 7001, public_ip: '100.63.0.1', public_port: 54114 }).code, 'ok');
 });

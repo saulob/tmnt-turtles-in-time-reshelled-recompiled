@@ -96,7 +96,7 @@ void TestWaitForEventsHookUsesRealWaitSemantics() {
   const size_t start = net.find("void WsaWaitForEvents(");
   const std::string body = net.substr(start, net.find("\n}\n", start) - start);
   CHECK(Has(body, "wait_all ? 0 : 1") && Has(body, "kWaitTimeout") && Has(body, "kWaitIoCompletion"));
-  CHECK(Has(body, "tmnt::NextWaitSlice(milliseconds, elapsed)") && Has(body, "tmnt::CompleteVdpReceives(base);"));
+  CHECK(Has(body, "tmnt::WaitInSlices(") && Has(body, "tmnt::CompleteVdpReceives(base);"));
   CHECK(Has(net, "TMNT_NET_HOOK(8243D2C0, WsaWaitForEvents)"));
   const std::string bridge = ReadSource("online_bridge.cpp");
   CHECK(Has(ReadSource("frame_trace.cpp"), "REX_HOOK_RAW(sub_82279648)") && Has(bridge, "REX_HOOK_RAW(sub_824BE610)"));

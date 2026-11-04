@@ -1,7 +1,10 @@
 #include "legacy_settings.h"
 
+#include <algorithm>
 #include <cctype>
 #include <optional>
+
+#include "retired_settings.h"
 
 namespace tmnt {
 namespace {
@@ -79,6 +82,42 @@ std::string RepairLegacyToggles(std::string_view text, std::size_t& repaired) {
       out += '\n';
     }
     start = has_newline ? newline + 1 : text.size();
+  }
+  return out;
+}
+
+std::string TomlString(std::string_view value) {
+  std::string quoted = "\"";
+  for (char c : value) {
+    if (c == '"' || c == '\\') {
+      quoted += '\\';
+    }
+    quoted += c;
+  }
+  return quoted + '"';
+}
+
+std::string RepairBareString(std::string_view text, std::string_view key, std::size_t& repaired) {
+  std::string out;
+  out.reserve(text.size());
+  while (!text.empty()) {
+    const size_t newline = text.find('\n');
+    const size_t length = newline == std::string_view::npos ? text.size() : newline + 1;
+    const std::string_view line = text.substr(0, length);
+    text.remove_prefix(length);
+    const size_t eq = line.find('=');
+    const size_t end = line.find_last_not_of(" \t\r\n") + 1;
+    const size_t value = line.find_first_not_of(" \t", eq + 1);
+    const bool has_value = value < end;
+    if (!IsSettingLine(line, key) || (has_value && (line[value] == '"' || line[value] == '\''))) {
+      out += line;
+      continue;
+    }
+    out += line.substr(0, eq + 1);
+    out += ' ';
+    out += TomlString(has_value ? line.substr(value, end - value) : std::string_view());
+    out += line.substr(std::min(line.find_first_of("\r\n", end), line.size()));
+    ++repaired;
   }
   return out;
 }

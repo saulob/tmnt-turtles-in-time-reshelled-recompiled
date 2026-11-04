@@ -13,6 +13,14 @@ namespace {
 constexpr double kPeerEndpointWaitSeconds = 10.0;
 constexpr double kRelayStatsSeconds = 10.0;
 constexpr double kTransportConfirmSeconds = 5.0;
+// As long as the service keeps a lost member's seat.
+constexpr double kRelayResumeSeconds = 30.0;
+
+// The relay rides the room connections; the service keeps the pair's token and seats through a lost one.
+bool RelayCanReturn(const std::string& reason) {
+  return reason == "service_disconnected" || reason == "peer_disconnected" || reason == "peer_unavailable" ||
+         reason == "unavailable";
+}
 
 uint64_t Milliseconds(double seconds) { return uint64_t(std::max(0.0, seconds) * 1000.0); }
 
@@ -174,6 +182,10 @@ void MatchSession::OnMembers(const std::vector<RoomMember>& members, double now)
     link.member = member.state == "connected" ? MemberState::kConnected
                   : member.state == "connecting" ? MemberState::kConnecting
                   : member.state == "disconnected" ? MemberState::kDisconnected : MemberState::kJoined;
+    if (link.relay_resume_deadline > 0 && link.member != MemberState::kDisconnected) {
+      link.relay_resume_deadline = 0;
+      Log("DEBUG_SAULO relay resumed peer=" + std::to_string(link.slot));
+    }
     if (link.setup == Setup::kNone && link.establishment.phase() == Establishment::Phase::kIdle &&
         (link.member == MemberState::kConnecting || link.member == MemberState::kConnected)) {
       BeginLink(link, now);
@@ -428,11 +440,17 @@ void MatchSession::RequestRelay(Link& link, const std::string& why) {
   Log("DEBUG_SAULO relay fallback begin peer=" + std::to_string(link.slot));
   Emit("direct_result", link.slot, {{"result", "failed"}, {"reason", why}, {"ms", std::to_string(link.direct_elapsed_ms)}});
   Emit("relay_fallback", link.slot, {{"reason", why}});
-  if (config_.send_text) config_.send_text(EncodeMatchTransport(++endpoint_seq_, link.slot, "relay"));
+  link.relay_request_seq = ++endpoint_seq_;
+  if (config_.send_text) config_.send_text(EncodeMatchTransport(link.relay_request_seq, link.slot, "relay"));
+}
+
+// The other end of a pair waits for this choice whenever the session has a relay, even if this end's relay just died.
+void MatchSession::AnnounceDirect(const Link& link) {
+  if (config_.relay_token && config_.send_text) config_.send_text(EncodeMatchTransport(++endpoint_seq_, link.slot, "direct"));
 }
 
 void MatchSession::SelectDirect(Link& link, const Candidate& selected) {
-  const bool tell = Coordinated(link) && Chooser(link);
+  const bool tell = Chooser(link);
   link.setup = Setup::kSelected;
   link.transport = MatchTransport::kDirect;
   link.direct_elapsed_ms = ElapsedMs(link);
@@ -450,7 +468,7 @@ void MatchSession::SelectDirect(Link& link, const Candidate& selected) {
       " type=" + CandidateTypeName(selected.type) + " elapsed_ms=" + std::to_string(link.direct_elapsed_ms));
   Emit("direct_result", link.slot, {{"result", "ok"}, {"ms", std::to_string(link.direct_elapsed_ms)}});
   Emit("transport_selected", link.slot, {{"transport", "direct"}, {"ms", std::to_string(link.direct_elapsed_ms)}});
-  if (tell && config_.send_text) config_.send_text(EncodeMatchTransport(++endpoint_seq_, link.slot, "direct"));
+  if (tell) AnnounceDirect(link);
   Assign(link, selected.endpoint, false);
 }
 
@@ -549,7 +567,12 @@ void MatchSession::OnRelayClosed(int peer_slot, const std::string& reason, doubl
     Link* link = Find(slot);
     if (!link || (peer_slot && peer_slot != slot)) continue;
     if (link->transport == MatchTransport::kRelay) {
-      FailLink(*link, "relay_closed", "The connection to " + link->name + " was lost.");
+      if (!RelayCanReturn(reason)) {
+        FailLink(*link, "relay_closed", "The connection to " + link->name + " was lost.");
+      } else if (link->relay_resume_deadline == 0) {
+        link->relay_resume_deadline = now + kRelayResumeSeconds;
+        Log("DEBUG_SAULO relay suspended peer=" + std::to_string(slot) + " reason=" + reason);
+      }
     } else if (link->transport == MatchTransport::kDirectProbing) {
       if (reason == "peer_disconnected" || link->relay_requested) {
         FailLink(*link, reason == "peer_disconnected" ? "peer_disconnected" : "relay_unavailable", {});
@@ -602,6 +625,7 @@ void MatchSession::FailLink(Link& link, const std::string& reason, const std::st
     Emit("direct_result", link.slot, {{"result", "failed"}, {"reason", reason}});
   }
   link.establishment.Fail(now_, reason);
+  ReportLink(link);
   Emit("peer_disconnect", link.slot, {{"reason", reason}});
   if (config_.socket) {
     config_.socket->CloseRelayPeer(link.slot);
@@ -633,9 +657,8 @@ void MatchSession::LogSummary(Link& link) {
 
 void MatchSession::PumpRelay(Link& link, double now) {
   if (link.transport != MatchTransport::kRelay || !config_.socket) return;
-  const std::string failure = config_.socket->relay_failure(link.slot);
-  if (!failure.empty()) {
-    FailLink(link, "relay_" + failure, "The connection to " + link.name + " was lost.");
+  if (link.relay_resume_deadline > 0 && now >= link.relay_resume_deadline) {
+    FailLink(link, "relay_closed", "The connection to " + link.name + " was lost.");
     return;
   }
   if (now < link.next_relay_stats) return;
@@ -673,12 +696,39 @@ void MatchSession::ResendEndpoint() {
   SendEndpoint();
 }
 
+void MatchSession::ResendReports() {
+  for (const std::optional<Link>& entry : links_) {
+    if (!entry) continue;
+    if (entry->link != NetplayLink::kNone || entry->setup == Setup::kFailed) ReportLink(*entry);
+    if (entry->transport == MatchTransport::kDirect && Chooser(*entry)) AnnounceDirect(*entry);
+  }
+}
+
+void MatchSession::OnRefused(int seq, const std::string& code, double now) {
+  now_ = now;
+  for (std::optional<Link>& entry : links_) {
+    if (!entry || !entry->relay_requested || entry->relay_request_seq != seq || code == "already_set") continue;
+    Log("DEBUG_SAULO relay refused peer=" + std::to_string(entry->slot) + " code=" + code);
+    FailLink(*entry, "relay_unavailable", {});
+  }
+}
+
 void MatchSession::OnBinary(const std::string& frame) {
   if (config_.socket) config_.socket->DeliverRelay(reinterpret_cast<const uint8_t*>(frame.data()), frame.size());
 }
 
+void MatchSession::ReportLink(const Link& link) {
+  if (!config_.send_text) return;
+  const bool up = link.link == NetplayLink::kConnected || link.link == NetplayLink::kFighting;
+  const char* state = link.setup == Setup::kFailed ? "lost" : up ? "connected" : "connecting";
+  config_.send_text(EncodeMatchLink(++endpoint_seq_, link.slot, state));
+}
+
 void MatchSession::SetPeerLink(int slot, NetplayLink link) {
-  if (Link* entry = Find(slot)) entry->link = link;
+  Link* entry = Find(slot);
+  if (!entry || entry->link == link) return;
+  entry->link = link;
+  ReportLink(*entry);
 }
 
 void MatchSession::Stop() {

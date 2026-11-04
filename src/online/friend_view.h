@@ -30,6 +30,10 @@ struct InviteChoice {
 };
 std::vector<InviteChoice> InviteChoices(const std::vector<Friend>& friends);
 
+// The in-game invite list of a hosted party: friends already in the party or invited, and every friend once the
+// session's places are taken, are shown but cannot be chosen. A guest or a player without a party cannot choose anyone.
+std::vector<InviteChoice> PartyInviteChoices(const Snapshot& state);
+
 // One of the four player cards of the party, always four, empty ones included.
 struct PartySlotView {
   int slot = 0;

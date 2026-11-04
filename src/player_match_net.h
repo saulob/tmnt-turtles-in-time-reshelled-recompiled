@@ -19,9 +19,30 @@ inline constexpr uint32_t kSyntheticNet = 0x0A530000;
 uint32_t SyntheticAddress(uint64_t xuid);
 constexpr bool IsSyntheticAddress(uint32_t address) { return (address & 0xFFFF0000u) == kSyntheticNet; }
 
+// A room member, in the terms every console of the room shares.
+struct AddressMember {
+  int slot = 0;
+  uint64_t xuid = 0;
+};
+
+// The synthetic addresses of the current room. Two XUIDs can hash to one address, and the game could not tell those
+// members apart, so a member whose address is taken gets the next free one. Consoles walk the roster in slot order, which
+// is the same everywhere, so they all agree; the host, slot 1, always has its hashed address, the one its search result
+// shows. A member keeps its address until it leaves.
+class SyntheticAddressBook {
+ public:
+  void Update(std::vector<AddressMember> roster);
+  // A member's address; outside the room, the hashed one.
+  uint32_t AddressOf(uint64_t xuid) const;
+
+ private:
+  std::map<uint64_t, uint32_t> assigned_;
+};
+
 // XNADDR: ina (4), inaOnline (4), wPortOnline (2), abEnet (6), abOnline (20).
 inline constexpr uint32_t kXnAddrBytes = 36;
 void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid);
+void WriteXnAddr(uint8_t* xnaddr, uint64_t xuid, uint32_t address);
 // The XUID of an XNADDR written by WriteXnAddr.
 std::optional<uint64_t> XnAddrXuid(const uint8_t* xnaddr);
 
@@ -35,8 +56,10 @@ struct PeerRoute {
   uint32_t tag = 0;
   bool host = false;
 };
-std::optional<PeerRoute> RouteFor(const online::ActivePeer& peer);
-std::vector<PeerRoute> RoutesFor(const std::vector<online::ActivePeer>& peers);
+std::optional<PeerRoute> RouteFor(const online::ActivePeer& peer, const SyntheticAddressBook& book = {});
+// Brings the book up to date with this console (at `my_slot`, when it has one) and `peers`.
+std::vector<PeerRoute> RoutesFor(const std::vector<online::ActivePeer>& peers, int my_slot, uint64_t my_xuid,
+                                 SyntheticAddressBook& book);
 const PeerRoute* RouteForAddress(const std::vector<PeerRoute>& routes, uint32_t address);
 
 // XNQOS: cxnqos, cxnqosPending, then one XNQOSINFO (24 bytes) per probed address, then the probe data.
@@ -95,9 +118,21 @@ struct PendingReceive {
 };
 
 // Oldest first per socket; a closed socket's receives are dropped.
+// WSAGetLastError repeats its answer until the next socket call: the title reads it twice for one failed receive.
+class SocketLastError {
+ public:
+  void Clear() { value_ = 0; }
+  void Set(uint32_t error) { value_ = error; }
+  uint32_t Get() const { return value_; }
+
+ private:
+  uint32_t value_ = 0;
+};
+
 class PendingReceives {
  public:
-  void Add(const PendingReceive& receive) { pending_.push_back(receive); }
+  // An overlapped carries one receive: a new one replaces it, so a datagram never lands in an abandoned buffer.
+  void Add(const PendingReceive& receive);
   std::optional<PendingReceive> Take(uint32_t handle);
   void Drop(uint32_t handle);
   bool Has(uint32_t handle) const;
@@ -141,6 +176,9 @@ class VdpShim {
   bool Peer(uint32_t handle, uint32_t& address, uint16_t& port) const;
   uint16_t bound_port(uint32_t handle) const;
   size_t queued(uint32_t handle) const;
+  // DEBUG_SAULO: the deepest socket queue, and the datagrams lost to a full queue so far.
+  size_t deepest_queue() const;
+  uint64_t dropped() const { return dropped_; }
 
  private:
   struct Queued {
@@ -160,6 +198,7 @@ class VdpShim {
   static constexpr uint32_t kFirstHandle = 0x5D500001;
   uint32_t next_ = kFirstHandle;
   uint32_t tag_ = 0;
+  uint64_t dropped_ = 0;
   std::map<uint32_t, Socket> sockets_;
 };
 

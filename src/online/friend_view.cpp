@@ -52,6 +52,31 @@ std::vector<InviteChoice> InviteChoices(const std::vector<Friend>& friends) {
   return choices;
 }
 
+std::vector<InviteChoice> PartyInviteChoices(const Snapshot& state) {
+  std::vector<InviteChoice> choices = InviteChoices(state.friends);
+  const bool hosting = state.party && state.my_slot == 1;
+  const size_t places = state.party ? state.party->members.size() + state.party->invited.size() : 0;
+  const size_t capacity = state.party ? size_t(state.party->slots) : 0;
+  for (InviteChoice& choice : choices) {
+    if (!hosting) {
+      choice.selectable = false;
+      continue;
+    }
+    const bool member = state.party->member_of(choice.player) != nullptr;
+    const bool invited = std::any_of(state.party->invited.begin(), state.party->invited.end(),
+                                     [&](const PartyInvited& entry) { return entry.player == choice.player; });
+    if (member || invited) {
+      choice.status = member ? "In your party" : "Invited";
+      choice.selectable = false;
+    } else if (choice.selectable && places >= capacity) {
+      choice.status = "Party full";
+      choice.selectable = false;
+    }
+  }
+  std::stable_partition(choices.begin(), choices.end(), [](const InviteChoice& c) { return c.selectable; });
+  return choices;
+}
+
 FriendRowView DescribeFriend(const Snapshot& state, const Friend& entry) {
   FriendRowView view;
   view.status = FriendStatusLine(entry);

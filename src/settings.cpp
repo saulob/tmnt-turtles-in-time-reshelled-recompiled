@@ -140,14 +140,7 @@ std::string TomlValue(std::string_view key, const std::string& value) {
   if (!info || info->type != rex::cvar::FlagType::String) {
     return value;
   }
-  std::string quoted = "\"";
-  for (char c : value) {
-    if (c == '"' || c == '\\') {
-      quoted += '\\';
-    }
-    quoted += c;
-  }
-  return quoted + '"';
+  return TomlString(value);
 }
 
 std::optional<std::string> ConfigValue(const toml::table& table, std::string_view key) {
@@ -267,7 +260,7 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
   std::size_t repaired = 0;
-  const std::string fixed = RepairLegacyToggles(text, repaired);
+  const std::string fixed = RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired);
   if (repaired == 0) {
     return;
   }
@@ -295,7 +288,7 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
     REXLOG_ERROR("Cannot replace {} with the repaired settings", Utf8(path.filename()));
     return;
   }
-  REXLOG_INFO("Repaired {} legacy on/off value(s) in {} (original kept as {})", repaired, Utf8(path.filename()),
+  REXLOG_INFO("Repaired {} legacy value(s) in {} (original kept as {})", repaired, Utf8(path.filename()),
               Utf8(backup.filename()));
 }
 
@@ -432,7 +425,7 @@ bool GameSettings::Save() {
 bool GameSettings::SaveNow(const SettingValues& values) {
   trg::TextFileSettings file = OpenPlayerFile(player_file_);
   for (const auto& [key, value] : values) {
-    file.Set(key, value);
+    file.Set(key, TomlValue(key, value));
   }
   if (!file.Save()) {
     REXLOG_ERROR("Cannot write player settings to {}", Utf8(player_file_.filename()));

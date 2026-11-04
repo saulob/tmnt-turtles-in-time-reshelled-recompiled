@@ -181,6 +181,15 @@ export class Hub {
         }
         att.rs = social;
       }
+      // A search walks every friend's advertisement.
+      if (msg.op === 'pm.search') {
+        const search = takeToken(att.rq, BUCKETS.search, now);
+        if (!search) {
+          this.noteLimit('search');
+          fail('limit', 'slow down');
+        }
+        att.rq = search;
+      }
       if (!Object.hasOwn(HANDLERS, msg.op)) fail('bad_request', 'unknown op');
       if (msg.op !== 'hello' && !att.hello) fail('no_session');
       this.index = null;
@@ -295,12 +304,14 @@ export class Hub {
     if (advertised?.t) times.push(advertised.t + LIMITS.playerMatchMs);
     const invited = this.host.sql.get('SELECT MIN(created) AS t FROM party_invites');
     if (invited?.t) times.push(invited.t + LIMITS.inviteMs);
-    for (const party of this.host.sql.all('SELECT * FROM parties')) {
-      times.push(party.created + LIMITS.matchMaxMs);
-      const members = this.membersOf(party.id);
-      if (members.length === 1) times.push(party.activity + LIMITS.partyIdleMs);
-      for (const m of members) if (m.offline_since !== null && !HELD_STATES.includes(m.state)) times.push(m.offline_since + LIMITS.graceMs);
-    }
+    const oldest = this.host.sql.get('SELECT MIN(created) AS t FROM parties');
+    if (oldest?.t) times.push(oldest.t + LIMITS.matchMaxMs);
+    const idle = this.host.sql.get(`SELECT MIN(activity) AS t FROM parties WHERE id IN
+      (SELECT party FROM party_members GROUP BY party HAVING COUNT(*) = 1)`);
+    if (idle?.t) times.push(idle.t + LIMITS.partyIdleMs);
+    const gone = this.host.sql.get(`SELECT MIN(offline_since) AS t FROM party_members
+      WHERE offline_since IS NOT NULL AND state NOT IN ('connecting', 'connected')`);
+    if (gone?.t) times.push(gone.t + LIMITS.graceMs);
     if (!times.length) return;
     const at = Math.min(...times);
     if (this.alarmAt !== null && this.alarmAt <= at) return;
@@ -637,8 +648,8 @@ export class Hub {
         version: att?.version ?? m.version, state: m.state };
     });
     const invited = this.invitesOf(party.id).map((i) => ({ player: i.target, name: this.playerRow(i.target)?.name ?? '' }));
-    return { match: party.id, diag: party.diag, host: party.host, generation: party.revision, session: ad?.id ?? '', members,
-      invited };
+    return { match: party.id, diag: party.diag, host: party.host, generation: party.revision, session: ad?.id ?? '',
+      slots: this.capacityOf(party.id), members, invited };
   }
 
   // Every change to a party bumps its revision and, once the request is answered, tells its members and their friends.
@@ -718,6 +729,18 @@ export class Hub {
     return this.host.sql.get('SELECT * FROM player_matches WHERE party = ?', partyId) ?? null;
   }
 
+  // The places of a party: its game session's slots once there is one.
+  capacityOf(partyId) {
+    const ad = this.adOf(partyId);
+    return ad ? Math.min(ad.slots, MAX_PARTY) : MAX_PARTY;
+  }
+
+  // Invites still out for a party that just filled up can no longer be accepted.
+  endInvitesIfFull(party) {
+    if (this.membersOf(party.id).length < this.capacityOf(party.id)) return;
+    for (const pending of this.invitesOf(party.id)) this.endInvite(pending, 'party_full');
+  }
+
   // What a party member's search shows; never the host's address.
   joinFriendsSession(att, session) {
     const ad = typeof session === 'string' ? this.host.sql.get('SELECT * FROM player_matches WHERE id = ?', session) : null;
@@ -731,7 +754,7 @@ export class Hub {
     const party = this.partyRow(ad.party);
     if (!party) fail('not_found');
     const members = this.membersOf(party.id);
-    if (members.length >= Math.min(ad.slots, MAX_PARTY)) {
+    if (members.length >= this.capacityOf(party.id)) {
       this.record('party_full', { scope: 'accept' }, party.diag);
       fail('party_full');
     }
@@ -745,6 +768,7 @@ export class Hub {
       this.endInvite(other, 'accepted_elsewhere');
       if (!other.ended) this.changed(other.party);
     }
+    this.endInvitesIfFull(party);
     this.record('member_joined', { slot }, party.diag);
     if (members.length + 1 === MAX_PARTY && !party.reached4) {
       this.host.sql.run('UPDATE parties SET reached4 = 1 WHERE id = ?', party.id);
@@ -1000,7 +1024,7 @@ const HANDLERS = {
     const pending = this.invitesOf(mine.party.id);
     if (pending.some((i) => i.target === target)) fail('already_invited');
     if (!compatibleGuests(recipient.att, mine.party)) fail('version_mismatch');
-    if (this.membersOf(mine.party.id).length >= MAX_PARTY) {
+    if (this.membersOf(mine.party.id).length >= this.capacityOf(mine.party.id)) {
       this.record('party_full', { scope: 'invite' }, mine.party.diag);
       fail('party_full');
     }
@@ -1015,7 +1039,7 @@ const HANDLERS = {
     this.changed(mine.party.id, { active: true });
     const ad = this.adOf(mine.party.id);
     this.notifyPresent(target, { ev: 'invite', invite: id, from: { player: att.player, name: att.name }, expires_ms: LIMITS.inviteMs,
-      session: ad && this.liveAd(ad) ? ad.id : '' });
+      session: ad && this.liveAd(ad) ? ad.id : '', slots: this.capacityOf(mine.party.id) });
     return { invite: id };
   },
 
@@ -1041,7 +1065,7 @@ const HANDLERS = {
     if (this.partyOf(att.player)) fail('busy');
     if (!compatibleGuests(att, party)) fail('version_mismatch');
     const members = this.membersOf(party.id);
-    if (members.length >= MAX_PARTY) {
+    if (members.length >= this.capacityOf(party.id)) {
       this.record('party_full', { scope: 'accept' }, party.diag);
       fail('party_full');
     }
@@ -1056,9 +1080,7 @@ const HANDLERS = {
       this.endInvite(other, 'accepted_elsewhere');
       if (!other.ended) this.changed(other.party);
     }
-    if (members.length + 1 >= MAX_PARTY) {
-      for (const pending of this.invitesOf(party.id)) this.endInvite(pending, 'party_full');
-    }
+    this.endInvitesIfFull(party);
     this.host.log(`party join diag=${party.diag} match=${party.id} slot=${slot}`);
     this.record('member_joined', { slot }, party.diag);
     if (members.length + 1 === MAX_PARTY && !party.reached4) {
@@ -1105,6 +1127,7 @@ const HANDLERS = {
           att.guest, att.build, slots, rulesText, qos, now, ad.id);
       }
     } else {
+      if (existing) this.limitCreate(att);
       this.host.sql.run(`INSERT INTO player_matches (id, owner, guest, build, slots, rules, qos, created, refreshed, party)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, this.randomHex(8), att.player, att.guest, att.build, slots, rulesText, qos,
       now, now, party.id);
@@ -1117,7 +1140,11 @@ const HANDLERS = {
   'pm.cancel'(att) {
     const mine = this.partyOf(att.player);
     const ad = mine && mine.member.slot === 1 ? this.adOf(mine.party.id) : null;
-    if (ad) this.dropAd(ad);
+    if (!ad) return {};
+    for (const invite of this.invitesOf(mine.party.id)) this.endInvite(invite, 'cancelled');
+    // Without a session nobody in the party is in a game any more.
+    this.host.sql.run('UPDATE party_members SET in_session = 0 WHERE party = ?', mine.party.id);
+    this.dropAd(ad);
     return {};
   },
 
@@ -1134,6 +1161,7 @@ const HANDLERS = {
       const ad = this.host.sql.get('SELECT * FROM player_matches WHERE owner = ?', friend);
       if (ad && this.liveAd(ad) && compatibleGuests(att, ad) && this.membersOf(ad.party).length < Math.min(ad.slots, MAX_PARTY)) {
         sessions.push(this.adView(ad));
+        if (sessions.length >= LIMITS.searchResults) break;
       }
     }
     return { sessions };

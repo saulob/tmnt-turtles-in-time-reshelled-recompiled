@@ -6,7 +6,6 @@
 #include <mutex>
 #include <string>
 #include <string_view>
-#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
@@ -49,16 +48,22 @@ bool g_socket_bound_in_game = false;
 bool g_runtime_signed_in = false;
 
 // After Play restarts the process, the launcher that holds the lock may still be exiting.
-constexpr int kLockAttempts = 12;
-constexpr auto kLockRetry = std::chrono::milliseconds(250);
+constexpr double kLockWaitSeconds = 2.75;
 constexpr double kBindRetrySeconds = 5.0;
 
+double g_lock_deadline = 0;
+
+// Asked once per retry from the thread that presents, which must not sleep here.
 online::Identity ResolveIdentity() {
-  for (int attempt = 0; attempt < kLockAttempts && !g_lock; ++attempt) {
-    if (attempt) std::this_thread::sleep_for(kLockRetry);
-    g_lock = online::InstanceLock::TryAcquire(g_user_dir);
-  }
+  if (!g_lock) g_lock = online::InstanceLock::TryAcquire(g_user_dir);
   if (!g_lock) {
+    const double now = OnlineNowSeconds();
+    if (g_lock_deadline == 0) g_lock_deadline = now + kLockWaitSeconds;
+    if (now < g_lock_deadline) {
+      online::Identity pending;
+      pending.pending = true;
+      return pending;
+    }
     REXLOG_INFO("DEBUG_SAULO online second instance on this user folder: temporary identity");
     return online::MakeEphemeralIdentity();
   }

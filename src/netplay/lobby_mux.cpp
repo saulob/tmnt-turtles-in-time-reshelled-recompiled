@@ -44,6 +44,13 @@ std::optional<std::pair<uint32_t, LobbyDatagram>> DecodeLobby(const uint8_t* dat
   return std::make_pair(Get32(data + 4), std::move(datagram));
 }
 
+std::optional<Endpoint> LobbyPeerEndpoint(int slot, bool relay, const std::string& address, uint16_t port) {
+  if (relay) return RelayPeerEndpoint(slot);
+  uint32_t parsed = 0;
+  if (!UsableAddress(ParsePeerAddress(address, parsed))) return std::nullopt;
+  return Endpoint{parsed, port};
+}
+
 bool LobbyHold::Hold(uint32_t tag, int slot, const LobbyDatagram& datagram) {
   if (tag == 0 || slot < 1 || slot > kMaxSlot || datagram.data.size() > kMaxLobbyPayload) return false;
   if (tag != tag_) Clear();
@@ -90,6 +97,7 @@ void LobbyMux::ClearPeer(int slot) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (slot < 1 || slot > kMaxSlot) return;
   peers_[slot] = {};
+  received_from_[slot] = 0;
   lobby_.erase(std::remove_if(lobby_.begin(), lobby_.end(), [slot](const auto& entry) { return entry.first == slot; }),
                lobby_.end());
 }

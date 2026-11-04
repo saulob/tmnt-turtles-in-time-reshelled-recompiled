@@ -290,7 +290,23 @@ void TestRelayRejectsOtherTokensSlotsAndForgetsEverythingOnClose() {
   CHECK(ReceiveText(socket, from).empty());
 }
 
-void TestRelayFailsPerPeerOnOverflowAndRefusedSends() {
+void TestClosingTheRelayDropsDatagramsWaitingForTheOldMatch() {
+  OnlineGameSocket socket;
+  CHECK(socket.Open({kPortA}, true));
+  EchoTap tap;
+  socket.SetTap(&tap);
+  UdpTransport peer;
+  CHECK(peer.Open(kPeerPort, true));
+  Send(peer, kPortA, "OLDGAME");
+  WaitForLoopback();
+  socket.Pump();
+  socket.CloseRelay();
+  Endpoint from;
+  CHECK(ReceiveText(socket, from).empty());
+  socket.SetTap(nullptr);
+}
+
+void TestRelayDropsWhatItCannotHoldAndFailsPerPeerOnRefusedSends() {
   OnlineGameSocket socket;
   CHECK(socket.Open({kPortA}, true));
   Outbox outbox;
@@ -303,11 +319,12 @@ void TestRelayFailsPerPeerOnOverflowAndRefusedSends() {
     const std::vector<uint8_t> frame = EncodeRelayFrame(2, 1, kToken, i, data.data(), data.size());
     accepted += socket.DeliverRelay(frame.data(), frame.size()) ? 1 : 0;
   }
-  CHECK(accepted == 256);
-  CHECK(socket.relay_failure(2) == "receive_overflow" && socket.relay_failure(3).empty());
+  // A stall loses the oldest datagrams, as a socket buffer would, and the relay goes on.
+  CHECK(accepted == 300 && socket.peer_traffic(2).relay_dropped == 44 && socket.traffic().relay_dropped == 44);
+  CHECK(socket.Send(RelayPeerEndpoint(2), data.data(), data.size()));
   Endpoint from;
+  for (int i = 0; i < 256; ++i) CHECK(ReceiveText(socket, from) == "X");
   CHECK(ReceiveText(socket, from).empty());
-  CHECK(!socket.Send(RelayPeerEndpoint(2), data.data(), data.size()));
   CHECK(socket.Send(RelayPeerEndpoint(3), data.data(), data.size()));  // the other participant is unaffected
   const std::vector<uint8_t> from_three = EncodeRelayFrame(3, 1, kToken, 1, data.data(), data.size());
   CHECK(socket.DeliverRelay(from_three.data(), from_three.size()) && ReceiveText(socket, from) == "X" &&
@@ -315,10 +332,14 @@ void TestRelayFailsPerPeerOnOverflowAndRefusedSends() {
 
   socket.OpenRelay(kToken, 1, outbox.Sender());
   socket.SelectRelay(2);
-  CHECK(socket.relay_failure(2).empty());
+  // The room connection going away loses datagrams, and traffic returns with it.
   outbox.refuse = true;
-  CHECK(!socket.Send(RelayPeerEndpoint(2), data.data(), data.size()));
-  CHECK(socket.relay_failure(2) == "send_refused");
+  CHECK(socket.Send(RelayPeerEndpoint(2), data.data(), data.size()));
+  CHECK(socket.peer_traffic(2).relay_dropped == 45 && socket.peer_traffic(2).relay_tx_packets == 1);
+  outbox.refuse = false;
+  CHECK(socket.Send(RelayPeerEndpoint(2), data.data(), data.size()));
+  CHECK(socket.peer_traffic(2).relay_dropped == 45 && socket.peer_traffic(2).relay_tx_packets == 2);
+  CHECK(socket.relay_selected(2));
 }
 
 // Three remote participants: one relayed, one direct, one relayed; closing one leaves the others as they were.
@@ -368,6 +389,19 @@ void TestPeersAreIndependent() {
   socket.CloseRelayPeer(2);
   CHECK(!socket.relay_selected(2) && socket.relay_selected(4) && socket.relay_open());
   CHECK(socket.Send(RelayPeerEndpoint(4), data.data(), data.size()) && outbox.frames.size() == 3);
+}
+
+// The peer's endpoint survives only as long as its route does: a later member of the slot starts with nothing.
+void TestClosingAPeerForgetsItsEndpoint() {
+  OnlineGameSocket socket;
+  CHECK(socket.Open({kPortA}, true));
+  UdpTransport peer;
+  CHECK(peer.Open(kPeerPort, true));
+  socket.SetPeerEndpoint(3, {kLoopback, kPeerPort});
+  const std::vector<uint8_t> data = Bytes("X");
+  CHECK(socket.Send({kLoopback, kPeerPort}, data.data(), data.size()) && socket.peer_traffic(3).udp_tx_packets == 1);
+  socket.CloseRelayPeer(3);
+  CHECK(socket.Send({kLoopback, kPeerPort}, data.data(), data.size()) && socket.peer_traffic(3).udp_tx_packets == 1);
 }
 
 // The service in miniature: a frame goes to its destination's socket unchanged, only when its source is the sender.
@@ -432,6 +466,77 @@ void TestFourParticipantsExchangeDatagramsThroughTheRelay() {
   }
 }
 
+// What the bridge does in a room where only one pair needed the relay: the host reaches slots 2 and 4 over UDP and slot 3
+// over the service, each on its own, with the peer endpoints the assignments name.
+void TestBridgeRoutesAMixedRoomPerPeer() {
+  CHECK(!LobbyPeerEndpoint(2, false, "not an address", 7001));
+  CHECK(LobbyPeerEndpoint(3, true, "", 0) == RelayPeerEndpoint(3));
+
+  constexpr uint16_t kPortFour = kPeerPort + 1;
+  constexpr uint16_t kPortThree = kPeerPort + 2;
+  constexpr uint32_t kTag = 0x1234ABCD;
+  OnlineGameSocket host_socket, two_socket, three_socket, four_socket;
+  CHECK(host_socket.Open({kPortA}, true) && two_socket.Open({kPortB}, true) && three_socket.Open({kPortThree}, true) &&
+        four_socket.Open({kPortFour}, true));
+  ServiceStandIn service;
+  std::array<OnlineGameSocket*, kMaxSlot + 1> by_slot{};
+  by_slot[1] = &host_socket;
+  by_slot[3] = &three_socket;
+  host_socket.OpenRelay(kToken, 1, service.From(1));
+  three_socket.OpenRelay(kToken, 3, service.From(3));
+  host_socket.SelectRelay(3);
+  three_socket.SelectRelay(1);
+
+  LobbyMux host(host_socket), two(two_socket), three(three_socket), four(four_socket);
+  for (LobbyMux* mux : {&host, &two, &three, &four}) mux->SetMatch(kTag);
+  host.SetPeer(2, *LobbyPeerEndpoint(2, false, "127.0.0.1", kPortB));
+  host.SetPeer(3, *LobbyPeerEndpoint(3, true, {}, 0));
+  host.SetPeer(4, *LobbyPeerEndpoint(4, false, "127.0.0.1", kPortFour));
+  two.SetPeer(1, *LobbyPeerEndpoint(1, false, "127.0.0.1", kPortA));
+  three.SetPeer(1, *LobbyPeerEndpoint(1, true, {}, 0));
+  four.SetPeer(1, *LobbyPeerEndpoint(1, false, "127.0.0.1", kPortA));
+
+  const auto datagram = [](const char* text) {
+    LobbyDatagram d;
+    d.from_port = 1000;
+    d.to_port = 2000;
+    d.data = Bytes(text);
+    return d;
+  };
+  CHECK(host.SendLobby(2, datagram("to-2")) && host.SendLobby(3, datagram("to-3")) && host.SendLobby(4, datagram("to-4")));
+  CHECK(host_socket.peer_traffic(3).relay_tx_packets == 1 && host_socket.traffic().relay_tx_packets == 1);
+  service.Deliver(by_slot);
+  WaitForLoopback();
+  int slot = 0;
+  LobbyDatagram in;
+  CHECK(two.TakeLobby(slot, in) && slot == 1 && in.data == Bytes("to-2") && !two.TakeLobby(slot, in));
+  CHECK(three.TakeLobby(slot, in) && slot == 1 && in.data == Bytes("to-3") && !three.TakeLobby(slot, in));
+  CHECK(four.TakeLobby(slot, in) && slot == 1 && in.data == Bytes("to-4") && !four.TakeLobby(slot, in));
+
+  CHECK(two.SendLobby(1, datagram("from-2")) && three.SendLobby(1, datagram("from-3")) && four.SendLobby(1, datagram("from-4")));
+  service.Deliver(by_slot);
+  WaitForLoopback();
+  std::set<std::pair<int, std::string>> heard;
+  while (host.TakeLobby(slot, in)) heard.insert({slot, std::string(in.data.begin(), in.data.end())});
+  CHECK((heard == std::set<std::pair<int, std::string>>{{2, "from-2"}, {3, "from-3"}, {4, "from-4"}}));
+  CHECK(host.lobby_received_from(2) == 1 && host.lobby_received_from(3) == 1 && host.lobby_received_from(4) == 1);
+
+  // Losing the relayed peer moves nobody else, and the slot's next member starts from nothing.
+  host_socket.CloseRelayPeer(3);
+  host.ClearPeer(3);
+  CHECK(host.lobby_received_from(3) == 0 && !host.HasPeer(3) && host.HasPeer(2) && host.HasPeer(4));
+  CHECK(!host.SendLobby(3, datagram("gone")));
+  CHECK(host.SendLobby(2, datagram("still-2")) && host.SendLobby(4, datagram("still-4")));
+  WaitForLoopback();
+  CHECK(two.TakeLobby(slot, in) && in.data == Bytes("still-2") && four.TakeLobby(slot, in) && in.data == Bytes("still-4"));
+
+  // A datagram of an earlier match never reaches the game, whichever way it comes.
+  host.SetMatch(kTag + 1);
+  CHECK(two.SendLobby(1, datagram("stale")));
+  WaitForLoopback();
+  CHECK(!host.TakeLobby(slot, in) && host.lobby_rejected() == 1);
+}
+
 // A forged frame (wrong source) never reaches a game: the service-side check stops it, and the receiver's own
 // destination check stops anything addressed elsewhere.
 void TestSpoofedFramesNeverReachAGame() {
@@ -466,7 +571,10 @@ int main() {
   TestRelayEndpointsAreOnePerSlot();
   TestRelayQueuesUntilSelectedAndSendsOnlyToTheRelayPeer();
   TestRelayRejectsOtherTokensSlotsAndForgetsEverythingOnClose();
-  TestRelayFailsPerPeerOnOverflowAndRefusedSends();
+  TestClosingTheRelayDropsDatagramsWaitingForTheOldMatch();
+  TestRelayDropsWhatItCannotHoldAndFailsPerPeerOnRefusedSends();
+  TestClosingAPeerForgetsItsEndpoint();
+  TestBridgeRoutesAMixedRoomPerPeer();
   TestPeersAreIndependent();
   TestFourParticipantsExchangeDatagramsThroughTheRelay();
   TestSpoofedFramesNeverReachAGame();

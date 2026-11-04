@@ -269,6 +269,80 @@ bool SameAssignment(const std::optional<NetplayAssignment>& a, const std::option
 
 std::string Reason(std::string_view code) { return std::string(code); }
 
+int LogCount(const Harness& h, const std::string& part) {
+  return int(std::count_if(h.logs.begin(), h.logs.end(), [&](const std::string& l) { return l.find(part) != std::string::npos; }));
+}
+
+void RelayPair(Harness& h, Remote& peer, int slot) {
+  MatchSession& s = *h.session;
+  s.OnMembers(Members({1, slot}), 100);
+  s.Update(100);
+  s.OnPeer(Info(slot, peer.ep()), 100.1);
+  s.Update(102.6);
+  s.OnTransport(1, slot, "relay", 1, 102.7);
+  CHECK(s.peer(slot)->transport == MatchTransport::kRelay);
+}
+
+void TestARelayedPairWaitsForTheService() {
+  {
+    Harness h(Opts(1));
+    Remote p2;
+    RelayPair(h, p2, 2);
+    MatchSession& s = *h.session;
+    const auto assigned = s.Assignment(2);
+    s.OnRelayClosed(0, "service_disconnected", 103);
+    s.OnRelayClosed(2, "unavailable", 104);
+    s.Update(132.9);
+    CHECK(s.peer(2)->failure.empty() && SameAssignment(s.Assignment(2), assigned));
+    s.OnMembers(Members({1, 2}), 133);  // the room is back, and the peer in it
+    s.Update(200);
+    CHECK(s.peer(2)->failure.empty() && s.peer(2)->transport == MatchTransport::kRelay);
+    CHECK(LogCount(h, "relay suspended peer=2 reason=service_disconnected") == 1 && LogCount(h, "relay resumed peer=2") == 1);
+  }
+  {  // A peer that is still away neither resumes the pair nor outlives its seat.
+    Harness h(Opts(1));
+    Remote p2;
+    RelayPair(h, p2, 2);
+    MatchSession& s = *h.session;
+    s.OnPeerLost(2);
+    s.OnRelayClosed(2, "peer_disconnected", 103);
+    std::vector<RoomMember> away = Members({1});
+    const std::vector<RoomMember> lost = Members({2}, "disconnected");
+    away.insert(away.end(), lost.begin(), lost.end());
+    s.OnMembers(away, 104);
+    s.Update(132.9);
+    CHECK(s.peer(2)->failure.empty());
+    s.Update(133.1);
+    CHECK(s.peer(2)->failure == Reason(reason::relay_closed) && s.peer(2)->relay_result == "failed:relay_closed");
+    s.Update(134);
+    CHECK(LogCount(h, "transport lost peer=2") == 1);
+  }
+  {  // The host's pair ends a guest only when the wait ends.
+    Harness h(Opts(2));
+    Remote p1;
+    MatchSession& s = *h.session;
+    s.OnMembers(Members({1, 2}), 100);
+    s.Update(100);
+    s.OnPeer(Info(1, p1.ep()), 100.1);
+    s.OnTransport(1, 2, "relay", 1, 101);
+    CHECK(s.peer(1)->transport == MatchTransport::kRelay);
+    s.OnRelayClosed(1, "peer_unavailable", 102);
+    s.Update(131.9);
+    CHECK(!s.fatal());
+    s.Update(132.1);
+    CHECK(s.fatal());
+  }
+  {  // A relay the service closed on purpose does not come back.
+    Harness h(Opts(1));
+    Remote p2;
+    RelayPair(h, p2, 2);
+    h.session->OnRelayClosed(2, "peer_backpressure", 103);
+    CHECK(h.session->peer(2)->failure == Reason(reason::relay_closed));
+    h.session->OnMembers(Members({1, 2}), 104);
+    CHECK(h.session->peer(2)->failure == Reason(reason::relay_closed));
+  }
+}
+
 void TestStunAndEndpointAdvertisement() {
   Remote stun_server;
   Options o = Opts(1);
@@ -920,7 +994,7 @@ void TestRelayClosedMarksOnlyThatPeer() {
 
     s.OnRelayClosed(0, "service_disconnected", 103);
     CHECK(s.peer(2)->transport == MatchTransport::kDirect && s.peer(2)->failure.empty() && SameAssignment(s.Assignment(2), a2));
-    CHECK(s.peer(4)->failure == Reason(reason::relay_closed) && s.peer(4)->relay_result == "failed:relay_closed");
+    CHECK(s.peer(4)->transport == MatchTransport::kRelay && s.peer(4)->failure.empty() && s.Assignment(4).has_value());
     CHECK(s.peer(3)->transport == MatchTransport::kFailed && s.peer(3)->failure == Reason(reason::relay_unavailable));
     CHECK(!s.fatal());
     s.Update(104);
@@ -938,7 +1012,8 @@ void TestRelayClosedMarksOnlyThatPeer() {
     SendPunch(p2, h, PunchKind::kAck, 2, PairPunchKey("match1", 1, 2));
     CHECK(Until(h, 101, [&] { return s.peer(2)->transport == MatchTransport::kDirect; }));
     CHECK(s.Assignment(2) && !s.Assignment(2)->relay);
-    CHECK(h.Ops("match.transport").empty());
+    // The other end's relay may be fine, so it still waits for this side's choice.
+    CHECK(h.Ops("match.transport").size() == 1);
   }
 }
 
@@ -1123,6 +1198,7 @@ void TestNothingSensitiveIsLoggedOrReported() {
 int main() {
   std::printf("online match session tests\n");
   TestStunAndEndpointAdvertisement();
+  TestARelayedPairWaitsForTheService();
   TestStunThatNeverAnswersStillAdvertises();
   TestAsynchronousStunLookup();
   TestHostFallsBackToTheRelay();
