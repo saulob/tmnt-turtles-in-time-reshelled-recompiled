@@ -87,7 +87,6 @@ class Rendezvous final : public netplay::DatagramTap {
   };
   struct Target {
     Candidate candidate;
-    bool sent = false;
   };
 
   void SendStun(netplay::Transport& out);
@@ -106,7 +105,6 @@ class Rendezvous final : public netplay::DatagramTap {
   uint64_t stun_next_send_ = 0;
   int stun_attempt_ = 0;
   netplay::Endpoint mapped_;
-  bool logged_second_ = false;
 
   Stage punch_stage_ = Stage::kIdle;
   uint64_t key_ = 0;

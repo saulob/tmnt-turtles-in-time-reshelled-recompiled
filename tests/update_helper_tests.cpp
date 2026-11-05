@@ -287,7 +287,7 @@ int main(int argc, char** argv) {
   const std::filesystem::path workspace = temp.path / "update workspace";
   const std::filesystem::path manifest = workspace / "manifest.txt";
   const std::filesystem::path job = workspace / "job.txt";
-  const std::filesystem::path log = workspace / "updater.log";
+  const std::filesystem::path log = workspace / "trg-updater.log";
   const std::filesystem::path marker_output = temp.path / "marker output.txt";
   const std::filesystem::path parent_output = temp.path / "parent output.txt";
   const std::filesystem::path marker = CurrentExecutable();
@@ -316,7 +316,7 @@ int main(int argc, char** argv) {
   std::string standalone_error;
   CHECK(RunHelper(helper, standalone / "missing job.txt", standalone, standalone_exit, standalone_error));
   CHECK(standalone_exit == 2);
-  const std::string standalone_log = ReadFile(standalone / "updater.log");
+  const std::string standalone_log = ReadFile(standalone / "trg-updater.log");
   CHECK(standalone_log.find("trg-updater starting") != std::string::npos);
   CHECK(standalone_log.find("job: " + (standalone / "missing job.txt").string()) != std::string::npos);
   CHECK(standalone_log.find("job read failed: Cannot read the update job.") != std::string::npos);

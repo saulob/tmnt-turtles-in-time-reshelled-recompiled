@@ -47,7 +47,6 @@ bool g_stopped = false;
 std::unique_ptr<online::OnlineService> g_service;
 std::unique_ptr<online::InstanceLock> g_lock;
 bool g_game_pumped = false;
-bool g_socket_bound_in_game = false;
 bool g_runtime_signed_in = false;
 
 // After Play restarts the process, the launcher that holds the lock may still be exiting.
@@ -67,7 +66,7 @@ online::Identity ResolveIdentity() {
       pending.pending = true;
       return pending;
     }
-    REXLOG_INFO("DEBUG_SAULO online second instance on this user folder: temporary identity");
+    REXLOG_INFO("online second instance on this user folder: temporary identity");
     return online::MakeEphemeralIdentity();
   }
   return online::LoadOrCreateIdentity(g_user_dir);
@@ -146,17 +145,14 @@ void PumpOnlineService() {
   const online::UserSettings settings = SavedSettings();
   if (!g_game_pumped && settings.enabled) {
     g_game_pumped = true;
-    REXLOG_INFO("DEBUG_SAULO online runtime reconnect begin guest={}", online::kGuestBase);
-    REXLOG_INFO("DEBUG_SAULO udp socket at game start open={} bound_in_game={}", g_game_socket.is_open(),
-                g_socket_bound_in_game);
+    REXLOG_INFO("online runtime reconnect begin guest={}", online::kGuestBase);
   }
   ForwardPartySnapshot();
   TickOnline(settings);
   const bool signed_in = Online().SignedIn();
   if (signed_in != g_runtime_signed_in) {
     g_runtime_signed_in = signed_in;
-    if (signed_in) REXLOG_INFO("DEBUG_SAULO online runtime connected");
-    REXLOG_INFO("DEBUG_SAULO online runtime signed in={}", signed_in);
+    if (signed_in) REXLOG_INFO("online runtime connected");
   }
 }
 
@@ -177,7 +173,7 @@ void StopOnline() {
   off.enabled = false;
   g_service->Apply(off);
   g_service->Update(OnlineNowSeconds());
-  REXLOG_INFO("DEBUG_SAULO online runtime stopped");
+  REXLOG_INFO("online runtime stopped");
 }
 
 double OnlineNowSeconds() {
@@ -191,15 +187,14 @@ bool EnsureOnlineGameSocket() {
   if (now < g_next_bind_try) return false;
   // A second instance on this PC finds the first port taken and takes the other; the advertised endpoint says which.
   if (g_game_socket.Open({kGameplayPorts[0], kGameplayPorts[1], kGameplayPorts[2], kGameplayPorts[3], 0})) {
-    g_socket_bound_in_game = g_game_pumped;
-    REXLOG_INFO("DEBUG_SAULO udp socket bound local=0.0.0.0:{} phase={}", g_game_socket.bound_port(),
+    REXLOG_INFO("udp socket bound local=0.0.0.0:{} phase={}", g_game_socket.bound_port(),
                 g_game_pumped ? "game" : "launcher");
     return true;
   }
   g_next_bind_try = now + kBindRetrySeconds;
   if (!g_bind_failure_logged) {
     g_bind_failure_logged = true;
-    REXLOG_INFO("DEBUG_SAULO udp socket bind failed");
+    REXLOG_INFO("udp socket bind failed");
   }
   return false;
 }

@@ -308,6 +308,7 @@ void UpdateController::StartDownload() {
   staging_path_ = workspace_ / "staging";
   backup_path_ = workspace_ / "backup";
   manifest_path_ = workspace_ / "manifest.txt";
+  staging_root_ = std::make_shared<std::filesystem::path>();
   worker_phase_ = 0;
   snapshot_.state = UpdateState::kDownloading;
   snapshot_.progress = 0.0f;
@@ -321,9 +322,10 @@ void UpdateController::StartDownload() {
   const std::filesystem::path download_path = download_path_;
   const std::filesystem::path staging_path = staging_path_;
   const std::filesystem::path manifest_path = manifest_path_;
+  const std::shared_ptr<std::filesystem::path> staging_root = staging_root_;
 
   const bool started = task_.Start("Downloading update...", [this, config, asset, checksum_asset, download_path,
-                                                               staging_path, manifest_path](trg::Task& task) {
+                                                               staging_path, manifest_path, staging_root](trg::Task& task) {
     std::string expected;
     if (config.sha256_override && !config.sha256_override->empty()) {
       if (!IsValidSha256(*config.sha256_override)) {
@@ -381,13 +383,18 @@ void UpdateController::StartDownload() {
       if (!ExtractZip(download_path, staging_path, limits, error)) {
         return error;
       }
-      if (!ValidateStaging(staging_path, config.required_staged_files, error)) {
+      std::filesystem::path content_root;
+      if (!ResolveStagingRoot(staging_path, config.required_staged_files, content_root, error)) {
         return error;
       }
-      const std::vector<std::string> files = ListStagingFiles(staging_path, error);
+      if (!ValidateStaging(content_root, config.required_staged_files, error)) {
+        return error;
+      }
+      const std::vector<std::string> files = ListStagingFiles(content_root, error);
       if (!error.empty()) {
         return error;
       }
+      *staging_root = content_root;
       std::ofstream manifest(manifest_path, std::ios::binary | std::ios::trunc);
       if (!manifest) {
         return std::string("Cannot write the update manifest.");
@@ -415,6 +422,9 @@ void UpdateController::FinishDownload(trg::Task::State state, const std::string&
     CleanupWorkspace();
     Fail(error.empty() ? "The update download failed." : error, RetryKind::kDownload, false);
     return;
+  }
+  if (config_.package_kind == UpdatePackageKind::kZip && staging_root_ && !staging_root_->empty()) {
+    staging_path_ = *staging_root_;
   }
   snapshot_.state = UpdateState::kReadyToRestart;
   snapshot_.progress = 1.0f;
@@ -473,8 +483,9 @@ bool UpdateController::BeginInstall() {
     job.manifest_file = manifest_path_;
     job.restart_executable = config_.restart_executable;
     job.restart_arguments = config_.restart_arguments;
-    job.log_file = workspace_ / "updater.log";
+    job.log_file = workspace_ / "trg-updater.log";
     const std::filesystem::path job_file = workspace_ / "job.txt";
+    cleanup_.enabled = false;
     if (!WriteUpdateJob(job_file, job, error)) {
       Fail(error, RetryKind::kInstall, false);
       return false;
@@ -484,7 +495,6 @@ bool UpdateController::BeginInstall() {
       return false;
     }
     install_started_ = true;
-    cleanup_.enabled = false;
     Log(config_, "Update helper started");
     return true;
 #else
@@ -604,6 +614,7 @@ void UpdateController::CleanupWorkspace() {
   staging_path_.clear();
   backup_path_.clear();
   manifest_path_.clear();
+  staging_root_.reset();
   cleanup_.path.clear();
   cleanup_.enabled = false;
 }

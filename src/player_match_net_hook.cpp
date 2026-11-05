@@ -2,17 +2,14 @@
 // the title's datagram sockets are shim handles whose traffic goes through online_bridge.cpp.
 #include <algorithm>
 #include <chrono>
-#include <cstdio>
 #include <cstring>
 #include <mutex>
-#include <atomic>
 #include <optional>
 #include <random>
 #include <string>
 #include <thread>
 
 #include <rex/hook.h>
-#include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xobject.h>
 #include <rex/system/xevent.h>
@@ -45,15 +42,6 @@ std::vector<tmnt::PeerRoute> ActiveRoutes() {
   return tmnt::RoutesFor(peers, my_slot, code.empty() ? 0 : tmnt::VirtualXuid(code), g_addresses);
 }
 
-std::string Dotted(uint32_t a) {
-  char text[16];
-  std::snprintf(text, sizeof text, "%u.%u.%u.%u", a >> 24, (a >> 16) & 0xFF, (a >> 8) & 0xFF, a & 0xFF);
-  return text;
-}
-
-// DEBUG_SAULO: the first datagrams each way, then one line per 256.
-bool ShouldLogPacket(uint32_t count) { return count <= 8 || count % 256 == 0; }
-
 class MuxLink final : public tmnt::LobbyLink {
  public:
   bool Send(int slot, const tmnt::netplay::LobbyDatagram& d) override { return tmnt::SendPlayerMatchLobby(slot, d); }
@@ -65,9 +53,6 @@ tmnt::VdpShim g_shim;
 tmnt::PendingReceives g_pending;
 MuxLink g_link;
 thread_local tmnt::SocketLastError g_last_error;
-uint32_t g_sent = 0;
-uint32_t g_received = 0;
-uint32_t g_mapped_address = 0;
 
 bool OwnsSocket(uint32_t handle) {
   std::lock_guard<std::mutex> lock(g_shim_mutex);
@@ -84,12 +69,6 @@ void ClearEvent(uint32_t handle) {
   if (auto event = REX_KERNEL_OBJECTS()->LookupObject<rex::system::XEvent>(handle)) event->Reset();
 }
 
-// DEBUG_SAULO: lines left for the short trace that XSessionStart arms.
-constexpr int kStartTraceLines = 192;
-std::atomic<int> g_start_trace{0};
-
-bool StartTrace() { return g_start_trace.load(std::memory_order_relaxed) > 0 && g_start_trace.fetch_sub(1) > 0; }
-
 void WriteFrom(uint8_t* base, uint32_t from, uint32_t from_length, uint32_t address, uint16_t port) {
   if (from) {
     uint8_t* sockaddr = GuestHost(base, from);
@@ -101,25 +80,8 @@ void WriteFrom(uint8_t* base, uint32_t from, uint32_t from_length, uint32_t addr
   if (from_length) StoreBE32(GuestHost(base, from_length), 0, 16);
 }
 
-struct PacketNote {
-  uint32_t n = 0;
-  uint32_t handle = 0;
-  uint32_t address = 0;
-  uint16_t port = 0;
-  uint32_t size = 0;
-};
-
-// Written once g_shim_mutex is released: every thread that sends or receives waits on it.
-void LogReceived(const std::vector<PacketNote>& notes) {
-  for (const PacketNote& note : notes) {
-    REXLOG_INFO("DEBUG_SAULO player_match packet rx n={} handle={:08X} from={}:{} bytes={}", note.n, note.handle,
-                Dotted(note.address), note.port, note.size);
-  }
-}
-
 // Fills the receive's buffers and its overlapped as a finished receive would. Caller holds g_shim_mutex.
-uint32_t DeliverLocked(uint8_t* base, const tmnt::PendingReceive& r, const tmnt::VdpShim::Received& received,
-                       std::vector<PacketNote>& notes) {
+uint32_t DeliverLocked(uint8_t* base, const tmnt::PendingReceive& r, const tmnt::VdpShim::Received& received) {
   const uint32_t size = tmnt::ScatterBuffers(base, r.buffers, r.buffer_count, received.data);
   WriteFrom(base, r.from, r.from_length, received.from_address, received.from_port);
   if (r.bytes) StoreBE32(GuestHost(base, r.bytes), 0, size);
@@ -128,8 +90,6 @@ uint32_t DeliverLocked(uint8_t* base, const tmnt::PendingReceive& r, const tmnt:
     StoreBE32(overlapped, tmnt::kOverlappedStatus, 0);
     StoreBE32(overlapped, tmnt::kOverlappedBytes, size);
   }
-  tmnt::NotePacketReceived();
-  if (ShouldLogPacket(++g_received) || StartTrace()) notes.push_back({g_received, r.handle, received.from_address, received.from_port, size});
   return size;
 }
 
@@ -144,10 +104,6 @@ void XnAddrToInAddr(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t address = tmnt::ActiveSyntheticAddress(*xuid);
   StoreBE32(GuestHost(base, out), 0, address);
   ctx.r3.u64 = 0;
-  if (address != g_mapped_address) {
-    g_mapped_address = address;
-    REXLOG_INFO("DEBUG_SAULO player_match xnet map created xuid={:016X} address={}", *xuid, Dotted(address));
-  }
 }
 
 void XNetCreateKey(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -163,7 +119,6 @@ void XNetCreateKey(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   std::memcpy(GuestHost(base, id), kid, sizeof kid);
   std::memcpy(GuestHost(base, key), exchange, sizeof exchange);
   ctx.r3.u64 = 0;
-  REXLOG_INFO("DEBUG_SAULO player_match XNetCreateKey id_prefix={:02X}{:02X} ok", kid[0], kid[1]);
 }
 
 void XNetKeyRegistration(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -234,7 +189,6 @@ void QosLookup(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   StoreBE32(GuestHost(base, result_ptr), 0, address);
   SignalEvent(event);
   ctx.r3.u64 = 0;
-  REXLOG_INFO("DEBUG_SAULO player_match qos complete targets={}", count);
 }
 
 void Socket(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -246,7 +200,6 @@ void Socket(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   std::lock_guard<std::mutex> lock(g_shim_mutex);
   ctx.r3.u64 = g_shim.Create();
-  REXLOG_INFO("DEBUG_SAULO player_match socket create handle={:08X} type={} protocol={}", ctx.r3.u32, type, protocol);
 }
 
 void Bind(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -259,7 +212,6 @@ void Bind(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   std::lock_guard<std::mutex> lock(g_shim_mutex);
   g_shim.Bind(handle, port);
   ctx.r3.u64 = 0;
-  REXLOG_INFO("DEBUG_SAULO player_match socket bind handle={:08X} port={}", handle, port);
 }
 
 void GetSockName(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -301,7 +253,6 @@ void Close(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
     SignalEvent(LoadBE32(GuestHost(base, aborted->overlapped), tmnt::kOverlappedEvent));
   }
   ctx.r3.u64 = 0;
-  REXLOG_INFO("DEBUG_SAULO player_match socket close handle={:08X}", handle);
 }
 
 bool RouteTo(uint32_t handle, uint32_t address, uint16_t port, const std::vector<uint8_t>& data) {
@@ -310,11 +261,6 @@ bool RouteTo(uint32_t handle, uint32_t address, uint16_t port, const std::vector
   {
     std::lock_guard<std::mutex> lock(g_shim_mutex);
     routed = g_shim.SendTo(handle, address, port, data.data(), data.size(), routes, g_link);
-  }
-  tmnt::NotePacketSent();
-  if (ShouldLogPacket(++g_sent) || StartTrace()) {
-    REXLOG_INFO("DEBUG_SAULO player_match packet tx n={} handle={:08X} to={}:{} bytes={} routed={}", g_sent, handle,
-                Dotted(address), port, data.size(), routed);
   }
   return routed;
 }
@@ -393,14 +339,12 @@ void WsaRecvFrom(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   receive.overlapped = ctx.r10.u32;
   if (ctx.r7.u32) StoreBE32(GuestHost(base, ctx.r7.u32), 0, 0);
   const std::vector<tmnt::PeerRoute> routes = ActiveRoutes();
-  std::vector<PacketNote> notes;
   std::unique_lock<std::mutex> lock(g_shim_mutex);
   if (!g_pending.Has(handle)) {
     if (const auto received = g_shim.RecvFrom(handle, routes, g_link)) {
-      DeliverLocked(base, receive, *received, notes);
+      DeliverLocked(base, receive, *received);
       if (receive.overlapped) SignalEvent(LoadBE32(GuestHost(base, receive.overlapped), tmnt::kOverlappedEvent));
       lock.unlock();
-      LogReceived(notes);
       ctx.r3.u64 = 0;
       return;
     }
@@ -427,10 +371,6 @@ void GetOverlappedResult(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   tmnt::CompleteVdpReceives(base);
   const bool pending = LoadBE32(GuestHost(base, overlapped), tmnt::kOverlappedStatus) == tmnt::kStatusPending;
-  if (StartTrace()) {
-    REXLOG_INFO("DEBUG_SAULO start trace overlapped_result handle={:08X} pending={} bytes={}", handle, pending,
-                LoadBE32(GuestHost(base, overlapped), tmnt::kOverlappedBytes));
-  }
   if (pending) {
     g_last_error.Set(tmnt::kIoIncomplete);
     ctx.r3.u64 = 0;
@@ -494,11 +434,6 @@ void WsaWaitForEvents(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
                                                            ctx.r7.u32 ? 1 : 0, &relative));
       },
       elapsed);
-  tmnt::NoteNetWait(elapsed());
-  if (status != kStatusTimeout && StartTrace()) {
-    REXLOG_INFO("DEBUG_SAULO start trace wait_return count={} wait_all={} timeout={} status={:08X}", count, wait_all,
-                milliseconds, uint32_t(status));
-  }
   if (status == kStatusTimeout) ctx.r3.u64 = kWaitTimeout;
   else if (status == kStatusUserApc) ctx.r3.u64 = kWaitIoCompletion;
   else if (status < count) ctx.r3.u64 = status;
@@ -635,9 +570,7 @@ void Select(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
                         std::chrono::steady_clock::now().time_since_epoch()).count());
   };
   const auto pause = [] { std::this_thread::sleep_for(std::chrono::milliseconds(1)); };
-  const uint32_t select_started = now();
   const tmnt::SelectOutcome outcome = tmnt::SelectMixed(requested, owned, readable, real_select, timeout, now, pause);
-  tmnt::NoteSelect(now() - select_started, outcome.ready.read.size(), outcome.ready.write.size(), outcome.ready.except.size());
   if (timeout_pointer) std::memcpy(GuestHost(base, timeout_pointer), saved_timeout, sizeof saved_timeout);
   ctx = saved;
   StoreFdHandles(base, read_set, outcome.ready.read);
@@ -650,11 +583,8 @@ void Select(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 
 namespace tmnt {
 
-void ArmStartTrace() { g_start_trace = kStartTraceLines; }
-
 void CompleteVdpReceives(uint8_t* base) {
   const std::vector<PeerRoute> routes = ActiveRoutes();
-  std::vector<PacketNote> notes;
   {
     std::lock_guard<std::mutex> lock(g_shim_mutex);
     for (const uint32_t handle : g_pending.handles()) {
@@ -662,13 +592,11 @@ void CompleteVdpReceives(uint8_t* base) {
         auto received = g_shim.RecvFrom(handle, routes, g_link);
         if (!received) break;
         const PendingReceive receive = *g_pending.Take(handle);
-        DeliverLocked(base, receive, *received, notes);
+        DeliverLocked(base, receive, *received);
         SignalEvent(LoadBE32(GuestHost(base, receive.overlapped), kOverlappedEvent));
       }
     }
-    NoteShimQueues(g_shim.deepest_queue(), g_shim.dropped());
   }
-  LogReceived(notes);
 }
 
 uint32_t ActiveSyntheticAddress(uint64_t xuid) {
@@ -713,25 +641,6 @@ TMNT_SOCKET_HOOK(8243D240, WsaSendTo)
 REX_EXTERN(__imp__sub_8243D2A0);
 REX_HOOK_RAW(sub_8243D2A0) { LastError(ctx, base, __imp__sub_8243D2A0); }
 
-// DEBUG_SAULO: MSSG_NetPushStatic(target, key, ?, message, reliable) on the sending side of the start handshake.
-REX_EXTERN(__imp__sub_8238F638);
-REX_HOOK_RAW(sub_8238F638) {
-  if (StartTrace()) {
-    REXLOG_INFO("DEBUG_SAULO start trace net_push target={:08X} key={:08X} arg={:08X} message={:08X} reliable={}",
-                ctx.r3.u32, ctx.r4.u32, ctx.r5.u32, ctx.r6.u32, ctx.r7.u32);
-  }
-  __imp__sub_8238F638(ctx, base);
-}
-
-// DEBUG_SAULO: ONL_ConnectedStationsGet decides whether CSL_OnStart sends RPC_StartGame at all.
-REX_EXTERN(__imp__sub_82302FF8);
-REX_HOOK_RAW(sub_82302FF8) {
-  __imp__sub_82302FF8(ctx, base);
-  static std::atomic<int> left{8};
-  if (g_start_trace.load() > 0 && left.fetch_sub(1) > 0) {
-    REXLOG_INFO("DEBUG_SAULO start trace connected_stations={}", ctx.r3.s32);
-  }
-}
 TMNT_NET_HOOK(8243D2C0, WsaWaitForEvents)
 TMNT_SOCKET_HOOK(8243D138, Select)
 TMNT_SOCKET_HOOK(8243D178, Recv)

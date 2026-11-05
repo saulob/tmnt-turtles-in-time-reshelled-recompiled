@@ -11,7 +11,6 @@ namespace tmnt::online {
 namespace {
 
 constexpr double kPeerEndpointWaitSeconds = 10.0;
-constexpr double kRelayStatsSeconds = 10.0;
 constexpr double kTransportConfirmSeconds = 5.0;
 // As long as the service keeps a lost member's seat.
 constexpr double kRelayResumeSeconds = 30.0;
@@ -41,16 +40,6 @@ std::vector<netplay::Endpoint> ResolveDefault(const std::string& stun_config) {
 }
 
 }  // namespace
-
-const char* MatchTransportName(MatchTransport transport) {
-  switch (transport) {
-    case MatchTransport::kDirectProbing: return "direct_probing";
-    case MatchTransport::kDirect: return "direct";
-    case MatchTransport::kRelay: return "relay";
-    case MatchTransport::kFailed: return "failed";
-    default: return "pending";
-  }
-}
 
 struct MatchSession::StunLookup {
   std::mutex mutex;
@@ -100,8 +89,6 @@ MatchSession::MatchSession(MatchSessionConfig config) : config_(std::move(config
       relay_open_ = true;
     }
   }
-  Log(std::string("DEBUG_SAULO match session begin slot=") + std::to_string(config_.my_slot) +
-      " relay_available=" + Flag(relay_open_) + " mesh=" + Flag(config_.full_mesh));
   BeginStun();
 }
 
@@ -184,7 +171,7 @@ void MatchSession::OnMembers(const std::vector<RoomMember>& members, double now)
                   : member.state == "disconnected" ? MemberState::kDisconnected : MemberState::kJoined;
     if (link.relay_resume_deadline > 0 && link.member != MemberState::kDisconnected) {
       link.relay_resume_deadline = 0;
-      Log("DEBUG_SAULO relay resumed peer=" + std::to_string(link.slot));
+      Log("relay resumed peer=" + std::to_string(link.slot));
     }
     if (link.setup == Setup::kNone && link.establishment.phase() == Establishment::Phase::kIdle &&
         (link.member == MemberState::kConnecting || link.member == MemberState::kConnected)) {
@@ -202,8 +189,6 @@ void MatchSession::BeginLink(Link& link, double now) {
   link.transport = MatchTransport::kDirectProbing;
   link.establishment.Begin(now);
   link.setup = Setup::kNone;
-  Log("DEBUG_SAULO network establishment begin peer=" + std::to_string(link.slot) +
-      " deadline_ms=" + std::to_string(int(kEstablishmentBudgetSeconds * 1000)));
   if (!config_.socket || !config_.socket->is_open()) {
     FailLink(link, "socket_unbound", {});
     return;
@@ -216,8 +201,6 @@ void MatchSession::StartDirectProbe(Link& link, double now) {
   link.peer_deadline = now + kPeerEndpointWaitSeconds;
   link.probe_started = now;
   link.direct_deadline = now + kDirectProbeWindowSeconds;
-  Log("DEBUG_SAULO direct probe begin peer=" + std::to_string(link.slot) +
-      " budget_ms=" + std::to_string(int(kDirectProbeWindowSeconds * 1000)) + " relay_available=" + Flag(Coordinated(link)));
   Emit("direct_attempt", link.slot);
   if (Coordinated(link) && Chooser(link) && !config_.service_forwards_public) {
     RequestRelay(link, "service_public_endpoints_unsupported");
@@ -241,9 +224,6 @@ void MatchSession::OnPeer(const PeerInfo& peer, double now) {
   if (link.name.empty()) link.name = peer.name;
   if (link.establishment.phase() == Establishment::Phase::kIdle && link.setup == Setup::kNone) BeginLink(link, now);
   if (unchanged) return;
-  Log("DEBUG_SAULO peer endpoint peer=" + std::to_string(peer.slot) + " same_network=" + Flag(peer.same_network) +
-      " public=" + (peer.public_port ? peer.public_ip + ":" + std::to_string(peer.public_port) : std::string("none")) +
-      " service_forwards_public=" + Flag(peer.service_forwards_public));
   if (link.setup == Setup::kWaitingPeer || link.setup == Setup::kPunching) EvaluatePeer(link);
 }
 
@@ -265,7 +245,6 @@ bool MatchSession::FailIfServiceCannotForwardPublic(Link& link) {
   }
   if (Coordinated(link)) {
     if (link.relay_requested) return true;
-    Log("DEBUG_SAULO direct unavailable peer=" + std::to_string(link.slot) + " reason=service_public_endpoints_unsupported");
     if (Chooser(link)) RequestRelay(link, "service_public_endpoints_unsupported");
     return true;
   }
@@ -277,11 +256,6 @@ void MatchSession::ConsiderPeer(Link& link) {
   if (!link.info || !PeerEndpointReady(*link.info) || link.relay_requested || link.setup == Setup::kSelected ||
       link.setup == Setup::kFailed || !stun_done_) {
     return;
-  }
-  if (link.setup == Setup::kWaitingPeer) {
-    Log("DEBUG_SAULO peer endpoint ready peer=" + std::to_string(link.slot) + " public=" +
-        (link.info->public_port ? link.info->public_ip + ":" + std::to_string(link.info->public_port) : std::string("none")) +
-        " same_network=" + Flag(link.info->same_network));
   }
   StartPunch(link);
 }
@@ -296,7 +270,6 @@ void MatchSession::StartPunch(Link& link) {
     link.direct_deadline = std::max(link.direct_deadline, now_ + kMinPunchSeconds);
   }
   link.setup = Setup::kPunching;
-  Log("DEBUG_SAULO udp rendezvous begin peer=" + std::to_string(link.slot) + " candidates=" + std::to_string(candidates.size()));
   const uint64_t key = PairPunchKey(config_.match, config_.my_slot, link.slot);
   const uint8_t side = Chooser(link) ? 1 : 2;
   const uint64_t now_ms = Milliseconds(now_);
@@ -314,9 +287,6 @@ void MatchSession::Update(double now) {
   for (std::optional<Link>& entry : links_) {
     if (!entry || entry->setup == Setup::kSelected || entry->setup == Setup::kFailed) continue;
     if (!entry->establishment.ConnectingExpired(now)) continue;
-    Log("DEBUG_SAULO network establishment timeout peer=" + std::to_string(entry->slot) +
-        " elapsed_ms=" + std::to_string(int(entry->establishment.Elapsed(now) * 1000)) +
-        " transport_state=" + MatchTransportName(entry->transport) + " relay_requested=" + Flag(entry->relay_requested));
     FailLink(*entry, "establishment_timeout", "Could not connect to " + entry->name + ".");
   }
   wanted = false;
@@ -356,8 +326,6 @@ void MatchSession::Update(double now) {
     stun_done_ = true;
     stun_failed_ = stun == Rendezvous::Stage::kFailed;
     mapped_ = stun_failed_ ? netplay::Endpoint{} : mapped;
-    Log(std::string("DEBUG_SAULO stun result ok=") + Flag(!stun_failed_) + " mapped=" +
-        (stun_failed_ ? std::string("none") : EndpointText(mapped_)));
     SendEndpoint();
     for (std::optional<Link>& link : links_) {
       if (!link || link->setup != Setup::kNone || link->establishment.phase() != Establishment::Phase::kConnecting) continue;
@@ -376,9 +344,6 @@ void MatchSession::Update(double now) {
     }
     if (link.setup == Setup::kNone || link.setup == Setup::kFailed) continue;
     if (link.establishment.ConnectingExpired(now)) {
-      Log("DEBUG_SAULO network establishment timeout peer=" + std::to_string(link.slot) +
-          " elapsed_ms=" + std::to_string(int(link.establishment.Elapsed(now) * 1000)) +
-          " transport_state=" + MatchTransportName(link.transport) + " relay_requested=" + Flag(link.relay_requested));
       FailLink(link, "establishment_timeout", "Could not connect to " + link.name + ".");
       continue;
     }
@@ -389,7 +354,6 @@ void MatchSession::Update(double now) {
     }
     if (link.setup == Setup::kWaitingPeer) {
       if (now < link.peer_deadline) continue;
-      Log("DEBUG_SAULO udp rendezvous failed peer=" + std::to_string(link.slot) + " reason=peer_endpoint_timeout");
       FailLink(link, "no_direct_path", "Could not connect to " + link.name + ": their connection details never arrived.");
       continue;
     }
@@ -435,9 +399,8 @@ void MatchSession::RequestRelay(Link& link, const std::string& why) {
   link.direct_elapsed_ms = ElapsedMs(link);
   link.fallback_reason = why;
   link.direct_result = "failed:" + why;
-  Log("DEBUG_SAULO direct path not established peer=" + std::to_string(link.slot) +
+  Log("direct path not established peer=" + std::to_string(link.slot) +
       " elapsed_ms=" + std::to_string(link.direct_elapsed_ms) + " reason=" + why);
-  Log("DEBUG_SAULO relay fallback begin peer=" + std::to_string(link.slot));
   Emit("direct_result", link.slot, {{"result", "failed"}, {"reason", why}, {"ms", std::to_string(link.direct_elapsed_ms)}});
   Emit("relay_fallback", link.slot, {{"reason", why}});
   link.relay_request_seq = ++endpoint_seq_;
@@ -463,7 +426,7 @@ void MatchSession::SelectDirect(Link& link, const Candidate& selected) {
     direct_endpoints_[link.slot] = selected.endpoint;
     ping_.Reset(link.slot);
   }
-  Log("DEBUG_SAULO transport selected peer=" + std::to_string(link.slot) + " selected=direct relay_available=" +
+  Log("transport selected peer=" + std::to_string(link.slot) + " selected=direct relay_available=" +
       Flag(Coordinated(link)) + " relay_used=false endpoint=" + EndpointText(selected.endpoint) +
       " type=" + CandidateTypeName(selected.type) + " elapsed_ms=" + std::to_string(link.direct_elapsed_ms));
   Emit("direct_result", link.slot, {{"result", "ok"}, {"ms", std::to_string(link.direct_elapsed_ms)}});
@@ -484,8 +447,7 @@ void MatchSession::SelectRelay(Link& link) {
     std::lock_guard<std::mutex> lock(ping_mutex_);
     ping_.Reset(link.slot);
   }
-  link.next_relay_stats = now_ + kRelayStatsSeconds;
-  Log("DEBUG_SAULO transport selected peer=" + std::to_string(link.slot) + " selected=relay relay_available=true relay_used=true" +
+  Log("transport selected peer=" + std::to_string(link.slot) + " selected=relay relay_available=true relay_used=true" +
       " fallback_reason=" + (link.fallback_reason.empty() ? std::string("host_chose_relay") : link.fallback_reason) +
       " elapsed_ms=" + std::to_string(int(link.establishment.Elapsed(now_) * 1000)));
   Emit("relay_result", link.slot, {{"result", "ok"}});
@@ -501,35 +463,21 @@ void MatchSession::Assign(Link& link, const netplay::Endpoint& peer, bool relay)
   assignment.generation = config_.generation;
   assignment.relay = relay;
   link.assignment = assignment;
-  if (link.establishment.Select(now_)) {
-    Log("DEBUG_SAULO network establishment ready peer=" + std::to_string(link.slot) +
-        " transport=" + (relay ? "relay" : "direct") + " elapsed_ms=" + std::to_string(int(link.establishment.Elapsed(now_) * 1000)));
-  }
+  link.establishment.Select(now_);
   if (config_.notice) config_.notice("Connected with " + link.name + ".");
 }
 
-void MatchSession::OnTransport(int a, int b, const std::string& transport, int by, double now) {
+void MatchSession::OnTransport(int a, int b, const std::string& transport, int, double now) {
   now_ = now;
   const int me = config_.my_slot;
-  if (a != me && b != me) {
-    Log("DEBUG_SAULO transport confirmed pair=" + std::to_string(a) + "-" + std::to_string(b) + " transport=" + transport +
-        " by=" + std::to_string(by));
-    return;
-  }
+  if (a != me && b != me) return;
   Link* link = Find(a == me ? b : a);
-  if (!link || link->setup == Setup::kFailed || link->setup == Setup::kSelected) {
-    Log("DEBUG_SAULO transport choice ignored transport=" + transport);
-    return;
-  }
+  if (!link || link->setup == Setup::kFailed || link->setup == Setup::kSelected) return;
   if (Chooser(*link)) {
     if (transport == "relay" && link->relay_requested) SelectRelay(*link);
     return;
   }
-  if (!Coordinated(*link) || link->setup == Setup::kNone) {
-    Log("DEBUG_SAULO transport choice ignored transport=" + transport);
-    return;
-  }
-  Log("DEBUG_SAULO transport choice from peer=" + std::to_string(link->slot) + " transport=" + transport);
+  if (!Coordinated(*link) || link->setup == Setup::kNone) return;
   if (transport == "relay") {
     link->fallback_reason = "chooser_chose_relay";
     link->direct_result = "failed:chooser_chose_relay";
@@ -562,7 +510,6 @@ void MatchSession::OnTransport(int a, int b, const std::string& transport, int b
 
 void MatchSession::OnRelayClosed(int peer_slot, const std::string& reason, double now) {
   now_ = now;
-  Log("DEBUG_SAULO relay closed peer=" + std::to_string(peer_slot) + " reason=" + reason);
   for (int slot = 1; slot <= netplay::kMaxSlot; ++slot) {
     Link* link = Find(slot);
     if (!link || (peer_slot && peer_slot != slot)) continue;
@@ -571,7 +518,7 @@ void MatchSession::OnRelayClosed(int peer_slot, const std::string& reason, doubl
         FailLink(*link, "relay_closed", "The connection to " + link->name + " was lost.");
       } else if (link->relay_resume_deadline == 0) {
         link->relay_resume_deadline = now + kRelayResumeSeconds;
-        Log("DEBUG_SAULO relay suspended peer=" + std::to_string(slot) + " reason=" + reason);
+        Log("relay suspended peer=" + std::to_string(slot) + " reason=" + reason);
       }
     } else if (link->transport == MatchTransport::kDirectProbing) {
       if (reason == "peer_disconnected" || link->relay_requested) {
@@ -593,7 +540,7 @@ void MatchSession::OnPeerLeft(int slot, const std::string& reason, double now) {
   now_ = now;
   Link* link = Find(slot);
   if (!link) return;
-  Log("DEBUG_SAULO peer left peer=" + std::to_string(slot) + " reason=" + reason);
+  Log("peer left peer=" + std::to_string(slot) + " reason=" + reason);
   LogSummary(*link);
   Emit("peer_disconnect", slot, {{"reason", reason}});
   if (config_.socket) {
@@ -612,7 +559,7 @@ void MatchSession::OnPeerLeft(int slot, const std::string& reason, double now) {
 void MatchSession::FailLink(Link& link, const std::string& reason, const std::string& notice) {
   if (link.setup == Setup::kFailed) return;
   const bool established = link.transport == MatchTransport::kDirect || link.transport == MatchTransport::kRelay;
-  Log(std::string(established ? "DEBUG_SAULO transport lost" : "DEBUG_SAULO udp rendezvous failed") + " peer=" +
+  Log(std::string(established ? "transport lost" : "udp rendezvous failed") + " peer=" +
       std::to_string(link.slot) + " reason=" + reason);
   if (!established) link.transport = MatchTransport::kFailed;
   link.setup = Setup::kFailed;
@@ -645,7 +592,7 @@ void MatchSession::LogSummary(Link& link) {
   const char* selected = link.transport == MatchTransport::kDirect ? "direct"
                          : link.transport == MatchTransport::kRelay ? "relay"
                          : link.transport == MatchTransport::kFailed ? "failed" : "none";
-  Log(std::string("DEBUG_SAULO transport summary peer=") + std::to_string(link.slot) + " relay_available=" +
+  Log(std::string("transport summary peer=") + std::to_string(link.slot) + " relay_available=" +
       Flag(link.relay_used || link.relay_requested || Coordinated(link)) + " selected=" + selected +
       " relay_used=" + Flag(link.relay_used) +
       (link.fallback_reason.empty() ? std::string() : " fallback_reason=" + link.fallback_reason) +
@@ -661,11 +608,6 @@ void MatchSession::PumpRelay(Link& link, double now) {
     FailLink(link, "relay_closed", "The connection to " + link.name + " was lost.");
     return;
   }
-  if (now < link.next_relay_stats) return;
-  link.next_relay_stats = now + kRelayStatsSeconds;
-  const netplay::PeerTraffic traffic = config_.socket->peer_traffic(link.slot);
-  Log("DEBUG_SAULO relay stats peer=" + std::to_string(link.slot) + " tx_packets=" + std::to_string(traffic.relay_tx_packets) +
-      " rx_packets=" + std::to_string(traffic.relay_rx_packets) + " rejected=" + std::to_string(traffic.relay_rejected));
 }
 
 void MatchSession::PumpPing(Link& link, double) {
@@ -708,7 +650,7 @@ void MatchSession::OnRefused(int seq, const std::string& code, double now) {
   now_ = now;
   for (std::optional<Link>& entry : links_) {
     if (!entry || !entry->relay_requested || entry->relay_request_seq != seq || code == "already_set") continue;
-    Log("DEBUG_SAULO relay refused peer=" + std::to_string(entry->slot) + " code=" + code);
+    Log("relay refused peer=" + std::to_string(entry->slot) + " code=" + code);
     FailLink(*entry, "relay_unavailable", {});
   }
 }

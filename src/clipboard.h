@@ -14,7 +14,7 @@ struct ClipboardText {
 using ClipboardLog = std::function<void(const std::string&)>;
 
 // The system clipboard as plain text. `owner_window` is the native window that owns a write (HWND on Windows), or null.
-// Every step goes to `log`.
+// Failures go to `log`.
 ClipboardText ReadClipboardText(void* owner_window, const ClipboardLog& log);
 bool WriteClipboardText(void* owner_window, const std::string& text, const ClipboardLog& log);
 

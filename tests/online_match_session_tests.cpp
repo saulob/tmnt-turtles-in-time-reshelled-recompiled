@@ -373,7 +373,6 @@ void TestStunAndEndpointAdvertisement() {
   CHECK(h.Ops("match.endpoint").size() == 1);
   s.ResendEndpoint();
   CHECK(h.Ops("match.endpoint").size() == 2 && h.Ops("match.endpoint")[1].find("\"public_port\":40000") != npos);
-  CHECK(h.LogHas("DEBUG_SAULO stun result ok=true mapped=8.8.4.4:40000"));
 }
 
 void TestStunThatNeverAnswersStillAdvertises() {
@@ -389,7 +388,6 @@ void TestStunThatNeverAnswersStillAdvertises() {
   s.Update(102.6);
   CHECK(h.Ops("match.endpoint").size() == 1);
   CHECK(h.Ops("match.endpoint")[0].find("public_") == npos);
-  CHECK(h.LogHas("DEBUG_SAULO stun result ok=false mapped=none"));
   s.Update(103);
   CHECK(h.Ops("match.endpoint").size() == 1);
 }
@@ -755,7 +753,6 @@ void TestNonChooserFollowsTheChooser() {
     s.OnTransport(3, 4, "relay", 3, 101);
     s.OnTransport(1, 3, "relay", 1, 101);
     CHECK(s.peer(1)->transport == MatchTransport::kDirectProbing && !s.Assignment(1) && !s.fatal());
-    CHECK(h.LogHas("transport confirmed pair=3-4"));
   }
 }
 
@@ -1141,7 +1138,7 @@ void TestStopAndGarbageFrames() {
   s.OnBinary("garbage");
   s.Stop();
   CHECK(s.peers().size() == 1 && s.Assignment(2));
-  CHECK(h.LogHas("DEBUG_SAULO transport summary peer=2"));
+  CHECK(h.LogHas("transport summary peer=2"));
 }
 
 void TestRelayFramesCarryTheTokenOnlyInBinary() {

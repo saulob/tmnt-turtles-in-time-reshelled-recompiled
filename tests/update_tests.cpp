@@ -7,9 +7,11 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
+#include "update_restart_arguments.h"
 #include "updater/github_release.h"
 #include "updater/install_transaction.h"
 #include "updater/sha256.h"
@@ -271,6 +273,133 @@ void TestZipAndStaging() {
   const std::filesystem::path dot_staging = temp.path / "dot-staging";
   CHECK(ExtractZip(dot_archive, dot_staging, {}, error));
   CHECK(std::filesystem::exists(dot_staging / "tmnt_turtles_in_time_reshelled.exe"));
+
+  const std::string wrapper = "TurtlesInTimeReshelled-v0.7.0-windows-x64";
+  const std::filesystem::path wrapped_archive = temp.path / "wrapped.zip";
+  WriteFile(wrapped_archive, MakeZip({{wrapper + "/tmnt_turtles_in_time_reshelled.exe", "launcher"},
+                                      {wrapper + "/assets/launcher/header-art.png", "art"},
+                                      {wrapper + "/licenses/THIRD-PARTY-LICENSES.txt", "license"}}));
+  const std::filesystem::path wrapped_staging = temp.path / "wrapped-staging";
+  CHECK(ExtractZip(wrapped_archive, wrapped_staging, {}, error));
+  std::filesystem::path wrapped_root;
+  CHECK(ResolveStagingRoot(wrapped_staging, {"tmnt_turtles_in_time_reshelled.exe"}, wrapped_root, error));
+  CHECK(wrapped_root == wrapped_staging / wrapper);
+  CHECK(ValidateStaging(wrapped_root, {"tmnt_turtles_in_time_reshelled.exe"}, error));
+  CHECK(ListStagingFiles(wrapped_root, error).size() == 3);
+
+  std::filesystem::path flat_root;
+  CHECK(ResolveStagingRoot(staging, {"tmnt_turtles_in_time_reshelled.exe"}, flat_root, error));
+  CHECK(flat_root == staging);
+
+  const std::filesystem::path two_folders = temp.path / "two-folders.zip";
+  WriteFile(two_folders, MakeZip({{"one/tmnt_turtles_in_time_reshelled.exe", "one"},
+                                  {"two/tmnt_turtles_in_time_reshelled.exe", "two"}}));
+  const std::filesystem::path two_staging = temp.path / "two-staging";
+  CHECK(ExtractZip(two_folders, two_staging, {}, error));
+  std::filesystem::path two_root;
+  CHECK(!ResolveStagingRoot(two_staging, {"tmnt_turtles_in_time_reshelled.exe"}, two_root, error));
+
+  const std::filesystem::path loose_archive = temp.path / "loose.zip";
+  WriteFile(loose_archive, MakeZip({{"readme.txt", "loose"}, {"wrapper/tmnt_turtles_in_time_reshelled.exe", "x"}}));
+  const std::filesystem::path loose_staging = temp.path / "loose-staging";
+  CHECK(ExtractZip(loose_archive, loose_staging, {}, error));
+  std::filesystem::path loose_root;
+  CHECK(!ResolveStagingRoot(loose_staging, {"tmnt_turtles_in_time_reshelled.exe"}, loose_root, error));
+}
+
+std::filesystem::path MakeJob(UpdateJob& job, const std::filesystem::path& temp, const std::string& manifest_text) {
+  const std::filesystem::path install = temp / "install dir";
+  const std::filesystem::path staging = temp / "staging dir";
+  const std::filesystem::path manifest = temp / "manifest.txt";
+  std::filesystem::create_directories(install);
+  std::filesystem::create_directories(staging);
+  WriteFile(manifest, manifest_text);
+  job = {};
+  job.parent_pid = 1234;
+  job.install_dir = install;
+  job.staging_dir = staging;
+  job.backup_dir = temp / "backup dir";
+  job.manifest_file = manifest;
+  job.restart_executable = install / "tmnt_turtles_in_time_reshelled.exe";
+  job.log_file = temp / "trg-updater.log";
+  return install;
+}
+
+void TestManifest() {
+  std::printf("manifest validation\n");
+  TempDir temp;
+  UpdateJob job;
+  const std::filesystem::path install = MakeJob(job, temp.path, "../evil\n");
+  WriteFile(install / "tmnt_turtles_in_time_reshelled.exe", "old launcher");
+  WriteFile(job.staging_dir / "tmnt_turtles_in_time_reshelled.exe", "new launcher");
+  InstallOutcome outcome = InstallFiles(job, {}, false);
+  CHECK(outcome.status == InstallStatus::kInvalidJob);
+  CHECK(ReadFile(install / "tmnt_turtles_in_time_reshelled.exe") == "old launcher");
+
+  const char* protected_entries[] = {"game/default.xex", "user_data/settings.toml", "user_data/584109D2/live/stats.toml",
+                                     "logs/a.log", "settings.toml"};
+  for (const char* entry : protected_entries) {
+    WriteFile(job.manifest_file, std::string(entry) + "\n");
+    WriteFile(job.staging_dir / entry, "replacement");
+    outcome = InstallFiles(job, {}, false);
+    CHECK(outcome.status == InstallStatus::kInvalidJob);
+    CHECK(ReadFile(install / "tmnt_turtles_in_time_reshelled.exe") == "old launcher");
+  }
+  for (const char* entry : {"C:/evil.exe", "\\\\server\\share\\a.exe", "/absolute.exe"}) {
+    WriteFile(job.manifest_file, std::string(entry) + "\n");
+    outcome = InstallFiles(job, {}, false);
+    CHECK(outcome.status == InstallStatus::kInvalidJob);
+  }
+
+  WriteFile(job.manifest_file, "missing.dll\n");
+  outcome = InstallFiles(job, {}, false);
+  CHECK(outcome.status == InstallStatus::kInvalidJob);
+
+  WriteFile(job.manifest_file, "");
+  outcome = InstallFiles(job, {}, false);
+  CHECK(outcome.status == InstallStatus::kInvalidJob);
+
+  WriteFile(job.manifest_file,
+            "tmnt_turtles_in_time_reshelled.exe\nrexruntime.dll\ntmnt_turtles_in_time_reshelled.exe\n");
+  WriteFile(job.staging_dir / "rexruntime.dll", "new runtime");
+  outcome = InstallFiles(job, {}, false);
+  CHECK(outcome.status == InstallStatus::kSuccess);
+  CHECK(ReadFile(install / "tmnt_turtles_in_time_reshelled.exe") == "new launcher");
+  CHECK(ReadFile(install / "rexruntime.dll") == "new runtime");
+}
+
+void TestSameVersionReplacement() {
+  std::printf("same-version replacement\n");
+  TempDir temp;
+  UpdateJob job;
+  const std::filesystem::path install =
+      MakeJob(job, temp.path, "tmnt_turtles_in_time_reshelled.exe\ntrg-updater.exe\ntmnt_turtles_in_time_reshelled.toml\n");
+  WriteFile(install / "tmnt_turtles_in_time_reshelled.exe", "DEVELOPMENT_BUILD");
+  WriteFile(install / "trg-updater.exe", "DEVELOPMENT_HELPER");
+  WriteFile(install / "tmnt_turtles_in_time_reshelled.toml", "license_mask = 1");
+  WriteFile(install / "user_data" / "settings.toml", "player settings");
+  WriteFile(install / "user_data" / "584109D2" / "live" / "stats.toml", "scores");
+  WriteFile(install / "user_data" / "0000000000000000" / "584109D2" / "00000002" / "Package" / "content.bin", "dlc");
+  WriteFile(install / "game" / "default.xex", "game files");
+  WriteFile(install / "game" / "Data" / "TMNT.bf", "archive");
+  WriteFile(install / "logs" / "tmnt_turtles_in_time_reshelled_001.log", "log");
+  WriteFile(install / "notes.txt", "keep me");
+  WriteFile(job.staging_dir / "tmnt_turtles_in_time_reshelled.exe", "PUBLIC_RELEASE");
+  WriteFile(job.staging_dir / "trg-updater.exe", "PUBLIC_HELPER");
+  WriteFile(job.staging_dir / "tmnt_turtles_in_time_reshelled.toml", "license_mask = 1");
+
+  const InstallOutcome outcome = InstallFiles(job, {}, false);
+  CHECK(outcome.status == InstallStatus::kSuccess);
+  CHECK(ReadFile(install / "tmnt_turtles_in_time_reshelled.exe") == "PUBLIC_RELEASE");
+  CHECK(ReadFile(install / "trg-updater.exe") == "PUBLIC_HELPER");
+  CHECK(ReadFile(install / "user_data" / "settings.toml") == "player settings");
+  CHECK(ReadFile(install / "user_data" / "584109D2" / "live" / "stats.toml") == "scores");
+  CHECK(ReadFile(install / "user_data" / "0000000000000000" / "584109D2" / "00000002" / "Package" / "content.bin") ==
+        "dlc");
+  CHECK(ReadFile(install / "game" / "default.xex") == "game files");
+  CHECK(ReadFile(install / "game" / "Data" / "TMNT.bf") == "archive");
+  CHECK(ReadFile(install / "logs" / "tmnt_turtles_in_time_reshelled_001.log") == "log");
+  CHECK(ReadFile(install / "notes.txt") == "keep me");
 }
 
 void TestJobs() {
@@ -291,7 +420,7 @@ void TestJobs() {
   job.backup_dir = backup;
   job.manifest_file = manifest;
   job.restart_executable = install / "tmnt_turtles_in_time_reshelled.exe";
-  job.log_file = temp.path / "updater.log";
+  job.log_file = temp.path / "trg-updater.log";
   job.restart_arguments = {"--user_data_root=with space", "--fullscreen=true", ""};
 
   std::string error;
@@ -346,7 +475,7 @@ void TestRollback() {
   job.backup_dir = backup;
   job.manifest_file = manifest;
   job.restart_executable = install / "tmnt_turtles_in_time_reshelled.exe";
-  job.log_file = temp.path / "updater.log";
+  job.log_file = temp.path / "trg-updater.log";
 
   int replacements = 0;
   InstallOptions fail;
@@ -404,6 +533,19 @@ void TestPackagingNames() {
   CHECK(linux_package.find("TurtlesInTimeReshelledRecompiled-v$VERSION-x86_64") != std::string::npos);
 }
 
+void TestRestartArguments() {
+  std::printf("restart arguments\n");
+  const std::vector<std::string> cleaned = tmnt::UpdateRestartArguments(
+      {"--user_data_root=C:/with space", "--tmnt_skip_launcher=true", "--tmnt_launcher=false", "--tmnt_launcher",
+       "--tmnt_launcher_x=5", "--game_data_root=D:/game"});
+  const std::vector<std::string> expected = {"--user_data_root=C:/with space", "--tmnt_launcher_x=5",
+                                             "--game_data_root=D:/game", "--tmnt_launcher=true"};
+  CHECK(cleaned == expected);
+  CHECK(tmnt::UpdateRestartArguments({}) == std::vector<std::string>{"--tmnt_launcher=true"});
+  CHECK(!tmnt::IsLauncherVisibilityArgument("--tmnt_launcher_width=1"));
+  CHECK(tmnt::IsLauncherVisibilityArgument("--tmnt_skip_launcher"));
+}
+
 void TestPaths() {
   std::printf("path safety\n");
   CHECK(IsSafeRelativePath("tmnt_turtles_in_time_reshelled.exe"));
@@ -420,7 +562,24 @@ void TestPaths() {
   CHECK(IsProtectedRelativePath("logs/a.log"));
   CHECK(IsProtectedRelativePath("settings.toml"));
   CHECK(IsProtectedRelativePath("DLC/a.bin"));
+  CHECK(IsProtectedRelativePath("user_data/584109D2/live/stats.toml"));
+  CHECK(IsProtectedRelativePath("user_data.migrating/a"));
+  CHECK(IsProtectedRelativePath("game-install-temp/a"));
+  CHECK(IsProtectedRelativePath("game-install-backup/a"));
+  CHECK(IsProtectedRelativePath("settings.toml.bak"));
+  CHECK(IsProtectedRelativePath("cache/shaders/a.bin"));
+  CHECK(IsProtectedRelativePath("content/a.bin"));
+  CHECK(IsProtectedRelativePath("saves/a"));
+  CHECK(IsProtectedRelativePath("TMNT_r.xex"));
+  CHECK(IsProtectedRelativePath("nested/ArcadeInfo.xml"));
+  CHECK(IsProtectedRelativePath("nxeart"));
+  CHECK(IsProtectedRelativePath("Data/TMNT.bf"));
+  CHECK(IsProtectedRelativePath("a.sav"));
   CHECK(!IsProtectedRelativePath("tmnt_turtles_in_time_reshelled.exe"));
+  CHECK(!IsProtectedRelativePath("tmnt_turtles_in_time_reshelled_TMNT_r.dll"));
+  CHECK(!IsProtectedRelativePath("tmnt_turtles_in_time_reshelled.toml"));
+  CHECK(!IsProtectedRelativePath("trg-updater.exe"));
+  CHECK(!IsProtectedRelativePath("assets/launcher/header-art.png"));
   CHECK(!IsProtectedRelativePath("licenses/THIRD-PARTY-LICENSES.txt"));
 }
 
@@ -521,8 +680,11 @@ int main() {
   TestSha256();
   TestZipAndStaging();
   TestJobs();
+  TestManifest();
+  TestSameVersionReplacement();
   TestRollback();
   TestPackagingNames();
+  TestRestartArguments();
   TestUrlPolicy();
   TestPaths();
   TestAppImageTarget();

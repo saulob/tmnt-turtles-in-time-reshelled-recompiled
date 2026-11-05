@@ -1,9 +1,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
-#include <functional>
 #include <optional>
-#include <thread>
 #include <string>
 
 #include <rex/cvar.h>
@@ -76,20 +74,15 @@ void PublishPartySnapshot(PPCContext& ctx, uint8_t* base, const online::PartySea
   const int32_t station = ctx.r3.s32;
   ctx.lr = lr;
   const std::optional<online::PartySnapshot> snapshot = online::BuildPartySnapshot(seats, station);
-  REXLOG_INFO("DEBUG_SAULO party seats local={} valid={} stations={},{},{},{} choices={},{},{},{} confirmed={},{},{},{}", station,
-              snapshot.has_value(), seats[0].station, seats[1].station, seats[2].station, seats[3].station, seats[0].choice,
-              seats[1].choice, seats[2].choice, seats[3].choice, seats[0].confirmed, seats[1].confirmed, seats[2].confirmed,
-              seats[3].confirmed);
   if (!snapshot) return;
   static std::atomic<uint32_t> sequence{0};
   rex::cvar::SetFlagByName("tmnt_online_party_snapshot", std::to_string(online::EncodePartySnapshot(*snapshot, ++sequence)));
 }
 
-// DEBUG_SAULO: CSL_StartGame. The caller tells CSL_OnStart (master) from the RPC_StartGame case (slave).
-// It runs once on every machine when the party is final, so the party's turtles are read here and never written.
+// CSL_StartGame runs once on every machine when the party is final, so the party's turtles are read here and never
+// written.
 REX_EXTERN(__imp__sub_875E8A10);
 REX_HOOK_RAW(sub_875E8A10) {
-  REXLOG_INFO("DEBUG_SAULO start trace CSL_StartGame lr={:08X}", uint32_t(ctx.lr));
   const online::PartySeats seats = ReadPartySeats(base, ctx.r3.u32);
   __imp__sub_875E8A10(ctx, base);
   PublishPartySnapshot(ctx, base, seats);
@@ -110,10 +103,8 @@ REX_HOOK_RAW(sub_876AE008) {
 REX_EXTERN(__imp__sub_875D4DF0);
 REX_HOOK_RAW(sub_875D4DF0) {
   const int32_t controller = ctx.r4.s32;
-  const int32_t retry = ctx.r5.s32;
   if (IsLocalController(controller)) rex::cvar::SetFlagByName("tmnt_online_user", std::to_string(controller));
   __imp__sub_875D4DF0(ctx, base);
-  REXLOG_INFO("DEBUG_SAULO online gate controller={} retry={} result={}", controller, retry, ctx.r3.s32);
 }
 
 // Leaderboard_SwitchPage: refuses the page while the player is not online.
@@ -227,40 +218,6 @@ REX_HOOK_RAW(sub_875BA998) {
   __imp__sub_875BA998(ctx, base);
 }
 
-// DEBUG_SAULO: FIRE wait request protocol. DoWait/DoWaitStop only post go_wait/go_stop; the deferred-send track
-// consumes them on a later tick and is_waiting follows the overlay.
-constexpr uint32_t kFireIsWaitingOffset = 0x30000 + 11824;
-constexpr uint32_t kFireGoWaitOffset = 0x30000 + 11828;
-constexpr uint32_t kFireGoStopOffset = 0x30000 + 11832;
-constexpr uint32_t kFireWaitIdOffset = 0x30000 + 11836;
-
-struct FireWaitState {
-  uint32_t is_waiting, go_wait, go_stop, id;
-};
-
-FireWaitState ReadFireWait(uint8_t* base, uint32_t fire) {
-  const uint32_t vars = fire ? LoadBE32(base, fire + 8) : 0;
-  if (!vars) return {0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu};
-  return {LoadBE32(base, vars + kFireIsWaitingOffset), LoadBE32(base, vars + kFireGoWaitOffset),
-          LoadBE32(base, vars + kFireGoStopOffset), LoadBE32(base, vars + kFireWaitIdOffset)};
-}
-
-uint32_t ThreadTag() { return uint32_t(std::hash<std::thread::id>{}(std::this_thread::get_id()) & 0xFFFF); }
-
-std::atomic<int> g_step_budget{200};
-std::atomic<uint64_t> g_fire_ticks{0};
-std::atomic<int> g_main_tick_trace{0};
-
-void LogStep(const char* what, const char* phase, uint8_t* base, uint32_t fire, uint32_t arg, uint32_t lr) {
-  if (g_step_budget.fetch_sub(1) <= 0) return;
-  const FireWaitState s = ReadFireWait(base, fire);
-  REXLOG_INFO("DEBUG_SAULO CreateMatchStep {} {} arg={} lr={:08X} is_waiting={} go_wait={} go_stop={} wait_id={} tid={} fire_tick={}",
-              what, phase, arg, lr, s.is_waiting, s.go_wait, s.go_stop, s.id, ThreadTag(),
-              g_fire_ticks.load());
-}
-
-#define TMNT_FIRE_STEP_HOOK(sub, label)                                  REX_EXTERN(__imp__sub_##sub);                                          REX_HOOK_RAW(sub_##sub) {                                                const uint32_t fire = ctx.r3.u32;                                      const uint32_t arg = ctx.r4.u32;                                       const uint32_t lr = uint32_t(ctx.lr);                                  LogStep(label, "ENTER", base, fire, arg, lr);                          __imp__sub_##sub(ctx, base);                                           LogStep(label, "EXIT", base, fire, arg, lr);                         }
-
 // FireCommunicator_GetMaxPlayers(this): the slots the title configured when it created the session. A guest never
 // creates one, so its value is never written; the joined session's slots stand in.
 REX_EXTERN(__imp__sub_875CCEC8);
@@ -269,33 +226,6 @@ REX_HOOK_RAW(sub_875CCEC8) {
   const std::string joined = rex::cvar::GetFlagByName("tmnt_online_joined_slots");
   const int slots = joined.empty() ? 0 : std::atoi(joined.c_str());
   if (slots > 0) ctx.r3.u64 = uint32_t(slots);
-}
-
-// FireCommunicator_SetPkg(this, id, int values, string pointers): every UI event the game hands to the FIRE movie.
-std::atomic<int> g_pkg_budget{400};
-
-std::string PkgText(uint8_t* base, uint32_t strings) {
-  if (!strings) return {};
-  const uint32_t pointer = LoadBE32(base, strings);
-  if (pointer < 0x10000 || pointer >= 0xA0000000) return {};
-  const char* text = reinterpret_cast<const char*>(GuestHost(base, pointer));
-  std::string out;
-  for (size_t i = 0; i < 40 && text[i]; ++i) out += (text[i] >= 32 && text[i] < 127) ? text[i] : '?';
-  return out;
-}
-
-// DEBUG_SAULO: a package repeats every few ticks while a screen is up; only a change of its first value or text is logged.
-bool PkgChanged(uint32_t id, uint32_t first, const std::string& text) {
-  struct Last {
-    uint32_t id = 0;
-    uint32_t first = 0;
-    std::string text;
-  };
-  static Last last[16];
-  Last& slot = last[id % 16];
-  if (slot.id == id && slot.first == first && slot.text == text) return false;
-  slot = {id, first, text};
-  return true;
 }
 
 constexpr uint32_t kMenuTextPackage = 968;
@@ -315,68 +245,13 @@ void RenameXboxLiveLabel(uint8_t* base, uint32_t strings) {
   if (label) StoreBE32(base, strings, label);
 }
 
+// FireCommunicator_SetPkg(this, id, int values, string pointers): every UI event the game hands to the FIRE movie.
 REX_EXTERN(__imp__sub_875ADBC0);
 REX_HOOK_RAW(sub_875ADBC0) {
   const uint32_t id = ctx.r4.u32;
-  const uint32_t ints = ctx.r5.u32;
   const uint32_t strings = ctx.r6.u32;
-  const uint32_t lr = uint32_t(ctx.lr);
   if (id == kMenuTextPackage && strings) RenameXboxLiveLabel(base, strings);
-  if (ints && g_pkg_budget.load() > 0) {
-    const std::string text = PkgText(base, strings);
-    if (PkgChanged(id, LoadBE32(base, ints), text) && g_pkg_budget.fetch_sub(1) > 0) {
-      REXLOG_INFO("DEBUG_SAULO FirePkg id={} ints={},{},{},{} str=\"{}\" lr={:08X} fire_tick={}", id, LoadBE32(base, ints),
-                  LoadBE32(base, ints + 4), LoadBE32(base, ints + 8), LoadBE32(base, ints + 12), text, lr,
-                  g_fire_ticks.load());
-    }
-  }
   __imp__sub_875ADBC0(ctx, base);
-}
-
-// FireCommunicator_DoWait(this, wait_id)
-TMNT_FIRE_STEP_HOOK(875B5138, "DoWait")
-
-// FireCommunicator_DoWaitStop(this)
-REX_EXTERN(__imp__sub_875B51D0);
-REX_HOOK_RAW(sub_875B51D0) {
-  const uint32_t fire = ctx.r3.u32;
-  const uint32_t lr = uint32_t(ctx.lr);
-  LogStep("DoWaitStop", "ENTER", base, fire, 0, lr);
-  __imp__sub_875B51D0(ctx, base);
-  LogStep("DoWaitStop", "AFTER_ORIGINAL/EXIT", base, fire, 0, lr);
-  g_main_tick_trace.store(3);
-}
-
-TMNT_FIRE_STEP_HOOK(875B5288, "UpdateWaitDefered")
-TMNT_FIRE_STEP_HOOK(875B5980, "UpdateWaitStopDefered")
-TMNT_FIRE_STEP_HOOK(875B55F0, "UpdateWaitMsgDefered")
-TMNT_FIRE_STEP_HOOK(875B53D8, "UpdateWait")
-TMNT_FIRE_STEP_HOOK(875B5AD0, "UpdateWaitStop")
-
-// x_FireCommunicator_DferredSendCheck tick: logged only while a wait request is pending.
-REX_EXTERN(__imp__sub_875C1DC8);
-REX_HOOK_RAW(sub_875C1DC8) {
-  const uint32_t fire = ctx.r3.u32;
-  const uint32_t lr = uint32_t(ctx.lr);
-  ++g_fire_ticks;
-  const FireWaitState before = ReadFireWait(base, fire);
-  const bool pending = before.go_wait == 1 || before.go_stop == 1;
-  if (pending) LogStep("DferredSendCheck", "ENTER", base, fire, 0, lr);
-  __imp__sub_875C1DC8(ctx, base);
-  if (pending) LogStep("DferredSendCheck", "EXIT", base, fire, ctx.r3.u32, lr);
-}
-
-// SessionManager main tick: the three ticks after DoWaitStop must return.
-REX_EXTERN(__imp__sub_875D9290);
-REX_HOOK_RAW(sub_875D9290) {
-  const uint32_t lr = uint32_t(ctx.lr);
-  const bool trace = g_main_tick_trace.load() > 0;
-  if (trace) LogStep("SessionManagerMainTick", "ENTER", base, 0, 0, lr);
-  __imp__sub_875D9290(ctx, base);
-  if (trace) {
-    g_main_tick_trace.fetch_sub(1);
-    LogStep("SessionManagerMainTick", "EXIT", base, 0, ctx.r3.u32, lr);
-  }
 }
 
 // StartMenuWorld_RegisterLocalPlayerInGame(joy_id, slot_id): warns a secondary controller without a console sign-in

@@ -1,6 +1,6 @@
 // The Add a friend field in a real ImGui context, headless, fed the key events the SDK's window glue sends (LeftCtrl and
 // a hand-set io.KeyCtrl, never ImGuiMod_Ctrl): Ctrl+V reads the clipboard reader directly, typing works, Copy writes the
-// exact code, and the DEBUG_SAULO diagnostics are bounded. The clipboard is a fake; on Windows the Win32 backend also
+// exact code, and only failures are logged. The clipboard is a fake; on Windows the Win32 backend also
 // runs end to end over an in-memory stand-in for the Win32 calls.
 // Run: tmnt_friend_field_tests
 
@@ -51,7 +51,7 @@ bool FakeWrite(const std::string& text, const FieldLog&) {
 }
 
 bool FailingWrite(const std::string&, const FieldLog& log) {
-  log("DEBUG_SAULO online clipboard open failed attempt=3 error=5");
+  log("online clipboard open failed attempt=3 error=5");
   return false;
 }
 
@@ -165,10 +165,7 @@ void TestCtrlVWhileFocusedReadsTheClipboard() {
   CHECK(g_reads == 1);
   CHECK(std::string(h.buffer) == "CEQN-Z7SE");
   CHECK(online::NormalizeFriendCode(h.buffer) == "CEQN-Z7SE");
-  CHECK(h.Count("DEBUG_SAULO online friend ctrl-v detected left_ctrl=1 right_ctrl=0") == 1);
-  CHECK(h.Count("DEBUG_SAULO online friend paste raw=CEQN-Z7SE") == 1);
-  CHECK(h.Count("DEBUG_SAULO online friend paste normalized=CEQN-Z7SE") == 1);
-  CHECK(h.Count("DEBUG_SAULO online friend field value=CEQN-Z7SE") == 1);
+  CHECK(h.logs.empty());
 }
 
 void TestCtrlVIsIgnoredWhenTheFieldIsNotFocused() {
@@ -180,7 +177,6 @@ void TestCtrlVIsIgnoredWhenTheFieldIsNotFocused() {
   h.ClickElsewhere();
   h.CtrlV();
   CHECK(g_reads == 0 && h.buffer[0] == 0);
-  CHECK(h.Count("ctrl-v detected") == 0);
 }
 
 void TestPastedFormsAreNormalized() {
@@ -210,12 +206,12 @@ void TestEmptyClipboardAndErrorsLeaveTheField() {
   g_clipboard = {ClipboardText::Kind::kEmpty, {}};
   h.CtrlV();
   CHECK(std::string(h.buffer) == "AB");
-  CHECK(h.Count("DEBUG_SAULO online friend paste empty") == 1);
+  CHECK(h.logs.empty());
   g_clipboard = {ClipboardText::Kind::kError, "open"};
   h.CtrlV();
   CHECK(std::string(h.buffer) == "AB");
-  CHECK(h.Count("DEBUG_SAULO online friend paste failed step=open") == 1);
-  CHECK(h.Count("paste normalized=") == 0);
+  CHECK(h.Count("online friend paste failed step=open") == 1);
+  CHECK(h.logs.size() == 1);
 }
 
 void TestTypingStillWorks() {
@@ -223,8 +219,7 @@ void TestTypingStillWorks() {
   h.ClickField();
   h.Type("ceqn-z7se");
   CHECK(std::string(h.buffer) == "CEQN-Z7SE");
-  CHECK(h.Count("DEBUG_SAULO online friend field focused") == 1);
-  CHECK(h.Count("DEBUG_SAULO online friend input changed value=") >= 1);
+  CHECK(h.logs.empty());
 }
 
 void TestValidPasteEnablesSendAndInvalidDoesNot() {
@@ -239,24 +234,22 @@ void TestCopyWritesTheExactCode() {
   g_written.reset();
   CHECK(CopyFriendCode("SXFF-8P9T", FakeWrite, log));
   CHECK(g_written && *g_written == "SXFF-8P9T");
-  CHECK((logs == std::vector<std::string>{"DEBUG_SAULO online friend copy clicked code=SXFF-8P9T",
-                                          "DEBUG_SAULO online friend copy success code=SXFF-8P9T"}));
-  logs.clear();
+  CHECK(logs.empty());
   CHECK(!CopyFriendCode("SXFF-8P9T", FailingWrite, log));
-  CHECK(logs.size() == 3 && logs[2] == "DEBUG_SAULO online friend copy failed code=SXFF-8P9T");
+  CHECK(logs.size() == 2 && logs[1] == "online friend copy failed");
 
   SetClipboard(g_written->c_str());
   CHECK(Paste(g_written->c_str()) == "SXFF-8P9T");
 }
 
-void TestDiagnosticsAreBounded() {
+void TestSuccessfulPathsLogNothing() {
   Harness h;
   SetClipboard("CEQN-Z7SE");
   h.ClickField();
   h.Frames(30);
   h.CtrlV();
   h.Frames(30);
-  CHECK(h.logs.size() <= 6);
+  CHECK(h.logs.empty());
 }
 
 #ifdef _WIN32
@@ -269,8 +262,7 @@ void TestWin32CopyOnOneInstanceThenPasteOnAnother() {
   };
   CHECK(CopyFriendCode("CEQN-Z7SE", write, a_log));
   CHECK(fake_clipboard::Content() == L"CEQN-Z7SE");
-  CHECK(a_logs.front() == "DEBUG_SAULO online friend copy clicked code=CEQN-Z7SE");
-  CHECK(a_logs.back() == "DEBUG_SAULO online friend copy success code=CEQN-Z7SE");
+  CHECK(a_logs.empty());
   for (const std::string& line : a_logs) CHECK(line.find("token") == std::string::npos);
 
   Harness b([](const FieldLog& log) { return ReadClipboardText(fake_clipboard::Api(), nullptr, log); });
@@ -278,10 +270,7 @@ void TestWin32CopyOnOneInstanceThenPasteOnAnother() {
   b.CtrlV();
   CHECK(std::string(b.buffer) == "CEQN-Z7SE");
   CHECK(!online::NormalizeFriendCode(b.buffer).empty());
-  CHECK(b.Count("DEBUG_SAULO online clipboard read begin backend=win32") == 1);
-  CHECK(b.Count("DEBUG_SAULO online clipboard format CF_UNICODETEXT available=1") == 1);
-  CHECK(b.Count("DEBUG_SAULO online clipboard read chars=9") == 1);
-  CHECK(b.Count("DEBUG_SAULO online friend paste normalized=CEQN-Z7SE") == 1);
+  CHECK(b.logs.empty());
 
   fake_clipboard::Get().open_failures = 3;
   Harness busy([](const FieldLog& log) { return ReadClipboardText(fake_clipboard::Api(), nullptr, log); });
@@ -289,7 +278,7 @@ void TestWin32CopyOnOneInstanceThenPasteOnAnother() {
   busy.Type("ce");
   busy.CtrlV();
   CHECK(std::string(busy.buffer) == "CE");
-  CHECK(busy.Count("DEBUG_SAULO online friend paste failed step=open") == 1);
+  CHECK(busy.Count("online friend paste failed step=open") == 1);
 }
 #endif
 
@@ -307,7 +296,7 @@ int main() {
   TestTypingStillWorks();
   TestValidPasteEnablesSendAndInvalidDoesNot();
   TestCopyWritesTheExactCode();
-  TestDiagnosticsAreBounded();
+  TestSuccessfulPathsLogNothing();
 #ifdef _WIN32
   TestWin32CopyOnOneInstanceThenPasteOnAnother();
 #endif

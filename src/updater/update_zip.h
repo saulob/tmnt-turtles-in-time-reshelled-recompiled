@@ -22,6 +22,9 @@ bool ExtractZip(const std::filesystem::path& archive, const std::filesystem::pat
 bool ValidateStaging(const std::filesystem::path& staging, const std::vector<std::string>& required_files,
                      std::string& error);
 
+bool ResolveStagingRoot(const std::filesystem::path& staging, const std::vector<std::string>& required_files,
+                        std::filesystem::path& root, std::string& error);
+
 std::vector<std::string> ListStagingFiles(const std::filesystem::path& staging, std::string& error);
 
 }  // namespace trg::update

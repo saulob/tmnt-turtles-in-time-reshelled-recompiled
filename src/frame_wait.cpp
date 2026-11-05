@@ -1,5 +1,4 @@
 #include "frame_limiter.h"
-#include "frame_trace.h"
 
 #include <thread>
 
@@ -25,25 +24,6 @@ constexpr auto kSpinWindow = 500us;
 
 #if defined(_WIN32)
 
-namespace {
-
-uint64_t Microseconds(const FILETIME& kernel, const FILETIME& user) {
-  const auto ticks = [](const FILETIME& t) { return uint64_t(t.dwHighDateTime) << 32 | t.dwLowDateTime; };
-  return (ticks(kernel) + ticks(user)) / 10;
-}
-
-}  // namespace
-
-uint64_t ThreadCpuMicroseconds() {
-  FILETIME created, ended, kernel, user;
-  return GetThreadTimes(GetCurrentThread(), &created, &ended, &kernel, &user) ? Microseconds(kernel, user) : 0;
-}
-
-uint64_t ProcessCpuMicroseconds() {
-  FILETIME created, ended, kernel, user;
-  return GetProcessTimes(GetCurrentProcess(), &created, &ended, &kernel, &user) ? Microseconds(kernel, user) : 0;
-}
-
 void WaitUntil(LimiterClock::time_point deadline) {
   thread_local const HANDLE timer =
       CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
@@ -65,9 +45,6 @@ void WaitUntil(LimiterClock::time_point deadline) {
 }
 
 #else
-
-uint64_t ThreadCpuMicroseconds() { return 0; }
-uint64_t ProcessCpuMicroseconds() { return 0; }
 
 void WaitUntil(LimiterClock::time_point deadline) {
   std::this_thread::sleep_until(deadline - kSpinWindow);

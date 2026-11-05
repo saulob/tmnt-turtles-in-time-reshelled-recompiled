@@ -181,7 +181,6 @@ class OnlineService {
   // The other players of the party that the game can talk to, with their slots.
   std::vector<ActivePeer> Peers() const;
   void TestConnection();
-  // A DEBUG_SAULO line from the launcher page, in the same log.
   void LogLine(const std::string& line) {
     Log(line);
     FlushLog();

@@ -138,7 +138,6 @@ class MatchSession {
     std::optional<netplay::Endpoint> endpoint;
     std::optional<NetplayAssignment> assignment;
     bool summary_logged = false;
-    double next_relay_stats = 0;
     double relay_resume_deadline = 0;  // set while a relayed pair waits for the service to come back
   };
   class Tap;

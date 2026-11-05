@@ -248,9 +248,6 @@ set(TMNT_SOURCES
     src/localization/ui_text.cpp
     src/fire_menu_hook.cpp
     src/fire_movie_patch.cpp
-    src/frame_trace.cpp
-    src/frame_block_sampler.cpp
-    src/lobby_trace_hook.cpp
     src/log_filter.cpp
     src/log_path.cpp
     src/modal_dialog.cpp
@@ -629,6 +626,11 @@ target_include_directories(tmnt_window_placement_tests PRIVATE src)
 add_executable(tmnt_launcher_quit_tests EXCLUDE_FROM_ALL tests/launcher_quit_tests.cpp)
 target_include_directories(tmnt_launcher_quit_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_quit_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# cmake --build <dir> --target tmnt_launcher_assets_tests
+add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp)
+target_include_directories(tmnt_launcher_assets_tests PRIVATE src)
+target_compile_definitions(tmnt_launcher_assets_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # Window-close lifecycle policy tests, not part of the default build:
 # cmake --build <dir> --target tmnt_lifecycle_tests

@@ -10,16 +10,13 @@ constexpr int kOpenAttempts = 3;
 constexpr DWORD kOpenRetryMs = 5;
 constexpr size_t kMaxClipboardChars = 1 << 16;
 
-const std::string kPrefix = "DEBUG_SAULO online clipboard ";
+const std::string kPrefix = "online clipboard ";
 
 std::string Error(const Win32ClipboardApi& api) { return std::to_string(api.last_error()); }
 
 bool Open(const Win32ClipboardApi& api, HWND owner, const ClipboardLog& log) {
   for (int attempt = 1; attempt <= kOpenAttempts; ++attempt) {
-    if (api.open(owner)) {
-      log(kPrefix + "open ok attempt=" + std::to_string(attempt) + " owner=" + (owner ? "window" : "none"));
-      return true;
-    }
+    if (api.open(owner)) return true;
     log(kPrefix + "open failed attempt=" + std::to_string(attempt) + " error=" + Error(api));
     if (attempt < kOpenAttempts) api.sleep(kOpenRetryMs);
   }
@@ -30,8 +27,7 @@ class OpenClipboardScope {
  public:
   OpenClipboardScope(const Win32ClipboardApi& api, const ClipboardLog& log) : api_(api), log_(log) {}
   ~OpenClipboardScope() {
-    if (api_.close()) log_(kPrefix + "close ok");
-    else log_(kPrefix + "close failed error=" + Error(api_));
+    if (!api_.close()) log_(kPrefix + "close failed error=" + Error(api_));
   }
 
  private:
@@ -81,44 +77,33 @@ std::optional<std::string> Utf16ToUtf8(const std::wstring& text) {
 }
 
 ClipboardText ReadClipboardText(const Win32ClipboardApi& api, HWND owner, const ClipboardLog& log) {
-  log(kPrefix + "read begin backend=win32");
   if (!Open(api, owner, log)) return Failed("open");
   OpenClipboardScope scope(api, log);
 
-  const bool unicode = api.available(CF_UNICODETEXT);
-  log(kPrefix + "format CF_UNICODETEXT available=" + (unicode ? "1" : "0"));
-  if (!unicode) {
-    log(kPrefix + "format CF_TEXT available=" + (api.available(CF_TEXT) ? "1" : "0"));
-    return {ClipboardText::Kind::kEmpty, {}};
-  }
+  if (!api.available(CF_UNICODETEXT)) return {ClipboardText::Kind::kEmpty, {}};
   HANDLE handle = api.get(CF_UNICODETEXT);
   if (!handle) {
     log(kPrefix + "handle failed error=" + Error(api));
     return Failed("handle");
   }
-  log(kPrefix + "handle ok");
   const auto* chars = static_cast<const wchar_t*>(api.lock(handle));
   if (!chars) {
     log(kPrefix + "lock failed error=" + Error(api));
     return Failed("lock");
   }
-  log(kPrefix + "lock ok");
   const std::wstring wide(chars, wcsnlen(chars, kMaxClipboardChars));
   api.unlock(handle);
-  log(kPrefix + "read chars=" + std::to_string(wide.size()));
 
   const std::optional<std::string> text = Utf16ToUtf8(wide);
   if (!text) {
     log(kPrefix + "utf8 conversion failed");
     return Failed("utf8");
   }
-  log(kPrefix + "utf8 len=" + std::to_string(text->size()));
   if (text->empty()) return {ClipboardText::Kind::kEmpty, {}};
   return {ClipboardText::Kind::kText, *text};
 }
 
 bool WriteClipboardText(const Win32ClipboardApi& api, HWND owner, const std::string& text, const ClipboardLog& log) {
-  log(kPrefix + "copy begin code=" + text + " backend=win32");
   const std::optional<std::wstring> wide = Utf8ToUtf16(text);
   if (!wide) {
     log(kPrefix + "utf16 conversion failed");
@@ -131,14 +116,12 @@ bool WriteClipboardText(const Win32ClipboardApi& api, HWND owner, const std::str
     log(kPrefix + "empty failed error=" + Error(api));
     return false;
   }
-  log(kPrefix + "empty ok");
   const SIZE_T bytes = (wide->size() + 1) * sizeof(wchar_t);
   HGLOBAL memory = api.alloc(GMEM_MOVEABLE, bytes);
   if (!memory) {
     log(kPrefix + "alloc failed error=" + Error(api));
     return false;
   }
-  log(kPrefix + "alloc bytes=" + std::to_string(bytes));
   void* target = api.lock(memory);
   if (!target) {
     log(kPrefix + "lock failed error=" + Error(api));
@@ -153,7 +136,6 @@ bool WriteClipboardText(const Win32ClipboardApi& api, HWND owner, const std::str
     api.free(memory);
     return false;
   }
-  log(kPrefix + "set ok format=CF_UNICODETEXT");
   return true;
 }
 

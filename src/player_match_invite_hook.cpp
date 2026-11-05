@@ -46,7 +46,6 @@ void InviteAcceptedInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t out = ctx.r4.u32;
   const std::optional<tmnt::online::AcceptedInvite> invite = user == tmnt::OnlineUser() && out ? CurrentInvite() : std::nullopt;
   const uint64_t xuid = invite ? LiveXuid() : 0;
-  REXLOG_INFO("DEBUG_SAULO invite info read user={} out={:08X} answered={}", user, out, invite && xuid);
   if (!invite || !xuid) {
     original(ctx, base);
     return;
@@ -69,8 +68,6 @@ void SessionSearchById(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   const uint32_t capacity = LoadBE32(GuestHost(base, size_ptr), 0);
   const bool first = capacity < tmnt::kSearchByIdBytes || !header;
-  REXLOG_INFO("DEBUG_SAULO XSessionSearchByID session={} size={} call={} overlapped={:08X}", invite->session, capacity,
-              first ? "first" : "second", overlapped);
   constexpr uint32_t kInsufficientBuffer = 122;
   if (first) {
     StoreBE32(GuestHost(base, size_ptr), 0, tmnt::kSearchByIdBytes);
@@ -96,7 +93,6 @@ void SessionSearchById(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 void ShowFriendsUi(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const bool live = user == tmnt::OnlineUser() && LiveXuid() != 0;
-  REXLOG_INFO("DEBUG_SAULO invite friend list requested user={} live={}", user, live);
   if (live && tmnt::OpenInvitePicker()) {
     ctx.r3.u64 = 0;
     return;
@@ -109,12 +105,10 @@ void ShowFriendsUi(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 namespace tmnt {
 
 void DeliverAcceptedInvite(const online::AcceptedInvite& invite) {
-  REXLOG_INFO("DEBUG_SAULO invite delivered generation={} session={} host={}", invite.generation, invite.session,
+  REXLOG_INFO("invite delivered generation={} session={} host={}", invite.generation, invite.session,
               invite.host);
   if (auto* kernel = REX_KERNEL_STATE()) {
     kernel->BroadcastNotification(kInviteAcceptedNotification, OnlineUser());
-  } else {
-    REXLOG_INFO("DEBUG_SAULO invite notification deferred: no kernel state yet");
   }
 }
 

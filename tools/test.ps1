@@ -468,22 +468,13 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
 # Temporary diagnostics of the current development branch, with how many markers each file may hold: remove a row when
 # its file is clean. -Release accepts none of them.
 $TemporaryMarkers = @{
-    'patches/rexglue-sdk/0086-audio-unregister-waits-for-callback.patch' = 3
-    'src/frame_block_sampler.cpp' = 1
-    'src/frame_block_sampler.h' = 2
-    'src/frame_trace.cpp' = 8
-    'src/frame_trace.h' = 3
-    'src/live_hooks_tmnt_r.cpp' = 8
-    'src/lobby_trace_hook.cpp' = 4
-    'src/skip_intro_tmnt_r.cpp' = 1
-    'src/title_bgm_level_tmnt_r.cpp' = 3
 }
 
 Invoke-Check 'hygiene: no temporary markers or local absolute paths in the project files' {
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
     $temporary = [System.Collections.Generic.List[string]]::new()
-    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$', '^src/(online|netplay)/', '^src/(online_|clipboard|friend_code_field|player_match)[^/]*$'
+    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$'
     $localPath = ('S:\\+VisualStudio', 'C:\\+Users', '/Users/[A-Za-z]', 'scratchpad', 'AppData[\\/]Local[\\/]Temp') -join '|'
     foreach ($file in $ProjectFiles) {
         $normalized = $file -replace '\\', '/'

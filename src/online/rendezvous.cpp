@@ -104,7 +104,6 @@ void Rendezvous::StartStun(const std::vector<netplay::Endpoint>& servers, uint16
                            netplay::Transport& out) {
   stun_.clear();
   mapped_ = {};
-  logged_second_ = false;
   local_port_ = local_port;
   for (const netplay::Endpoint& server : servers) {
     StunQuery query;
@@ -113,7 +112,7 @@ void Rendezvous::StartStun(const std::vector<netplay::Endpoint>& servers, uint16
   }
   if (stun_.empty()) {
     stun_stage_ = Stage::kFailed;
-    Write("DEBUG_SAULO stun mapped endpoint=none reason=no_server local_port=" + std::to_string(local_port_));
+    Write("stun mapped endpoint=none reason=no_server local_port=" + std::to_string(local_port_));
     return;
   }
   stun_stage_ = Stage::kRunning;
@@ -135,7 +134,7 @@ void Rendezvous::StartPunch(uint64_t key, uint8_t side, const std::vector<Candid
   }
   if (targets_.empty()) {
     punch_stage_ = Stage::kFailed;
-    Write("DEBUG_SAULO udp rendezvous failed reason=no_candidates");
+    Write("udp rendezvous failed reason=no_candidates");
     return;
   }
   punch_stage_ = Stage::kRunning;
@@ -159,7 +158,7 @@ void Rendezvous::Tick(uint64_t now_ms, netplay::Transport& out) {
   if (stun_stage_ == Stage::kRunning) {
     if (now_ms >= stun_deadline_) {
       stun_stage_ = Stage::kFailed;
-      Write("DEBUG_SAULO stun mapped endpoint=none reason=no_answer local_port=" + std::to_string(local_port_));
+      Write("stun mapped endpoint=none reason=no_answer local_port=" + std::to_string(local_port_));
     } else if (now_ms >= stun_next_send_) {
       SendStun(out);
       stun_next_send_ = now_ms + (250u << std::min(stun_attempt_++, 3));
@@ -168,7 +167,7 @@ void Rendezvous::Tick(uint64_t now_ms, netplay::Transport& out) {
   if (punch_stage_ == Stage::kRunning) {
     if (now_ms >= punch_deadline_) {
       punch_stage_ = Stage::kFailed;
-      Write("DEBUG_SAULO udp rendezvous failed reason=punch_timeout candidates=" + std::to_string(targets_.size()) +
+      Write("udp rendezvous failed reason=punch_timeout candidates=" + std::to_string(targets_.size()) +
             " peer_heard=" + (heard_.empty() ? "false" : "true"));
     } else if (now_ms >= punch_next_send_) {
       SendPunches(out);
@@ -208,12 +207,8 @@ void Rendezvous::TakeStun(const uint8_t* data, size_t size) {
     if (stun_stage_ == Stage::kRunning) {
       stun_stage_ = Stage::kDone;
       mapped_ = endpoint;
-      Write("DEBUG_SAULO stun mapped endpoint=" + EndpointText(endpoint) + " local_port=" +
+      Write("stun mapped endpoint=" + EndpointText(endpoint) + " local_port=" +
             std::to_string(local_port_));
-    } else if (stun_stage_ == Stage::kDone && !logged_second_) {
-      logged_second_ = true;
-      Write("DEBUG_SAULO stun second endpoint=" + EndpointText(endpoint) +
-            " agrees=" + (endpoint == mapped_ ? "true" : "false"));
     }
     return;
   }
@@ -222,14 +217,12 @@ void Rendezvous::TakeStun(const uint8_t* data, size_t size) {
 void Rendezvous::TakePunch(const netplay::Endpoint& from, const PunchPacket& packet, netplay::Transport& reply) {
   if (std::find(heard_.begin(), heard_.end(), from) == heard_.end()) {
     heard_.push_back(from);
-    Write("DEBUG_SAULO udp punch rx endpoint=" + EndpointText(from));
   }
   if (packet.kind == PunchKind::kPunch) {
     const std::vector<uint8_t> ack = EncodePunch({PunchKind::kAck, side_, key_});
     reply.Send(from, ack.data(), ack.size());
     if (punch_stage_ == Stage::kRunning && !Known(from)) {
       targets_.push_back({{CandidateType::kPeer, from}});
-      Write("DEBUG_SAULO peer candidate received type=peer endpoint=" + EndpointText(from));
     }
     return;
   }
@@ -239,7 +232,7 @@ void Rendezvous::TakePunch(const netplay::Endpoint& from, const PunchPacket& pac
     if (target.candidate.endpoint == from) selected_.type = target.candidate.type;
   }
   punch_stage_ = Stage::kDone;
-  Write(std::string("DEBUG_SAULO udp candidate selected endpoint=") + EndpointText(from) +
+  Write(std::string("udp candidate selected endpoint=") + EndpointText(from) +
         " type=" + CandidateTypeName(selected_.type));
 }
 
@@ -247,10 +240,6 @@ void Rendezvous::SendPunches(netplay::Transport& out) {
   const std::vector<uint8_t> punch = EncodePunch({PunchKind::kPunch, side_, key_});
   for (Target& target : targets_) {
     out.Send(target.candidate.endpoint, punch.data(), punch.size());
-    if (target.sent) continue;
-    target.sent = true;
-    Write(std::string("DEBUG_SAULO udp punch tx endpoint=") + EndpointText(target.candidate.endpoint) +
-          " type=" + CandidateTypeName(target.candidate.type));
   }
 }
 

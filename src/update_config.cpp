@@ -1,6 +1,5 @@
 #include "update_config.h"
 
-#include <algorithm>
 #include <cstdlib>
 #include <optional>
 #include <string>
@@ -11,6 +10,7 @@
 
 #include "platform.h"
 #include "port_version.h"
+#include "update_restart_arguments.h"
 #include "updater/update_platform.h"
 
 namespace tmnt {
@@ -55,18 +55,6 @@ std::optional<std::string> TestVariable(const char* name) {
   return Environment(name);
 }
 
-std::vector<std::string> RestartArguments() {
-  std::vector<std::string> arguments = trg::update::CurrentProcessArguments();
-  arguments.erase(std::remove_if(arguments.begin(), arguments.end(),
-                                 [](const std::string& argument) {
-                                   return argument.rfind("--tmnt_skip_launcher", 0) == 0 ||
-                                          argument == "--tmnt_launcher" || argument.rfind("--tmnt_launcher=", 0) == 0;
-                                 }),
-                  arguments.end());
-  arguments.emplace_back("--tmnt_launcher=true");
-  return arguments;
-}
-
 }  // namespace
 
 trg::update::UpdateConfig MakeUpdateConfig(const std::filesystem::path& install_dir) {
@@ -79,7 +67,7 @@ trg::update::UpdateConfig MakeUpdateConfig(const std::filesystem::path& install_
   config.download_url_prefix = kDownloadUrlPrefix;
   config.user_agent = "TurtlesInTimeReshelled-Updater/" + PortVersion();
   config.install_dir = install_dir;
-  config.restart_arguments = RestartArguments();
+  config.restart_arguments = UpdateRestartArguments(trg::update::CurrentProcessArguments());
 
 #if defined(_WIN32)
   config.package_kind = UpdatePackageKind::kZip;

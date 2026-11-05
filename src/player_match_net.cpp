@@ -264,7 +264,6 @@ void VdpShim::TakeIn(const std::vector<PeerRoute>& routes, LobbyLink& link) {
     if (!target && sockets_.size() == 1) target = &sockets_.begin()->second;
     if (!target) continue;
     if (target->queue.size() < kMaxQueued) target->queue.push_back({from->address, std::move(datagram)});
-    else ++dropped_;
   }
 }
 
@@ -306,12 +305,6 @@ bool VdpShim::Peer(uint32_t handle, uint32_t& address, uint16_t& port) const {
 uint16_t VdpShim::bound_port(uint32_t handle) const {
   const auto it = sockets_.find(handle);
   return it == sockets_.end() ? 0 : it->second.port;
-}
-
-size_t VdpShim::deepest_queue() const {
-  size_t deepest = 0;
-  for (const auto& [handle, socket] : sockets_) deepest = std::max(deepest, socket.queue.size());
-  return deepest;
 }
 
 size_t VdpShim::queued(uint32_t handle) const {

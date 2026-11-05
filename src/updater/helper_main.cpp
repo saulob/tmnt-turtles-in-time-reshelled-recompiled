@@ -86,7 +86,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     return kBadJob;
   }
 
-  std::ofstream log(job_path.parent_path() / "updater.log", std::ios::binary | std::ios::app);
+  std::ofstream log(job_path.parent_path() / "trg-updater.log", std::ios::binary | std::ios::app);
   auto write = [&log](std::string_view text) {
     log << text << '\n';
     log.flush();

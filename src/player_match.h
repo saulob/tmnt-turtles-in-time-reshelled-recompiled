@@ -84,8 +84,6 @@ inline constexpr uint32_t kTmntTitleId = 0x584109D2;
 void WriteInviteInfo(uint8_t* info, uint64_t invitee, uint64_t inviter, std::string_view session);
 
 // Called by the online service once an accepted invite's party is joined; tells the game to read the invite.
-// DEBUG_SAULO: one-line state of the game-facing session for the lobby heartbeat.
-std::string SessionHeartbeat(uint8_t* base);
 void DeliverAcceptedInvite(const online::AcceptedInvite& invite);
 
 // An XSESSION_INFO with only the session id; the host address is written separately.

@@ -339,17 +339,17 @@ void TestFriendRequestReachesTheServiceAndIsLogged() {
   Rig rig;
   rig.SignInWithFriends();
   CHECK(rig.service->AddFriend(" jklm-3456\r\n") == FriendRequestResult::kSent);
-  CHECK(rig.CountLogs("DEBUG_SAULO online friend request sent code=JKLM-3456") == 1);
+  CHECK(rig.CountLogs("online friend request sent code=JKLM-3456") == 1);
   CHECK(rig.Count("friends.add") == 1);
   rig.Reply("friends.add", "\"player\":\"JKLM-3456\",\"name\":\"Kim\",\"state\":\"pending\"");
   CHECK(rig.CountLogs("friend request accepted by service code=JKLM-3456 state=pending") == 1);
 
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "", "not_found");
-  CHECK(rig.CountLogs("DEBUG_SAULO online friend request failed code=NPQR-7892 reason=not_found") == 1);
+  CHECK(rig.CountLogs("online friend request failed code=NPQR-7892 reason=not_found") == 1);
 
   CHECK(rig.service->AddFriend("nonsense") == FriendRequestResult::kInvalid);
-  CHECK(rig.CountLogs("DEBUG_SAULO online friend request failed code=- reason=invalid") == 1);
+  CHECK(rig.CountLogs("online friend request failed code=- reason=invalid") == 1);
   CHECK(rig.service->AddFriend(rig.me) == FriendRequestResult::kOwnCode);
   CHECK(rig.CountLogs("failed code=" + rig.me + " reason=own_code") == 1);
   for (const std::string& line : rig.logs) CHECK(!Contains(line, kToken));
@@ -476,7 +476,7 @@ void TestEveryConnectionReportCountsAsFinished() {
   rig.Tick();
   const Snapshot stopped = rig.service->snapshot();
   CHECK(!stopped.testing && stopped.tests_finished == 3);
-  CHECK(rig.CountLogs("DEBUG_SAULO online connection test stopped without a report: test broke") == 1);
+  CHECK(rig.CountLogs("online connection test stopped without a report: test broke") == 1);
 
   // Online play off drops a test that is still running.
   Rig off;
@@ -505,8 +505,8 @@ void TestConnectionTestRunsOnlyWhenEnabled() {
         rig.test_request.guest == "base" && rig.test_request.upnp &&
         rig.test_request.game_ports == (std::vector<uint16_t>{7001, 7002, 7003, 7004}));
   CHECK(rig.test_request.identity.player_id == rig.me && rig.test_request.stun == net::kDefaultStunServers);
-  CHECK(rig.CountLogs("DEBUG_SAULO online connection test service: ok") == 1);
-  CHECK(rig.CountLogs("DEBUG_SAULO online connection test Ready for online play") == 1);
+  CHECK(rig.CountLogs("online connection test service: ok") == 1);
+  CHECK(rig.CountLogs("online connection test Ready for online play") == 1);
   for (const std::string& line : rig.logs) CHECK(!Contains(line, kToken));
 }
 

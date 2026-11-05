@@ -38,6 +38,7 @@
 #include "keybinds.h"
 #include "language.h"
 #include "launcher_achievements.h"
+#include "launcher_assets.h"
 #include "launcher_quit.h"
 #include "localization/active_language.h"
 #include "localization/ui_text.h"
@@ -99,8 +100,7 @@ std::unique_ptr<rex::ui::ImmediateTexture> LoadHeaderArt(rex::ui::ImmediateDrawe
   if (!drawer) {
     return nullptr;
   }
-  const std::filesystem::path path =
-      rex::filesystem::GetExecutableFolder() / "assets" / "launcher" / "header-art.png";
+  const std::filesystem::path path = HeaderArtPath(rex::filesystem::GetExecutableFolder());
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     REXLOG_WARN("Launcher header art not found: {}", Utf8(path.filename()));

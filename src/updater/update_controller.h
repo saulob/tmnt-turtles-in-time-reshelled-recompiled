@@ -119,6 +119,7 @@ class UpdateController {
   std::filesystem::path staging_path_;
   std::filesystem::path backup_path_;
   std::filesystem::path manifest_path_;
+  std::shared_ptr<std::filesystem::path> staging_root_;
   std::atomic<int> worker_phase_{0};
   bool install_started_ = false;
 };

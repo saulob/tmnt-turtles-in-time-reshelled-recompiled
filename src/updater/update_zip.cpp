@@ -257,6 +257,46 @@ bool ValidateStaging(const std::filesystem::path& staging, const std::vector<std
   return true;
 }
 
+bool ResolveStagingRoot(const std::filesystem::path& staging, const std::vector<std::string>& required_files,
+                        std::filesystem::path& root, std::string& error) {
+  error.clear();
+  const auto has_required = [&](const std::filesystem::path& base) {
+    for (const std::string& required : required_files) {
+      std::string normalized;
+      if (!NormalizeRelativePath(required, normalized) || !IsRegularFile(base / PathFromUtf8(normalized))) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  if (required_files.empty() || has_required(staging)) {
+    root = staging;
+    return true;
+  }
+
+  std::error_code ec;
+  std::vector<std::filesystem::path> directories;
+  size_t files = 0;
+  for (std::filesystem::directory_iterator it(staging, ec), end; !ec && it != end; it.increment(ec)) {
+    const std::filesystem::file_status status = it->symlink_status(ec);
+    if (ec) {
+      break;
+    }
+    if (std::filesystem::is_directory(status)) {
+      directories.push_back(it->path());
+    } else {
+      ++files;
+    }
+  }
+  if (ec || files != 0 || directories.size() != 1 || !has_required(directories.front())) {
+    error = "The update does not contain " + required_files.front() + ".";
+    return false;
+  }
+  root = directories.front();
+  return true;
+}
+
 std::vector<std::string> ListStagingFiles(const std::filesystem::path& staging, std::string& error) {
   error.clear();
   std::vector<std::string> files;

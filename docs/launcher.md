@@ -201,6 +201,29 @@ Below it, one row per Xbox pad action: A, B, X, Y, the bumpers, the triggers, th
 
 The About page ends with a **Diagnostics** section. The launcher and the game share one `tmnt_turtles_in_time_reshelled_NNN.log` for the whole application session, including the relaunch that creates the game window. When the game is about to run, the log receives a compact `Runtime configuration` block: the Launcher Display, Gameplay and Graphics choices as the player made them, followed by the effective runtime OS, CPU, GPU, display, game identity, timing, renderer and input state. Selected values stay selected: `Graphics card` keeps the chosen detected GPU while `Runtime GPU` reports the adapter that actually resolved, and the selected window size stays distinct from the fitted window and drawable size. The block contains no user, repository or installation paths. **Detailed logging** is on by default: the full runtime log is kept after every session. Turned off, the run still writes a shorter log while it runs — warnings, errors and the startup lines that identify the port, platform, GPU, render settings and runtime configuration — but a clean exit discards that session's log, so normal sessions do not accumulate files. With Detailed logging off, closing the window removes the log like any other normal exit, unless it holds a crash report or was handed to a relaunched process: the process ends without shutting down its logging, because game threads may still write to it, so the file sink is closed and the file deleted at once. If Windows cannot delete it, a `.discard` marker is left and the next start removes the log. The choice in effect at exit decides whether the log is kept. If the game crashes, the log is kept and contains that context plus one `CRASH REPORT` block with uptime, exception details, native frames and any resolvable guest function; no minidump or second diagnostic file is written. Logging and crash reporting are never disabled. **Open logs folder** opens the folder that holds these logs. If a crash occurs, send the newest `tmnt_turtles_in_time_reshelled_*.log`; for a non-crash problem, turn Detailed logging on, reproduce it, and send the newest log.
 
+## Updates
+
+The launcher asks `https://api.github.com/repos/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest` once per start, in the background; a failed check is silent and never delays Play. Drafts, prereleases and versions that are not newer (compared as semantic versions) are ignored. A newer release shows a banner in the header on every page: Release notes, UPDATE NOW, download progress, then RESTART TO UPDATE. Nothing is installed without both clicks.
+
+- **Version**: `project(tmnt_turtles_in_time_reshelled VERSION x.y.z)` in `CMakeLists.txt` is the only source. It feeds the launcher subtitle, About, the updater, the Windows resource and the package names.
+- **Assets**: `TurtlesInTimeReshelled-v<version>-windows-x64.zip` and `.sha256`; on Linux `TurtlesInTimeReshelledRecompiled-v<version>-x86_64.AppImage` and `.sha256`. The ZIP holds the files at its root; a single wrapper folder is also accepted.
+- **Trust**: the GitHub asset digest, otherwise the `.sha256` asset (checked against its own digest when GitHub provides one). The size is checked before extraction and no update installs without a trusted SHA-256. Requests and every redirect stay on GitHub's HTTPS hosts (`patches/trg-launcher/0003`).
+- **Windows**: the ZIP is extracted into a staging folder (miniz; absolute, drive, UNC, `..`, reserved-name, symlink and protected entries are refused), a manifest of release-owned files is written, and the running launcher copies `trg-updater.exe` to `%TEMP%\trg-update-*` and exits. The helper waits for the launcher, backs up and replaces the manifest files, verifies them, restarts the installed `tmnt_turtles_in_time_reshelled.exe` with `--tmnt_launcher=true` (other arguments kept, skip-launcher arguments removed) and rolls back on failure. `trg-updater.log` in that folder records the run and is kept after a failure. The helper is a static MSYS2 CLANG64 build (`tools/build-updater.ps1`) that imports Windows system DLLs only. The update replaces the files named in the manifest, never what is not in it. A release that predates updater support can be the target; the running build supplies the helper.
+- **Linux**: only the AppImage the program was started from is replaced (sibling temporary file, fsync, backup, atomic rename, restart, rollback).
+- **Never touched**: `game`, `game-install-temp`, `game-install-backup`, `user_data`, `user_data.migrating`, `logs`, `cache`, `content`, saves, `settings.toml`, `default.xex`, `TMNT_r.xex`, `TMNT.bf`, Xbox packages and any `.xex`, `.log`, `.sav`, `.bak`, `.tmp` or `.pdb` file. `tmnt_turtles_in_time_reshelled.toml` next to the program is release-owned (defaults); the player's choices live in `user_data/settings.toml`, which is protected.
+
+### Developer test mode
+
+`TMNT_UPDATE_TEST=1` enables, and nothing else does:
+
+| Variable | Effect |
+| --- | --- |
+| `TMNT_UPDATE_TEST_CURRENT_VERSION` | Version the updater reports as the running one. |
+| `TMNT_UPDATE_TEST_RELEASE_JSON` | Path of a release JSON used instead of the GitHub response. |
+| `TMNT_UPDATE_TEST_ASSET_SHA256` | SHA-256 expected for the package. |
+
+The helper removes these four variables before it restarts the updated program, so the restarted build does not offer the same update again. A development build whose real version equals the public release is still replaced by the public package once the update was accepted.
+
 ## Not offered yet
 
 | Option | Reason |

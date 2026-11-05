@@ -50,7 +50,7 @@ diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
    // Initialize driver and ringbuffer.
    Initialize();
  
-@@ -164,6 +189,16 @@ void AudioSystem::WorkerThreadMain() {
+@@ -164,6 +189,15 @@ void AudioSystem::WorkerThreadMain() {
            // from now instead of catching up in a burst.
            next_callback[index] = std::max(next_callback[index] + kCallbackInterval, now + kCallbackInterval / 2);
          }
@@ -59,7 +59,6 @@ diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
 +          auto dispatch_lock = global_critical_region_.Acquire();
 +          if (clients_[index].callback != client_callback ||
 +              clients_[index].wrapped_callback_arg != client_callback_arg) {
-+            REXAPU_INFO("DEBUG_SAULO audio callback cancelled client={} callback={:08X}", index, client_callback);
 +            continue;
 +          }
 +          g_running_client = static_cast<int>(index);
@@ -67,7 +66,7 @@ diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
          if (diag_pump_count < 10) {
            REXAPU_DEBUG("AudioWorker: dispatching callback {:08X} with arg {:08X} for client {}",
                         client_callback, client_callback_arg, index);
-@@ -172,6 +207,7 @@ void AudioSystem::WorkerThreadMain() {
+@@ -172,6 +206,7 @@ void AudioSystem::WorkerThreadMain() {
          uint64_t args[] = {client_callback_arg};
          function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
                                        rex::countof(args));
@@ -75,21 +74,11 @@ diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
          if (diag_pump_count < 10) {
            REXAPU_DEBUG("AudioWorker: callback returned for client {}", index);
          }
-@@ -276,6 +312,8 @@ X_STATUS AudioSystem::RegisterClient(uint32_t callback, uint32_t callback_arg, s
-   memory::store_and_swap<uint32_t>(memory()->TranslateVirtual(ptr), callback_arg);
- 
-   clients_[index] = {driver, callback, callback_arg, ptr, true};
-+  REXAPU_INFO("DEBUG_SAULO audio client registered client={} callback={:08X} arg={:08X} wrapper={:08X}", index,
-+              callback, callback_arg, ptr);
- 
-   if (out_index) {
-     *out_index = index;
-@@ -305,6 +343,17 @@ void AudioSystem::UnregisterClient(size_t index) {
+@@ -305,6 +340,14 @@ void AudioSystem::UnregisterClient(size_t index) {
  
    auto global_lock = global_critical_region_.Acquire();
    assert_true(index < kMaximumClientCount);
 +  // The game frees the client when this returns, and a running callback still submits through the driver.
-+  const bool was_running = g_running_client.load() == static_cast<int>(index);
 +  clients_[index].callback = 0;
 +  global_lock.unlock();
 +  const bool exited = WaitForCallbackExit(static_cast<int>(index));
@@ -97,8 +86,6 @@ diff --git a/src/audio/audio_system.cpp b/src/audio/audio_system.cpp
 +  if (!exited) {
 +    REXAPU_WARN("Audio client {} callback did not return within {} ms", index, kCallbackExitTimeout.count());
 +  }
-+  REXAPU_INFO("DEBUG_SAULO audio client unregistered client={} arg={:08X} wrapper={:08X} was_running={}", index,
-+              clients_[index].callback_arg, clients_[index].wrapped_callback_arg, was_running);
    DestroyDriver(clients_[index].driver);
    memory()->SystemHeapFree(clients_[index].wrapped_callback_arg);
    clients_[index] = {nullptr, 0, 0, 0, false};

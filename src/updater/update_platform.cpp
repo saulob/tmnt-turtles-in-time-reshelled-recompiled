@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cwchar>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <utility>
@@ -289,7 +290,7 @@ bool HasOriginalAppImage(std::filesystem::path& path) {
 }
 
 bool LaunchApplication(const std::filesystem::path& executable, const std::vector<std::string>& arguments,
-                       const std::filesystem::path&, std::string& error, bool) {
+                       const std::filesystem::path&, std::string& error, bool clear_update_test_environment) {
   std::vector<std::string> storage;
   storage.reserve(arguments.size() + 1);
   storage.push_back(Utf8Path(executable));
@@ -300,8 +301,28 @@ bool LaunchApplication(const std::filesystem::path& executable, const std::vecto
     argv.push_back(argument.data());
   }
   argv.push_back(nullptr);
+  std::vector<std::string> environment;
+  std::vector<char*> envp;
+  char** child_environment = environ;
+  if (clear_update_test_environment) {
+    for (char** entry = environ; entry && *entry; ++entry) {
+      const std::string_view entry_text(*entry);
+      const std::string_view name = entry_text.substr(0, entry_text.find('='));
+      if (name == "TMNT_UPDATE_TEST" || name == "TMNT_UPDATE_TEST_CURRENT_VERSION" ||
+          name == "TMNT_UPDATE_TEST_RELEASE_JSON" || name == "TMNT_UPDATE_TEST_ASSET_SHA256") {
+        continue;
+      }
+      environment.emplace_back(entry_text);
+    }
+    envp.reserve(environment.size() + 1);
+    for (std::string& entry : environment) {
+      envp.push_back(entry.data());
+    }
+    envp.push_back(nullptr);
+    child_environment = envp.data();
+  }
   pid_t pid = 0;
-  const int result = posix_spawn(&pid, storage.front().c_str(), nullptr, nullptr, argv.data(), environ);
+  const int result = posix_spawn(&pid, storage.front().c_str(), nullptr, nullptr, argv.data(), child_environment);
   if (result != 0) {
     error = "Could not start the program (" + std::to_string(result) + ").";
     return false;
@@ -416,7 +437,7 @@ bool ApplyAppImageUpdate(const std::filesystem::path& downloaded, const std::fil
   }
 
   std::string launch_error;
-  if (!LaunchApplication(appimage, arguments, folder, launch_error)) {
+  if (!LaunchApplication(appimage, arguments, folder, launch_error, true)) {
     if (rename(backup.c_str(), appimage.c_str()) != 0) {
       error = launch_error + " The previous AppImage could not be restored.";
     } else {

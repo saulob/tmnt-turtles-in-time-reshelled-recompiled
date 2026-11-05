@@ -36,7 +36,6 @@ class FriendCodeField {
   ClipboardReader read_;
   bool was_active_ = false;
   bool has_paste_ = false;
-  bool pasted_ = false;
   std::string paste_;
 };
 

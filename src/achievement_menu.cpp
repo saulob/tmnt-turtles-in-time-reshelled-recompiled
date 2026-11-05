@@ -9,7 +9,6 @@
 
 #include "achievement_menu_rules.h"
 #include "guest_memory.h"
-#include "online_bridge.h"
 
 namespace tmnt {
 namespace {
@@ -89,6 +88,5 @@ REX_HOOK_RAW(sub_826EF030) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t state = ctx.r4.u32;
   __imp__sub_826EF030(ctx, base);
-  if (state) tmnt::NotePadRead(tmnt::LoadBE16(base, state + 4));
   FilterGuestInput(base, user, state);
 }

@@ -176,9 +176,6 @@ class VdpShim {
   bool Peer(uint32_t handle, uint32_t& address, uint16_t& port) const;
   uint16_t bound_port(uint32_t handle) const;
   size_t queued(uint32_t handle) const;
-  // DEBUG_SAULO: the deepest socket queue, and the datagrams lost to a full queue so far.
-  size_t deepest_queue() const;
-  uint64_t dropped() const { return dropped_; }
 
  private:
   struct Queued {
@@ -198,7 +195,6 @@ class VdpShim {
   static constexpr uint32_t kFirstHandle = 0x5D500001;
   uint32_t next_ = kFirstHandle;
   uint32_t tag_ = 0;
-  uint64_t dropped_ = 0;
   std::map<uint32_t, Socket> sockets_;
 };
 

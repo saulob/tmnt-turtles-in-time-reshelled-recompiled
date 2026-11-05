@@ -1,7 +1,6 @@
 // The title's own Live wrappers while Online play is on: a title-local LIVE profile for the online player, and the
 // XSession calls that create, find, join and leave a match, answered from the online service.
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <mutex>
@@ -15,7 +14,6 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
 
-#include "frame_trace.h"
 #include "guest_memory.h"
 #include "online_bridge.h"
 #include "online_runtime.h"
@@ -59,7 +57,7 @@ LiveProfile CurrentLive() {
   static uint64_t logged_xuid = 0;
   if (logged_xuid != live.xuid) {
     logged_xuid = live.xuid;
-    REXLOG_INFO("DEBUG_SAULO online runtime LIVE state active xuid={:016X}", live.xuid);
+    REXLOG_INFO("online runtime LIVE state active xuid={:016X}", live.xuid);
   }
   return live;
 }
@@ -88,28 +86,6 @@ void ResetSession() {
 // What the title's XSessionSearchEx wrapper requires per requested result.
 constexpr uint32_t kSearchBytesPerResult = 1326;
 
-// One line per distinct value, so per-frame callers do not flood the log.
-void LogOnChange(const char* what, uint32_t value) {
-  struct Seen {
-    const char* what;
-    uint32_t value;
-  };
-  static Seen seen[16] = {};
-  for (Seen& s : seen) {
-    if (s.what == what) {
-      if (s.value == value) return;
-      s.value = value;
-      REXLOG_INFO("DEBUG_SAULO {} value={}", what, value);
-      return;
-    }
-    if (!s.what) {
-      s = {what, value};
-      REXLOG_INFO("DEBUG_SAULO {} value={}", what, value);
-      return;
-    }
-  }
-}
-
 void SigninState(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t online_user = CurrentOnlineUser();
@@ -118,17 +94,14 @@ void SigninState(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   } else {
     original(ctx, base);
   }
-  if (user == online_user) LogOnChange("live signin state", ctx.r3.u32);
 }
 
 void CheckPrivilege(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
-  const uint32_t privilege = ctx.r4.u32;
   const uint32_t result = ctx.r5.u32;
   if (result && tmnt::LivePrivilegeUser(user, CurrentOnlineUser(), CurrentLive().available)) {
     StoreBE32(GuestHost(base, result), 0, 1);
     ctx.r3.u64 = 0;
-    LogOnChange("live privilege check granted", privilege);
     return;
   }
   original(ctx, base);
@@ -142,7 +115,6 @@ void SigninInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   if (!live.available) return;
   tmnt::WriteSigninInfo(GuestHost(base, info), live.xuid, live.name);
   ctx.r3.u64 = 0;
-  LogOnChange("live signin info", tmnt::kSignedInToLive);
 }
 
 void GetXuid(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -155,7 +127,6 @@ void GetXuid(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   StoreBE64(GuestHost(base, out), 0, live.xuid);
   ctx.r3.u64 = 0;
-  LogOnChange("live xuid virtual", uint32_t(live.xuid));
 }
 
 // Also the name the game's peer layer gives this console's station.
@@ -182,7 +153,6 @@ void TitleXnAddr(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   tmnt::WriteXnAddr(GuestHost(base, xnaddr), live.xuid, tmnt::ActiveSyntheticAddress(live.xuid));
   constexpr uint32_t kXnAddrOnline = 0x80;
   ctx.r3.u64 = ctx.r3.u32 | kXnAddrOnline;
-  LogOnChange("live xnaddr flags", ctx.r3.u32);
 }
 
 // XUserMuteListQuery(user, XUID, BOOL*): XLIVEBASE 0x0005800E, behind the scripts' PLT_IsPlayerMuted. The runtime has no
@@ -196,7 +166,7 @@ void EndOnlineMatch(const char* reason) {
   tmnt::Online().CancelPlayerMatch();
   tmnt::Online().LeaveFinishedMatch();
   ResetSession();
-  REXLOG_INFO("DEBUG_SAULO player_match session left reason={}", reason);
+  REXLOG_INFO("player_match session left reason={}", reason);
 }
 
 // The join's overlapped stays pending until the service has answered, so a refusal reaches the title's own failure path
@@ -210,7 +180,7 @@ void CompleteJoinWhenAnswered(bool started, uint32_t overlapped) {
     const tmnt::online::OnlineService::PlayerMatchJoinAnswer answer = tmnt::Online().JoinAnswer();
     const uint32_t result = tmnt::JoinRefusalResult(answer.pending ? std::string("link_lost") : answer.refused);
     if (!result) return 0;
-    REXLOG_INFO("DEBUG_SAULO player_match join failed result={:08X} code={}", result, answer.pending ? "timeout" : answer.refused);
+    REXLOG_INFO("player_match join failed result={:08X} code={}", result, answer.pending ? "timeout" : answer.refused);
     EndOnlineMatch("join_refused");
     return result;
   };
@@ -221,8 +191,6 @@ void CompleteJoinWhenAnswered(bool started, uint32_t overlapped) {
 void SessionCreate(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t flags = ctx.r3.u32;
   const uint32_t info = ctx.r8.u32;
-  REXLOG_INFO("DEBUG_SAULO XSessionCreate flags={:08X} user={} public={} private={}", flags, ctx.r4.u32, ctx.r5.u32,
-              ctx.r6.u32);
   const bool live = CurrentLive().available;
   std::string join_session;
   if (live && !(flags & tmnt::kSessionCreateHost) && info) {
@@ -262,23 +230,16 @@ void SessionCreate(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   if (join_session.empty()) return;
   const bool started = tmnt::Online().JoinPlayerMatch(join_session);
-  if (!started) REXLOG_INFO("DEBUG_SAULO player_match join refused session={}", join_session);
+  if (!started) REXLOG_INFO("player_match join refused session={}", join_session);
   if (overlapped && ctx.r3.u32 == tmnt::kIoPending) CompleteJoinWhenAnswered(started, overlapped);
 }
 
 // The guest's search stays pending until the service has answered it, so an empty cache is never taken for "no match".
-std::atomic<bool> g_search_active{false};
 tmnt::SearchTickets g_search_tickets;
-constexpr uint32_t kGameSlotFlag = 0x82BD17D0;  // claim flag of the title's single overlapped slot
-std::atomic<int> g_pool_frees_logged{0};
 
 void CompleteSearchWhenAnswered(uint8_t* base, uint32_t epoch, uint32_t header, uint32_t size_ptr,
                                 uint32_t max_results, uint32_t overlapped) {
   const uint32_t ticket = g_search_tickets.Begin();
-  g_search_active = true;
-  g_pool_frees_logged = 0;
-  REXLOG_INFO("DEBUG_SAULO XSessionSearchEx ticket={} epoch={} header={:08X} size_ptr={:08X} overlapped={:08X} max={} slot={}",
-              ticket, epoch, header, size_ptr, overlapped, max_results, LoadBE32(GuestHost(base, kGameSlotFlag), 0));
   const auto started = std::chrono::steady_clock::now();
   auto run = [=]() -> rex::X_RESULT {
     const auto limit = started + kSearchWaitLimit;
@@ -287,16 +248,10 @@ void CompleteSearchWhenAnswered(uint8_t* base, uint32_t epoch, uint32_t header, 
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     std::this_thread::sleep_until(started + kSearchLatencyFloor);
-    if (!g_search_tickets.Complete(ticket)) {
-      REXLOG_INFO("DEBUG_SAULO player_match search ticket={} stale, result discarded", ticket);
-      return 0;
-    }
+    if (!g_search_tickets.Complete(ticket)) return 0;
     const uint32_t capacity = LoadBE32(GuestHost(base, size_ptr), 0);
-    const uint32_t written = tmnt::WriteSearchResults(GuestHost(base, header), header, capacity, max_results,
-                                                      tmnt::Online().PlayerMatchResults(epoch));
-    REXLOG_INFO("DEBUG_SAULO player_match search ticket={} results={} deferred=true slot={}", ticket, written,
-                LoadBE32(GuestHost(base, kGameSlotFlag), 0));
-    g_search_active = false;
+    tmnt::WriteSearchResults(GuestHost(base, header), header, capacity, max_results,
+                             tmnt::Online().PlayerMatchResults(epoch));
     return 0;
   };
   REX_KERNEL_STATE()->CompleteOverlappedDeferred(std::function<rex::X_RESULT()>(std::move(run)), overlapped);
@@ -311,13 +266,6 @@ void SessionSearchEx(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const bool live = CurrentLive().available;
   tmnt::online::OnlineService::PlayerMatchSearchWait search;
   if (live) search = tmnt::Online().AskPlayerMatchSearch();
-  static uint32_t calls_for_epoch = 0;
-  static uint32_t last_epoch = 0;
-  calls_for_epoch = search.epoch == last_epoch ? calls_for_epoch + 1 : 1;
-  last_epoch = search.epoch;
-  REXLOG_INFO("DEBUG_SAULO SearchEx call lr={:08X} epoch={} nth={} header={:08X} overlapped={:08X} pending={} slot={}",
-              uint32_t(ctx.lr), search.epoch, calls_for_epoch, header, overlapped, search.pending,
-              LoadBE32(GuestHost(base, kGameSlotFlag), 0));
   if (live && header && size_ptr && overlapped && max_results &&
       LoadBE32(GuestHost(base, size_ptr), 0) >= tmnt::kSearchHeaderBytes + max_results * kSearchBytesPerResult) {
     CompleteSearchWhenAnswered(base, search.epoch, header, size_ptr, max_results, overlapped);
@@ -328,14 +276,8 @@ void SessionSearchEx(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   constexpr uint32_t kInsufficientBuffer = 122;
   if (!live || ctx.r3.u32 == kInsufficientBuffer || !header || !size_ptr) return;
   const uint32_t capacity = LoadBE32(GuestHost(base, size_ptr), 0);
-  const uint32_t written = tmnt::WriteSearchResults(GuestHost(base, header), header, capacity, max_results,
-                                                    tmnt::Online().PlayerMatchResults());
-  LogOnChange("player_match search results", written);
-}
-
-void SessionCall(PPCContext& ctx, uint8_t* base, PPCFunc* original, const char* name) {
-  if (CurrentLive().available) REXLOG_INFO("DEBUG_SAULO {} handle={:08X} arg={:08X}", name, ctx.r3.u32, ctx.r4.u32);
-  original(ctx, base);
+  tmnt::WriteSearchResults(GuestHost(base, header), header, capacity, max_results,
+                           tmnt::Online().PlayerMatchResults());
 }
 
 // ReXGlue fails the XGI leave message (0x000B0013), so the game would never see a player leave. Membership lives in
@@ -346,21 +288,14 @@ void SessionLeaveRemote(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
     original(ctx, base);
     return;
   }
-  REXLOG_INFO("DEBUG_SAULO XSessionLeaveRemote handle={:08X} users={} overlapped={:08X}", ctx.r3.u32, ctx.r4.u32,
-              overlapped);
   if (ctx.r5.u32 && ctx.r4.u32 && ctx.r4.u32 <= 8) {
     std::lock_guard<std::mutex> lock(g_session_mutex);
-    REXLOG_INFO("DEBUG_SAULO XSessionLeaveRemote session={} host={} local={:016X} state={} members_before={} lr={:08X}",
-                g_session.session, g_session.host_xuid == CurrentLive().xuid ? "local" : "remote", CurrentLive().xuid,
-                g_session.state, g_session.members.size(), uint32_t(ctx.lr));
     for (uint32_t i = 0; i < ctx.r4.u32; ++i) {
       const uint64_t xuid = tmnt::LoadBE64(GuestHost(base, ctx.r5.u32), i * 8);
-      REXLOG_INFO("DEBUG_SAULO XSessionLeaveRemote xuid={:016X} own={}", xuid, xuid == CurrentLive().xuid);
       g_session.members.erase(std::remove_if(g_session.members.begin(), g_session.members.end(),
                                              [xuid](const tmnt::SessionMember& m) { return m.xuid == xuid; }),
                               g_session.members.end());
     }
-    REXLOG_INFO("DEBUG_SAULO XSessionLeaveRemote members_after={}", g_session.members.size());
   }
   if (overlapped) {
     REX_KERNEL_STATE()->CompleteOverlappedImmediate(overlapped, 0);
@@ -382,35 +317,31 @@ void SessionJoinRemote(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
                                      [xuid](const tmnt::SessionMember& m) { return m.xuid == xuid; });
       if (!known) {
         g_session.members.push_back({xuid, xuid == live.xuid ? CurrentOnlineUser() : tmnt::kRemoteUserIndex});
-        REXLOG_INFO("DEBUG_SAULO XSessionJoinRemote member={} local={} members={}", g_session.members.size(),
-                    xuid == live.xuid, g_session.members.size());
       }
     }
   }
   original(ctx, base);
 }
 
-void SessionStateChange(PPCContext& ctx, uint8_t* base, PPCFunc* original, uint32_t state, const char* name) {
+void SessionStateChange(PPCContext& ctx, uint8_t* base, PPCFunc* original, uint32_t state) {
   if (CurrentLive().available) {
     std::lock_guard<std::mutex> lock(g_session_mutex);
     g_session.state = state;
   }
-  SessionCall(ctx, base, original, name);
+  original(ctx, base);
 }
 
 void SessionStart(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
-  tmnt::ArmStartTrace();
-  SessionStateChange(ctx, base, original, tmnt::kSessionStateInGame, "XSessionStart");
+  SessionStateChange(ctx, base, original, tmnt::kSessionStateInGame);
   if (CurrentLive().available) tmnt::Online().NoteGameStart();
 }
 
 void SessionEnd(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
-  SessionStateChange(ctx, base, original, tmnt::kSessionStateReporting, "XSessionEnd");
+  SessionStateChange(ctx, base, original, tmnt::kSessionStateReporting);
 }
 
 void SessionGetDetails(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const LiveProfile live = CurrentLive();
-  const uint32_t handle = ctx.r3.u32;
   const uint32_t size_ptr = ctx.r4.u32;
   const uint32_t buffer = ctx.r5.u32;
   const uint32_t overlapped = ctx.r6.u32;
@@ -441,10 +372,6 @@ void SessionGetDetails(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   }
   tmnt::WriteSessionDetails(GuestHost(base, buffer), GuestHost(base, g_members_address), g_members_address, details);
   if (details.host_xuid) tmnt::WriteXnAddr(GuestHost(base, buffer) + tmnt::kDetailsHostOffset, details.host_xuid);
-  LogOnChange("XSessionGetDetails members", uint32_t(details.members.size()));
-  tmnt::ArmFrameTrace(400);
-  REXLOG_INFO("DEBUG_SAULO XSessionGetDetails handle={:08X} buffer={:08X} size={} overlapped={:08X} members={} lr={:08X}", handle,
-              buffer, size, overlapped, details.members.size(), uint32_t(ctx.lr));
   if (overlapped) {
     REX_KERNEL_STATE()->CompleteOverlappedImmediate(overlapped, 0);
     ctx.r3.u64 = tmnt::kIoPending;
@@ -454,8 +381,7 @@ void SessionGetDetails(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 }
 
 void SessionDelete(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
-  REXLOG_INFO("DEBUG_SAULO XSessionDelete lr={:08X}", uint32_t(ctx.lr));
-  SessionCall(ctx, base, original, "XSessionDelete");
+  original(ctx, base);
   ResetSession();
   if (!CurrentLive().available) return;
   EndOnlineMatch("session_deleted");
@@ -467,12 +393,6 @@ void SessionDelete(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 // was allocated, and the stubbed QoS lookup never replaces it, so a real release only fails inside BaseHeap.
 uint32_t tmnt::OnlineUser() { return CurrentOnlineUser(); }
 
-std::string tmnt::SessionHeartbeat(uint8_t* base) {
-  std::lock_guard<std::mutex> lock(g_session_mutex);
-  return "session_state=" + std::to_string(g_session.state) + " session_members=" + std::to_string(g_session.members.size()) +
-         " slot_flag=" + std::to_string(LoadBE32(GuestHost(base, kGameSlotFlag), 0));
-}
-
 void QosRelease(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   constexpr uint32_t kSearchObjectGlobal = 0x82BAD418;
   const uint32_t object = tmnt::LoadBE32(GuestHost(base, kSearchObjectGlobal), 0);
@@ -483,20 +403,9 @@ void QosRelease(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   original(ctx, base);
 }
 
-void PoolFree(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
-  if (g_search_active && g_pool_frees_logged < 24) {
-    ++g_pool_frees_logged;
-    REXLOG_INFO("DEBUG_SAULO search-time pool free ptr={:08X} pool={:08X} lr={:08X}", ctx.r4.u32, ctx.r3.u32, uint32_t(ctx.lr));
-  }
-  original(ctx, base);
-}
-
 #define TMNT_LIVE_HOOK(address, handler)       \
   REX_EXTERN(__imp__sub_##address);            \
   REX_HOOK_RAW(sub_##address) { handler(ctx, base, __imp__sub_##address); }
-#define TMNT_SESSION_LOG(address, name)        \
-  REX_EXTERN(__imp__sub_##address);            \
-  REX_HOOK_RAW(sub_##address) { SessionCall(ctx, base, __imp__sub_##address, name); }
 
 TMNT_LIVE_HOOK(826EDD50, SigninState)
 TMNT_LIVE_HOOK(826EDD60, CheckPrivilege)
@@ -510,9 +419,7 @@ TMNT_LIVE_HOOK(8243CA48, SessionSearchEx)
 TMNT_LIVE_HOOK(8243C850, SessionLeaveRemote)
 TMNT_LIVE_HOOK(8243C6F0, SessionDelete)
 TMNT_LIVE_HOOK(8243C7A0, SessionJoinRemote)
-TMNT_LIVE_HOOK(824B4F28, PoolFree)
 TMNT_LIVE_HOOK(823CB4D0, QosRelease)
 TMNT_LIVE_HOOK(8243C8F8, SessionStart)
 TMNT_LIVE_HOOK(8243C998, SessionEnd)
 TMNT_LIVE_HOOK(8243CD78, SessionGetDetails)
-TMNT_SESSION_LOG(8243C630, "XSessionModify")

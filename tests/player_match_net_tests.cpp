@@ -613,7 +613,6 @@ void TestSocketHooksCoverSendRecvSelectConnect() {
   CHECK(Has(body, "g_shim.Readable(handle, routes, g_link)") && Has(body, "tmnt::SelectMixed(requested"));
   CHECK(Has(body, "original(ctx, base);"));
   CHECK(Has(body, "timeout.milliseconds = tmnt::OnFrameThread() ? 0 : seconds * 1000 + microseconds / 1000;"));
-  CHECK(Has(body, "tmnt::NoteSelect(now() - select_started,"));
   CHECK(!Has(net, "SocketProbe"));
 }
 
@@ -763,17 +762,15 @@ void TestShimQueuesStayBoundedAndCountTheirLosses() {
   const std::vector<PeerRoute> routes = {route};
   BurstLink quiet(0);
   CHECK(!shim.Readable(handle, routes, quiet) && !shim.RecvFrom(handle, routes, quiet));
-  CHECK(shim.deepest_queue() == 0 && shim.dropped() == 0);
   BurstLink one(1);
   CHECK(shim.Readable(handle, routes, one) && shim.Readable(handle, routes, quiet));
   CHECK(shim.RecvFrom(handle, routes, quiet).has_value());
   CHECK(!shim.Readable(handle, routes, quiet) && !shim.RecvFrom(handle, routes, quiet));
   BurstLink burst(300);
   CHECK(shim.Readable(handle, routes, burst));
-  CHECK(shim.deepest_queue() == 128 && shim.dropped() == 172);
   int drained = 0;
   while (shim.RecvFrom(handle, routes, quiet)) ++drained;
-  CHECK(drained == 128 && shim.deepest_queue() == 0 && !shim.Readable(handle, routes, quiet));
+  CHECK(drained == 128 && !shim.Readable(handle, routes, quiet));
 }
 
 // A model of the title's UDP transport around one receive slot and the socket's hooks: the guest side mirrors
@@ -980,32 +977,6 @@ void TestAPendingReceiveStaysPendingForBothGuestReads() {
   const std::string body = net.substr(hook, net.find("\n}", hook) - hook);
   CHECK(Has(body, "g_last_error.Get()") && !Has(body, "Clear") && !Has(body, "Set("));
   CHECK(Has(net, "g_last_error.Clear();"));
-}
-
-void TestFramePhasesReachTheHeartbeat() {
-  const std::string bridge = ReadSource("online_bridge.cpp");
-  for (const char* field : {"tick_ms+{}", "pace_ms+{}", "swap_ms+{}", "frame_cpu_ms+{}", "process_cpu_ms+{}", "select_calls+{}",
-                            "select_read+{}", "select_write+{}", "select_except+{}", "shim_queue_max={}", "shim_dropped+{}",
-                            "stages_ms={}"}) {
-    CHECK(Has(bridge, field));
-  }
-  CHECK(Has(ReadSource("window_host.cpp"), "tmnt::NotePresentPhases("));
-  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::TickScope tick;"));
-  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::StageScope scope(0x##addr, slot);"));
-  CHECK(Has(ReadSource("frame_trace.cpp"), "tmnt::NoteFrameThreadForSampler(&ctx, base);"));
-  CHECK(Has(bridge, "DEBUG_SAULO frame block {}"));
-  CHECK(Has(bridge, "SetFrameSamplerActive(game - last_game < kSlowTicksPerSecond);"));
-}
-
-void TestTheSamplerOnlyRunsWhileTicksAreSlowAndNeverLogsWhileSuspended() {
-  const std::string sampler = ReadSource("frame_block_sampler.cpp");
-  CHECK(Has(sampler, "if (!g_active.load()) continue;"));
-  CHECK(Has(sampler, "if (!FrameSamplerEnabled() ||"));
-  const size_t suspended = sampler.find("SuspendThread(thread)");
-  const size_t resumed = sampler.find("ResumeThread(thread)");
-  CHECK(suspended != std::string::npos && resumed != std::string::npos && suspended < resumed);
-  const std::string held = sampler.substr(suspended, resumed - suspended);
-  CHECK(!Has(held, "Count(") && !Has(held, "fmt::") && !Has(held, "std::string"));
 }
 
 void TestTheGameRunsItsOwnNetworking() {
@@ -1331,8 +1302,6 @@ int main() {
   TestReceiveStartLeavesItsEventClear();
   TestANewReceiveReplacesAnAbandonedOneOnTheSameOverlapped();
   TestLastErrorLeftAloneByNonSocketCalls();
-  TestFramePhasesReachTheHeartbeat();
-  TestTheSamplerOnlyRunsWhileTicksAreSlowAndNeverLogsWhileSuspended();
   TestTheGameRunsItsOwnNetworking();
   TestOnlyTheOnlineUserIsOnLive();
   TestSigninInfoIsTheLiveProfile();

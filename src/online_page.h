@@ -57,7 +57,6 @@ class OnlinePage {
   void DrawConnectionTestBody(trg::Ui& ui, const online::Snapshot& state, const ConnectionTestView& view,
                               bool focus_run_test);
   void DrawFriends(trg::Ui& ui, const online::Snapshot& state);
-  void NoteSendState(bool enabled);
   std::string TestConfiguration() const;
 
   void* owner_window_ = nullptr;
@@ -68,7 +67,6 @@ class OnlinePage {
   mutable std::string network_;
   char add_code_[kFriendCodeFieldSize] = {};
   FriendCodeField add_field_{[this](const FieldLog& log) { return ReadClipboardText(owner_window_, log); }};
-  int send_enabled_ = -1;
 };
 
 }  // namespace tmnt
