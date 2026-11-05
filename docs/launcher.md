@@ -155,6 +155,7 @@ Internal render resolution is the resolution the GPU draws the game at before th
 - Keyboard gameplay input can be turned on or off, and the bindings edited, on the Controls page (see below).
 - Any controller SDL recognizes drives the launcher (a Steam Controller, a DualSense or an Xbox pad): Start plays; A, B, the D-pad and the left stick navigate. ReXGlue's input system only starts with the game.
 - The accent is a neon green (`kAccent`) with a dark emerald for the ready card, both in `src/launcher.cpp` with the header gradient. Amber is kept only for the "game files" warning, which is a status colour.
+- Controls are Leonardo's blue (`kAction`, white text, a thin `kAccent` border) so they stand out from the green theme: the selected page, the chosen option, accent buttons and PLAY. `kActionLink` is the lighter blue for hyperlinks, slider grabs, check marks and the keyboard focus. Everything else stays green. `patches/trg-launcher/0008-action-colors.patch` adds these theme colours; `theme.accent` is for status and panels, `theme.action` for what the player can act on.
 
 ### Gameplay
 

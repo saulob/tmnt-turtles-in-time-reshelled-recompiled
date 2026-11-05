@@ -69,13 +69,17 @@ constexpr ImGuiConfigFlags kNavFlags = ImGuiConfigFlags_NavEnableKeyboard | ImGu
 // Neon green over the Midnight background.
 const ImVec4 kAccent = ImVec4(0.36f, 0.88f, 0.44f, 1.0f);
 const ImVec4 kEmerald = ImVec4(0.09f, 0.36f, 0.22f, 1.0f);
+// Leonardo's blue, kept for what the player can act on. kAction carries white text; kActionLink
+// is its lighter form for text and small marks drawn directly on the dark panels.
+const ImVec4 kAction = ImVec4(0.082f, 0.396f, 0.784f, 1.0f);
+const ImVec4 kActionLink = ImVec4(0.361f, 0.722f, 1.0f, 1.0f);
 
 constexpr const char* kAuthorUrl = "https://github.com/saulob";
 constexpr const char* kRepositoryUrl = "https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled";
 constexpr const char* kSponsorUrl = "https://github.com/sponsors/saulob";
 
 trg::Theme LauncherTheme() {
-  trg::Theme theme = trg::Theme::Midnight().WithAccent(kAccent);
+  trg::Theme theme = trg::Theme::Midnight().WithAccent(kAccent).WithAction(kAction, kAccent, kActionLink);
   theme.good = kEmerald;
   theme.good_dot = kAccent;
   return theme;

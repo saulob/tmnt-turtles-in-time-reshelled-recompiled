@@ -50,10 +50,7 @@ void OnlineNameRow(trg::Ui& ui) {
 
 bool AcceptButton(trg::Ui& ui, const char* id) {
   const trg::Theme& t = ui.theme();
-  ImGui::PushStyleColor(ImGuiCol_Button, t.accent);
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.accent_hot);
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.accent);
-  ImGui::PushStyleColor(ImGuiCol_Text, t.on_accent);
+  trg::PushActionButton(t, ui.scale());
   const float mark = ImGui::GetFontSize() * 0.8f;
   const ImVec2 at = ImGui::GetCursorScreenPos();
   const bool clicked = ImGui::Button(id);
@@ -62,8 +59,8 @@ bool AcceptButton(trg::Ui& ui, const char* id) {
   const ImVec2 tick[3] = {ImVec2(origin.x + mark * 0.1f, origin.y + mark * 0.55f),
                           ImVec2(origin.x + mark * 0.4f, origin.y + mark * 0.85f),
                           ImVec2(origin.x + mark * 0.95f, origin.y + mark * 0.2f)};
-  ImGui::GetWindowDrawList()->AddPolyline(tick, 3, ImGui::GetColorU32(t.on_accent), ImDrawFlags_None, mark * 0.18f);
-  ImGui::PopStyleColor(4);
+  ImGui::GetWindowDrawList()->AddPolyline(tick, 3, ImGui::GetColorU32(t.on_action), ImDrawFlags_None, mark * 0.18f);
+  trg::PopActionButton();
   return clicked;
 }
 

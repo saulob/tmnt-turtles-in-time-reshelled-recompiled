@@ -1,0 +1,286 @@
+diff --git a/include/trg/launcher.h b/include/trg/launcher.h
+index 6acef34..428956f 100644
+--- a/include/trg/launcher.h
++++ b/include/trg/launcher.h
+@@ -56,9 +56,15 @@ struct Theme {
+   ImVec4 frame_hot;     // hovered
+   ImVec4 frame_active;  // pressed
+   ImVec4 popup;
+-  ImVec4 accent;        // selected page, chosen option, PLAY
++  ImVec4 accent;        // status text, spinners, progress bars, highlighted cards
+   ImVec4 accent_hot;
+   ImVec4 on_accent;     // text drawn on the accent
++  ImVec4 action;        // selected page, chosen option, accent buttons, PLAY
++  ImVec4 action_hot;    // hovered
++  ImVec4 action_active; // pressed
++  ImVec4 on_action;     // text drawn on the action colour
++  ImVec4 action_edge;   // thin border of action controls, PLAY's glow
++  ImVec4 link;          // hyperlinks, slider grabs, check marks, keyboard focus
+   ImVec4 text;
+   ImVec4 dim;           // help text, hints
+   ImVec4 good;          // "Ready to play" card
+@@ -73,12 +79,20 @@ struct Theme {
+   // Charcoal with a red accent.
+   static Theme Ember();
+   // The same theme with another accent; hover and text-on-accent colours are
+-  // derived from it.
++  // derived from it. Controls follow the accent until WithAction is called.
+   Theme WithAccent(ImVec4 accent) const;
++  // The same theme with interactive controls in their own colour. Hover,
++  // pressed and text-on-action colours are derived from `fill`.
++  Theme WithAction(ImVec4 fill, ImVec4 edge, ImVec4 link) const;
+ };
+ 
+ ImU32 Col(const ImVec4& c, float alpha_mul = 1.0f);
+ 
++// Styles ImGui::Button as an action button until PopActionButton. `scale` is
++// the UI scale. A border only draws, so the button keeps its size.
++void PushActionButton(const Theme& theme, float scale);
++void PopActionButton();
++
+ // ------------------------------------------------------------------ fonts ---
+ struct Fonts {
+   ImFont* regular = nullptr;   // body text (nullptr: ImGui's current font)
+@@ -142,7 +156,7 @@ struct PlayCheck {
+ // the player should know about (King Kong warns about frame rates above 30).
+ struct PromptButton {
+   std::string label;
+-  bool accent = false;           // drawn in the accent colour (the recommended choice)
++  bool accent = false;           // drawn in the action colour (the recommended choice)
+   bool play = true;              // start the game after `action`; false just closes the pop-up
+   std::function<void()> action;  // runs first, e.g. to change a setting
+ };
+@@ -257,7 +271,7 @@ class Ui {
+   void Heading(const char* text);
+   void Paragraph(const char* text);  // dim, wrapped
+   void Help(const char* text);       // small, dim, wrapped
+-  void Link(const char* text, const std::string& url);  // small, dim hyperlink
++  void Link(const char* text, const std::string& url);  // small hyperlink
+   // A panel with two paragraphs, the sponsor button and its URL; nothing without a sponsor url.
+   void SponsorCard(const char* message, const char* note);
+   void Spacer(float height = 8.0f);
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 040e163..0172ff9 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -28,6 +28,15 @@ ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t) {
+   return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+ }
+ 
++void UseAccentForActions(Theme& t) {
++  t.action = t.accent;
++  t.action_hot = t.accent_hot;
++  t.action_active = t.accent_hot;
++  t.on_action = t.on_accent;
++  t.action_edge = t.accent;
++  t.link = t.accent;
++}
++
+ void ApplyTheme(const Theme& t, float s) {
+   ImGuiStyle& st = ImGui::GetStyle();
+   st.WindowPadding = ImVec2(14 * s, 12 * s);  // popups and combos; the launcher's own windows use none
+@@ -64,9 +73,10 @@ void ApplyTheme(const Theme& t, float s) {
+   c[ImGuiCol_Header] = t.frame;
+   c[ImGuiCol_HeaderHovered] = t.frame_hot;
+   c[ImGuiCol_HeaderActive] = t.frame_active;
+-  c[ImGuiCol_SliderGrab] = t.accent;
+-  c[ImGuiCol_SliderGrabActive] = t.accent_hot;
+-  c[ImGuiCol_CheckMark] = t.accent;
++  c[ImGuiCol_SliderGrab] = t.link;
++  c[ImGuiCol_SliderGrabActive] = t.action_hot;
++  c[ImGuiCol_CheckMark] = t.link;
++  c[ImGuiCol_TextLink] = t.link;
+   c[ImGuiCol_PlotHistogram] = t.accent;
+   c[ImGuiCol_PlotHistogramHovered] = t.accent_hot;
+   c[ImGuiCol_TextSelectedBg] = ImVec4(t.accent.x, t.accent.y, t.accent.z, 0.35f);
+@@ -79,7 +89,7 @@ void ApplyTheme(const Theme& t, float s) {
+   c[ImGuiCol_TableBorderStrong] = ImVec4(1, 1, 1, 0.08f);
+   c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+   c[ImGuiCol_TableRowBgAlt] = ImVec4(0, 0, 0, 0);
+-  c[ImGuiCol_NavCursor] = t.accent;
++  c[ImGuiCol_NavCursor] = t.link;
+   c[ImGuiCol_ModalWindowDimBg] = ImVec4(0, 0, 0, 0.6f);
+ }
+ 
+@@ -93,13 +103,6 @@ ImFont* LoadFirstFont(std::initializer_list<std::string> paths, float size) {
+   return nullptr;
+ }
+ 
+-void PushAccent(const Theme& t) {
+-  ImGui::PushStyleColor(ImGuiCol_Button, t.accent);
+-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.accent_hot);
+-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.accent_hot);
+-  ImGui::PushStyleColor(ImGuiCol_Text, t.on_accent);
+-}
+-
+ // Draws `text` at `pos` and returns its advance. A non-empty url makes it a
+ // hyperlink: always underlined except while hovered, then the hand cursor, a
+ // tooltip with the url and a click that opens it.
+@@ -177,6 +180,20 @@ ImU32 Col(const ImVec4& c, float alpha_mul) {
+   return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, c.w * alpha_mul));
+ }
+ 
++void PushActionButton(const Theme& t, float scale) {
++  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, std::max(scale, 1.0f));
++  ImGui::PushStyleColor(ImGuiCol_Button, t.action);
++  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.action_hot);
++  ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.action_active);
++  ImGui::PushStyleColor(ImGuiCol_Text, t.on_action);
++  ImGui::PushStyleColor(ImGuiCol_Border, t.action_edge);
++}
++
++void PopActionButton() {
++  ImGui::PopStyleColor(5);
++  ImGui::PopStyleVar();
++}
++
+ Theme Theme::Midnight() {
+   Theme t;
+   t.bg = ImVec4(0.027f, 0.039f, 0.086f, 1.0f);
+@@ -194,6 +211,7 @@ Theme Theme::Midnight() {
+   t.warn = ImVec4(0.490f, 0.318f, 0.090f, 1.0f);
+   t.good_dot = ImVec4(0.55f, 0.95f, 0.70f, 1.0f);
+   t.warn_dot = ImVec4(1.0f, 0.70f, 0.30f, 1.0f);
++  UseAccentForActions(t);
+   return t;
+ }
+ 
+@@ -214,6 +232,7 @@ Theme Theme::Ocean() {
+   t.warn = ImVec4(0.588f, 0.322f, 0.078f, 1.0f);
+   t.good_dot = ImVec4(0.47f, 0.90f, 0.63f, 1.0f);
+   t.warn_dot = ImVec4(1.0f, 0.78f, 0.35f, 1.0f);
++  UseAccentForActions(t);
+   return t;
+ }
+ 
+@@ -234,6 +253,7 @@ Theme Theme::Ember() {
+   t.warn = ImVec4(0.520f, 0.300f, 0.080f, 1.0f);
+   t.good_dot = ImVec4(0.55f, 0.95f, 0.70f, 1.0f);
+   t.warn_dot = ImVec4(1.0f, 0.70f, 0.30f, 1.0f);
++  UseAccentForActions(t);
+   return t;
+ }
+ 
+@@ -243,6 +263,18 @@ Theme Theme::WithAccent(ImVec4 colour) const {
+   t.accent_hot = Mix(colour, ImVec4(1, 1, 1, 1), 0.18f);
+   const float luminance = 0.2126f * colour.x + 0.7152f * colour.y + 0.0722f * colour.z;
+   t.on_accent = luminance > 0.45f ? Mix(colour, ImVec4(0, 0, 0, 1), 0.88f) : ImVec4(1, 1, 1, 1);
++  UseAccentForActions(t);
++  return t;
++}
++
++Theme Theme::WithAction(ImVec4 fill, ImVec4 edge, ImVec4 link_colour) const {
++  Theme t = *this;
++  t.action = fill;
++  t.action_hot = Mix(fill, ImVec4(1, 1, 1, 1), 0.10f);
++  t.action_active = Mix(fill, ImVec4(0, 0, 0, 1), 0.22f);
++  t.on_action = ImVec4(1, 1, 1, 1);
++  t.action_edge = edge;
++  t.link = link_colour;
+   return t;
+ }
+ 
+@@ -336,20 +368,20 @@ int Ui::Segmented(const char* id, const std::vector<std::string>& labels, int se
+   for (size_t i = 0; i < labels.size(); ++i) {
+     if (i) ImGui::SameLine(0, gap);
+     const bool sel = int(i) == selected;
+-    if (sel) PushAccent(theme());
++    if (sel) PushActionButton(theme(), scale_);
+     ImGui::PushID(int(i));
+     if (ImGui::Button(T(labels[i].c_str()), ImVec2(bw, 0)) && !sel) clicked = int(i);
+     ImGui::PopID();
+-    if (sel) ImGui::PopStyleColor(4);
++    if (sel) PopActionButton();
+   }
+   ImGui::PopID();
+   return clicked;
+ }
+ 
+ bool Ui::AccentButton(const char* label, ImVec2 size) {
+-  PushAccent(theme());
+-  const bool r = ImGui::Button(T(label), size);
+-  ImGui::PopStyleColor(4);
++  PushActionButton(theme(), scale_);
++  const bool r = ImGui::Button(T(label), size);
++  PopActionButton();
+   return r;
+ }
+ 
+@@ -625,7 +657,7 @@ void Ui::Help(const char* text) {
+ }
+ 
+ void Ui::Link(const char* text, const std::string& url) {
+-  ImGui::PushStyleColor(ImGuiCol_Text, theme().dim);
++  ImGui::PushStyleColor(ImGuiCol_Text, theme().link);
+   ImGui::PushFont(nullptr, fonts().size * 0.84f);
+   LinkText(ImGui::GetWindowDrawList(), text, ImGui::GetCursorScreenPos(), ImGui::GetFont(), ImGui::GetFontSize(),
+            ImGui::GetColorU32(ImGuiCol_Text), text, url);
+@@ -1031,8 +1063,8 @@ void Launcher::DrawHeader(ImVec2 origin, float w, float h) {
+     for (size_t i = 0; i < b.subtitle_segments.size(); ++i) {
+       const SubtitleSegment& segment = b.subtitle_segments[i];
+       ImGui::PushID(int(i));
+-      sx += LinkText(dl, "##segment", ImVec2(sx, subtitle_y), config_.fonts.semibold, subtitle_size, subtitle_color,
+-                     T(segment.text.c_str()), segment.url);
++      sx += LinkText(dl, "##segment", ImVec2(sx, subtitle_y), config_.fonts.semibold, subtitle_size,
++                     segment.url.empty() ? subtitle_color : Col(t.link), T(segment.text.c_str()), segment.url);
+       ImGui::PopID();
+     }
+     ImGui::PopID();
+@@ -1060,13 +1092,19 @@ void Launcher::DrawSidebar(ImVec2 size) {
+     if (ImGui::InvisibleButton("##page", item)) GoToPage(i);
+     const bool hot = ImGui::IsItemHovered();
+     ImDrawList* dl = ImGui::GetWindowDrawList();
+-    if (selected || hot)
+-      dl->AddRectFilled(pos, ImVec2(pos.x + item.x, pos.y + item.y), Col(selected ? t.accent : t.frame), 8 * s_);
++    const ImVec2 item_end(pos.x + item.x, pos.y + item.y);
++    if (selected) {
++      dl->AddRectFilled(pos, item_end, Col(ImGui::IsItemActive() ? t.action_active : hot ? t.action_hot : t.action),
++                        8 * s_);
++      dl->AddRect(pos, item_end, Col(t.action_edge), 8 * s_, 0, std::max(s_, 1.0f));
++    } else if (hot) {
++      dl->AddRectFilled(pos, item_end, Col(t.frame), 8 * s_);
++    }
+     dl->AddText(ImVec2(pos.x + 16 * s_, pos.y + (item_h - ImGui::GetFontSize()) * 0.5f),
+-                Col(selected ? t.on_accent : t.text), T(page.name.c_str()));
++                Col(selected ? t.on_action : t.text), T(page.name.c_str()));
+     if (page.needs_attention && page.needs_attention())
+       dl->AddCircleFilled(ImVec2(pos.x + item.x - 18 * s_, pos.y + item_h * 0.5f), 4.5f * s_,
+-                          Col(selected ? t.on_accent : t.warn_dot));
++                          Col(selected ? t.on_action : t.warn_dot));
+     ImGui::PopID();
+     ImGui::Dummy(ImVec2(0, 2 * s_));
+   }
+@@ -1154,24 +1192,29 @@ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+   // Still clickable when the game cannot start: that explains why.
+   const bool clicked = ImGui::InvisibleButton("##play", size);
+   const bool hot = ImGui::IsItemHovered();
++  const bool held = ImGui::IsItemActive();
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+   const float r = size.y * 0.5f;
+   if (can_play) {
+     const float pulse = 0.5f + 0.5f * std::sin(float(ImGui::GetTime()) * 3.0f);
+     dl->AddRectFilled(ImVec2(p.x - 3 * s_, p.y - 3 * s_), ImVec2(p.x + size.x + 3 * s_, p.y + size.y + 3 * s_),
+-                      Col(t.accent, hot ? 0.35f : 0.18f), r + 3 * s_);
++                      Col(t.action_edge, hot ? 0.35f : 0.18f), r + 3 * s_);
+     const float grow = (3 + 4 * pulse) * s_;
+     dl->AddRect(ImVec2(p.x - grow, p.y - grow), ImVec2(p.x + size.x + grow, p.y + size.y + grow),
+-                Col(t.accent, 0.45f * (1.0f - pulse)), r + grow, 0, 2 * s_);
++                Col(t.action_edge, 0.45f * (1.0f - pulse)), r + grow, 0, 2 * s_);
+   }
+   dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y),
+-                    can_play ? Col(hot ? t.accent_hot : t.accent) : Col(hot ? t.frame_hot : t.frame), r);
++                    can_play ? Col(held ? t.action_active : hot ? t.action_hot : t.action)
++                             : Col(hot ? t.frame_hot : t.frame),
++                    r);
++  if (can_play)
++    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), Col(t.action_edge), r, 0, std::max(s_, 1.0f));
+   const float fs = 22 * s_;
+   const ImVec2 ts = config_.fonts.bold->CalcTextSizeA(fs, FLT_MAX, 0, T("PLAY"));
+   const float tri = fs * 0.5f;
+   const float total = ts.x + 12 * s_ + tri;
+   const float tx = p.x + (size.x - total) * 0.5f, ty = p.y + (size.y - ts.y) * 0.5f;
+-  const ImU32 ink = can_play ? Col(t.on_accent) : Col(t.dim);
++  const ImU32 ink = can_play ? Col(t.on_action) : Col(t.dim);
+   dl->AddText(config_.fonts.bold, fs, ImVec2(tx, ty), ink, T("PLAY"));
+   const float ax = tx + ts.x + 12 * s_, ay = p.y + size.y * 0.5f;
+   dl->AddTriangleFilled(ImVec2(ax, ay - tri * 0.6f), ImVec2(ax, ay + tri * 0.6f), ImVec2(ax + tri, ay), ink);

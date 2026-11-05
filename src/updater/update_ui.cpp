@@ -41,14 +41,10 @@ void WrappedText(const std::string& text, float size, ImFont* font, const ImVec4
   ImGui::PopFont();
 }
 
-bool AccentButton(const char* label, const trg::Theme& theme, const ImVec2& size) {
-  ImGui::PushStyleColor(ImGuiCol_Button, theme.accent);
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme.accent_hot);
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(theme.accent.x * 0.85f, theme.accent.y * 0.85f,
-                                                      theme.accent.z * 0.85f, 1.0f));
-  ImGui::PushStyleColor(ImGuiCol_Text, theme.on_accent);
+bool ActionButton(const char* label, const trg::Theme& theme, float scale, const ImVec2& size) {
+  trg::PushActionButton(theme, scale);
   const bool clicked = ImGui::Button(label, size);
-  ImGui::PopStyleColor(4);
+  trg::PopActionButton();
   return clicked;
 }
 
@@ -80,7 +76,7 @@ UpdateUiAction DrawUpdateBanner(const UpdateSnapshot& snapshot, const trg::Theme
   ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(theme.panel.x, theme.panel.y, theme.panel.z, 0.96f));
   ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(theme.accent.x, theme.accent.y, theme.accent.z, 0.55f));
   ImGui::PushStyleColor(ImGuiCol_Text, theme.text);
-  ImGui::PushStyleColor(ImGuiCol_TextLink, theme.accent);
+  ImGui::PushStyleColor(ImGuiCol_TextLink, theme.link);
   ImGui::Begin("##trg_update_banner", nullptr,
                ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
@@ -145,7 +141,7 @@ UpdateUiAction DrawUpdateBanner(const UpdateSnapshot& snapshot, const trg::Theme
     WrappedText(detail, body_size, regular, theme.dim, wrap_width);
     ImGui::Dummy(ImVec2(0.0f, 4.0f * s));
     if (snapshot.install_supported) {
-      if (AccentButton(Tr("UPDATE NOW"), theme, ImVec2(-FLT_MIN, button_height))) {
+      if (ActionButton(Tr("UPDATE NOW"), theme, s, ImVec2(-FLT_MIN, button_height))) {
         action = UpdateUiAction::kDownload;
       }
     } else {
@@ -168,7 +164,7 @@ UpdateUiAction DrawUpdateBanner(const UpdateSnapshot& snapshot, const trg::Theme
     detail = Tr("Version ") + snapshot.latest_version + Tr(" is ready. The launcher will restart.");
     WrappedText(detail, body_size, regular, theme.dim, wrap_width);
     ImGui::Dummy(ImVec2(0.0f, 4.0f * s));
-    if (AccentButton(Tr("RESTART TO UPDATE"), theme, ImVec2(-FLT_MIN, button_height))) {
+    if (ActionButton(Tr("RESTART TO UPDATE"), theme, s, ImVec2(-FLT_MIN, button_height))) {
       action = UpdateUiAction::kRestart;
     }
   } else if (snapshot.state == UpdateState::kFailed) {
@@ -176,7 +172,7 @@ UpdateUiAction DrawUpdateBanner(const UpdateSnapshot& snapshot, const trg::Theme
                 theme.dim, wrap_width);
     if (snapshot.retry_available) {
       ImGui::Dummy(ImVec2(0.0f, 4.0f * s));
-      if (AccentButton(Tr("RETRY"), theme, ImVec2(-FLT_MIN, button_height))) {
+      if (ActionButton(Tr("RETRY"), theme, s, ImVec2(-FLT_MIN, button_height))) {
         action = UpdateUiAction::kRetry;
       }
     }
