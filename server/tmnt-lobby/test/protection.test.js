@@ -108,16 +108,16 @@ test('an unchanged player record is not rewritten; a rename and the refresh inte
   writes.length = 0;
   signIn(env, 1).client.drop();
   signIn(env, 1).client.drop();
-  assert.equal(writesTo(writes, /UPDATE players/).length, 0);
+  assert.equal(writesTo(writes, /UPDATE players SET name/).length, 0);
   env.clock.now += PROTECTION.seenRefreshMs - 1000;
   signIn(env, 1).client.drop();
-  assert.equal(writesTo(writes, /UPDATE players/).length, 0);
+  assert.equal(writesTo(writes, /UPDATE players SET name/).length, 0);
   env.clock.now += 1000;
   signIn(env, 1).client.drop();
-  assert.equal(writesTo(writes, /UPDATE players/).length, 1);
+  assert.equal(writesTo(writes, /UPDATE players SET name/).length, 1);
   const renamed = env.connect(identity(1), { name: 'Raphael' });
   renamed.hello();
-  assert.equal(writesTo(writes, /UPDATE players/).length, 2);
+  assert.equal(writesTo(writes, /UPDATE players SET name/).length, 2);
   assert.equal(env.hub.playerRow(identity(1).player).name, 'Raphael');
 });
 
@@ -630,6 +630,7 @@ test('alarms: a repeated schedule with the same or a later deadline does not set
 
 test('alarms: an earlier deadline replaces a later alarm, and expiry still fires', () => {
   const env = makeHub();
+  env.hub.sampleDueAt = () => null;
   const host = greeted(env, 1);
   const friend = greeted(env, 2);
   host.call('party.create');
@@ -647,6 +648,7 @@ test('alarms: an earlier deadline replaces a later alarm, and expiry still fires
 test('alarms: the next deadline is the earliest of every party', () => {
   const env = makeHub();
   env.hub.diagnosticsDueAt = () => null;
+  env.hub.sampleDueAt = () => null;
   const next = () => {
     env.hub.alarmAt = null;
     env.host.alarmAt = null;

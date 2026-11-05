@@ -1,8 +1,10 @@
 // The Worker's gate for WebSocket upgrades, before any Durable Object exists in the request's path. No Cloudflare import,
 // so Node runs it in the tests.
+import { countryCode } from './metrics.js';
 import { ipGroup } from './protocol.js';
 
 export const LIMITED_HEADER = 'X-TMNT-Edge-Limited';
+export const COUNTRY_HEADER = 'X-TMNT-Edge-Country';
 const MAX_PENDING_LIMITED = 1_000_000;
 const RETRY_AFTER_SECONDS = '60';
 
@@ -22,6 +24,7 @@ export const edgeCounts = { limited: 0 };
 // Any edge header from the client is replaced by the Worker's.
 export function withEdgeLimited(request, limited = 0) {
   const headers = new Headers(request.headers);
+  headers.set(COUNTRY_HEADER, countryCode(request.cf?.country));
   if (limited > 0) headers.set(LIMITED_HEADER, String(limited));
   else headers.delete(LIMITED_HEADER);
   return new Request(request, { headers });

@@ -92,3 +92,4 @@
 0083-recompiled-module-unload-key.patch                 windows,linux  rexruntime               tmnt       shared
 0084-heap-release-failure-address.patch                 windows,linux  rexruntime               tmnt       shared
 0085-xex-load-keeps-heap-regions.patch                  windows,linux  rexruntime               tmnt       shared
+0086-audio-unregister-waits-for-callback.patch          windows,linux  rexruntime               tmnt       shared

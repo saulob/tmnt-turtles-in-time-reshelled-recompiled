@@ -796,6 +796,13 @@ add_executable(tmnt_module_teardown_tests EXCLUDE_FROM_ALL tests/module_teardown
 target_compile_definitions(tmnt_module_teardown_tests PRIVATE
     TMNT_PATCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/patches/rexglue-sdk")
 
+# Audio client teardown test (no runtime), not part of the default build:
+# cmake --build <dir> --target tmnt_audio_client_teardown_tests
+add_executable(tmnt_audio_client_teardown_tests EXCLUDE_FROM_ALL tests/audio_client_teardown_tests.cpp)
+target_link_libraries(tmnt_audio_client_teardown_tests PRIVATE Threads::Threads)
+target_compile_definitions(tmnt_audio_client_teardown_tests PRIVATE
+    TMNT_PATCH_DIR="${CMAKE_CURRENT_SOURCE_DIR}/patches/rexglue-sdk")
+
 # Guest heap release rules test, not part of the default build: cmake --build <dir> --target tmnt_heap_release_tests
 add_executable(tmnt_heap_release_tests EXCLUDE_FROM_ALL tests/heap_release_tests.cpp)
 target_link_libraries(tmnt_heap_release_tests PRIVATE rex::runtime)
@@ -857,7 +864,7 @@ endif()
 # Online play: protocol, identity and instance isolation, the service state machine over a scripted channel, the
 # connection test, per-peer ping, telemetry, wire parity with the online service, and the settings wiring. Headless; nothing opens a window. The
 # integration test skips unless TMNT_LOBBY_TEST_URL names a lobby server (node server/tmnt-lobby/local/server.js).
-foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session)
+foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report)
     set(_name tmnt_online_${_test}_tests)
     add_executable(${_name} EXCLUDE_FROM_ALL tests/online_${_test}_tests.cpp ${TMNT_ONLINE_SOURCES})
     target_include_directories(${_name} PRIVATE src tests)

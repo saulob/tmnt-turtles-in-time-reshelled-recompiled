@@ -1,6 +1,6 @@
-// The private telemetry dashboard (/admin): one self-contained page, its stylesheet and script inline and allowed by hash
-// under a strict Content-Security-Policy, no external resources. The script keeps the token in memory (sessionStorage only
-// when asked), sends it as a Bearer header and writes every value with textContent, never as markup.
+// The private dashboard (/admin): one self-contained page, its stylesheet and script inline and allowed by hash under a
+// strict Content-Security-Policy, no external resources. The script keeps the token in memory (sessionStorage only when
+// asked), sends it as a Bearer header and writes every value with textContent, never as markup.
 import { sha256 } from './sha256.js';
 
 const CSS = String.raw`:root {
@@ -13,6 +13,9 @@ const CSS = String.raw`:root {
   --text-secondary: #52514e;
   --text-muted: #6d6c67;
   --accent: #2a78d6;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
   --error: #b42318;
 }
 @media (prefers-color-scheme: dark) {
@@ -26,6 +29,9 @@ const CSS = String.raw`:root {
     --text-secondary: #c3c2b7;
     --text-muted: #9a998f;
     --accent: #3987e5;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
     --error: #f97066;
   }
 }
@@ -39,43 +45,121 @@ const CSS = String.raw`:root {
   --text-secondary: #c3c2b7;
   --text-muted: #9a998f;
   --accent: #3987e5;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
   --error: #f97066;
 }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--surface-0); color: var(--text-primary); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
 .top, main { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
 .top { padding-top: 24px; }
 h1 { font-size: 22px; margin: 0 0 4px; }
 h2 { font-size: 15px; margin: 0 0 8px; }
-h3 { font-size: 12px; margin: 12px 0 6px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; }
+h2.section { font-size: 17px; margin: 24px 0 10px; }
+.up { color: var(--series-3); }
+.down { color: var(--error); }
 .muted { color: var(--text-muted); margin: 0 0 12px; font-size: 13px; }
-.panel { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 0 0 16px; min-width: 0; }
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 0 0 16px;
+  min-width: 0;
+}
 .login { max-width: 420px; display: grid; gap: 10px; }
 .check { display: flex; gap: 8px; align-items: center; color: var(--text-secondary); }
-input[type="password"], select { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-0); color: var(--text-primary); width: 100%; }
+input[type="password"], select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  width: 100%;
+}
 select { width: auto; }
-button { font: inherit; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+button {
+  font: inherit;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
 button.quiet { background: transparent; color: var(--text-secondary); border-color: var(--border); }
-button.link { background: transparent; border: 0; padding: 0; color: var(--accent); font-family: ui-monospace, Consolas, monospace; text-decoration: underline; }
 .error { color: var(--error); margin: 0; min-height: 1.2em; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 16px; }
 .toolbar #status { flex: 1; margin: 0; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0 0 16px; }
-.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 0 0 8px; }
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.card[data-help] { cursor: help; }
+.card[data-help]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .card .label { color: var(--text-secondary); font-size: 13px; }
-.card .value { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin: 0 0 16px; }
-.grid .panel { margin: 0; }
+.card .value { font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.grid .panel { margin: 0 0 16px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart .axis { fill: var(--text-muted); font-size: 11px; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .baseline { stroke: var(--border); stroke-width: 1; }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.chart .s1 { stroke: var(--series-1); }
+.chart .s2 { stroke: var(--series-2); }
+.chart .s3 { stroke: var(--series-3); }
+.chart .bar { fill: var(--series-1); }
+.chart .bar:hover { opacity: 0.8; }
+.chart .value-label { fill: var(--text-secondary); font-size: 10px; font-variant-numeric: tabular-nums; }
+.chart .cursor { stroke: var(--text-muted); stroke-width: 1; }
+.chart .hit { fill: transparent; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 8px; color: var(--text-secondary); font-size: 13px; }
+.legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.legend .k1 { background: var(--series-1); }
+.legend .k2 { background: var(--series-2); }
+.legend .k3 { background: var(--series-3); }
+.dist h3 { font-size: 12px; font-weight: 600; color: var(--text-secondary); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: .04em; }
+.row { display: grid; grid-template-columns: minmax(0, 9em) 1fr auto; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.row .track { height: 8px; border-radius: 4px; background: var(--grid); overflow: hidden; }
+.row .fill { display: block; height: 100%; border-radius: 4px; background: var(--series-1); }
+.row .count { font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.empty { color: var(--text-muted); font-size: 13px; margin: 4px 0; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
-th, td { padding: 5px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--text-secondary); font-weight: 600; }
-.empty { color: var(--text-muted); font-size: 13px; margin: 4px 0; }
-.mono { font-family: ui-monospace, Consolas, monospace; }
+details summary { cursor: pointer; font-weight: 600; }
 .notes ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
 .notes li { margin: 4px 0; }
+.tip {
+  position: fixed;
+  pointer-events: none;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .15);
+  z-index: 10;
+  white-space: nowrap;
+}
 `;
 
 const HEAD = String.raw`<!doctype html>
@@ -85,18 +169,18 @@ const HEAD = String.raw`<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<title>TMNT Online Telemetry</title>
+<title>TMNT Online Metrics</title>
 `;
 
 const BODY = String.raw`</head>
 <body>
 <header class="top">
-  <h1>TMNT Turtles in Time Re-Shelled · Online Telemetry</h1>
-  <p class="muted">Private. Anonymous operational data of the online service and its clients. Days are UTC.</p>
+  <h1>Turtles in Time Re-Shelled Recompiled · Online Metrics</h1>
+  <p class="muted">Anonymous aggregate statistics of the online service. Days are America/Sao_Paulo.</p>
 </header>
 <main>
   <form id="login" class="panel login" autocomplete="off">
-    <label for="token">Admin token</label>
+    <label for="token">Dashboard token</label>
     <input id="token" type="password" autocomplete="off" spellcheck="false" required>
     <label class="check"><input id="remember" type="checkbox"> Keep for this tab</label>
     <button type="submit">Open dashboard</button>
@@ -106,40 +190,146 @@ const BODY = String.raw`</head>
     <div class="toolbar">
       <label for="range">Range</label>
       <select id="range">
-        <option value="1">1 day</option>
-        <option value="7" selected>7 days</option>
-        <option value="30">30 days</option>
+        <option value="7">7 days</option>
+        <option value="30" selected>30 days</option>
+        <option value="90">90 days</option>
+        <option value="365">365 days</option>
       </select>
       <button id="refresh" type="button">Refresh</button>
       <span id="status" class="muted" role="status"></span>
       <button id="signout" type="button" class="quiet">Sign out</button>
     </div>
-    <div id="cards" class="cards"></div>
-    <div id="out"></div>
-    <div id="detail" class="panel" hidden></div>
+    <div class="cards">
+      <div class="card" tabindex="0" data-help="Players connected to the online service right now, counted once per connected account"><span class="label">Online now</span><span id="c-online" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Players currently occupying a seat in an online room"><span class="label">In rooms</span><span id="c-in-rooms" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Multiplayer rooms currently open"><span class="label">Open rooms</span><span id="c-rooms" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Highest number of players online at the same time today"><span class="label">Peak today</span><span id="c-peak" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="A unique player is counted once for today through an anonymous server-side key, however often they reconnect"><span class="label">Unique players today</span><span id="c-unique-today" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="A unique player is counted once for the whole selected period, even when they played on several days"><span id="c-unique-range-label" class="label">Unique players in period</span><span id="c-unique-range" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Online sessions started today, with reconnects inside the existing 10-minute deduplication window not counted again"><span class="label">Sessions today</span><span id="c-sessions" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Multiplayer rooms created today"><span class="label">Rooms today</span><span id="c-rooms-today" class="value">–</span></div>
+      <div class="card" tabindex="0" data-help="Successful room joins today, not unique players, and the same player can contribute more than one join"><span class="label">Joins today</span><span id="c-joins-today" class="value">–</span></div>
+    </div>
+    <h2 class="section">Period comparison</h2>
+    <div class="panel">
+      <p id="compare-note" class="muted"></p>
+      <div class="scroll"><table id="compare"></table></div>
+    </div>
+    <h2 class="section">Multiplayer activity</h2>
+    <div class="panel">
+      <p id="activity-note" class="muted"></p>
+      <div class="cards" id="activity"></div>
+      <div class="grid">
+        <div id="d-occupancy"></div>
+        <div id="d-lifetime"></div>
+      </div>
+    </div>
+    <h2 class="section">Characters &amp; parties</h2>
+    <div class="panel">
+      <p class="muted">Anonymous aggregate party snapshots from compatible clients: the turtles in an online party, never who played them. Game versions that do not report parties are not counted here, so a range without data means nothing was reported, not that nobody played.</p>
+      <p id="party-note" class="muted"></p>
+      <div class="cards" id="party-cards"></div>
+      <div class="grid">
+        <div id="d-character"></div>
+        <div id="d-host"></div>
+        <div id="d-party-size"></div>
+      </div>
+      <div id="d-composition"></div>
+    </div>
+    <h2 class="section">Historical activity</h2>
+    <div class="panel">
+      <h2>Usage over time</h2>
+      <p class="muted">Highest value in each 15-minute interval; kept for 90 days.</p>
+      <div id="usage" class="chart"></div>
+    </div>
+    <div>
+      <div class="panel"><h2>Sessions by day</h2><div id="h-sessions" class="chart"></div></div>
+      <div class="panel"><h2>Unique players by day</h2><div id="h-unique" class="chart"></div></div>
+      <div class="panel"><h2>Rooms created by day</h2><div id="h-rooms" class="chart"></div></div>
+      <div class="panel"><h2>Successful joins by day</h2><div id="h-joins" class="chart"></div></div>
+      <div class="panel"><h2>Peak online by day</h2><div id="h-peak-online" class="chart"></div></div>
+      <div class="panel"><h2>Peak in rooms by day</h2><div id="h-peak-rooms" class="chart"></div></div>
+    </div>
+    <div class="panel">
+      <h2>Daily totals</h2>
+      <div class="scroll"><table id="daily"></table></div>
+    </div>
+    <h2 class="section">Connection health</h2>
+    <div class="panel">
+      <p class="muted">Operational counts for the selected range. They describe the service, not players.</p>
+      <div class="cards" id="health"></div>
+    </div>
+    <details class="panel">
+      <summary>Incompatibility rejects by reason</summary>
+      <div id="rejects"></div>
+    </details>
+    <h2 class="section">Platforms and countries</h2>
+    <div class="grid">
+      <div class="panel"><h2>Platform</h2><div id="d-platform"></div></div>
+      <div class="panel"><h2>Port version</h2><div id="d-version"></div></div>
+      <div class="panel"><h2>Country</h2><div id="d-country"></div></div>
+    </div>
+    <h2 class="section">Abuse protection</h2>
+    <details class="panel">
+      <summary>Protection counters</summary>
+      <div id="abuse"></div>
+    </details>
     <div class="panel notes">
       <h2>How to read this</h2>
       <ul>
-        <li>Counters (sessions, events, reasons, server events) cover the range chosen. Transport mix and the latency
-          percentiles come from the per-session reports still kept (7 days, at most 2000), one value per peer link.</li>
-        <li>A session is one player's report of one party, identified by the party's random diag id; it is not a player count.
-          Lobby sessions (events before any party) are counted apart and never enter the transport mix or the percentiles.</li>
-        <li>Each event has one source: parties, invites and room outcomes come from the Worker; the clients add what only they see.
-          Retried events are counted once (duplicates are shown). Host and guest disconnects are derived from the Worker's party and member endings.</li>
-        <li>Connection Tests are anonymous outcomes sent before any session exists; they are counters, one per test.</li>
-        <li>Nothing here stores friend codes, tokens, addresses, names or gameplay.</li>
+        <li>An online player is a connected account right now. A unique player is one account counted once in a day or in the
+          selected period, through an anonymous key the service derives on its side.</li>
+        <li>A session is a sign-in of the launcher or the game with no counted sign-in of the same account in the previous
+          10 minutes. Sessions are not players.</li>
+        <li>Platform, version and country by day count sessions started. "Now" counts players online, one per account. Country
+          comes from Cloudflare and is stored only as a daily count. Unknown: Cloudflare did not say.</li>
+        <li>A room is one party, counted when it ends. Its party size is the most seats it held at once; a room with a party
+          of 1 never had a guest. Lifetime runs from creation to that moment. Rooms open when the Worker was updated are not counted.</li>
+        <li>Joins are successful room joins. They are not unique players: a player entering several rooms counts once per room.</li>
+        <li>Relay rooms are rooms where at least one pair chose the relay. The lobby cannot see peer-to-peer traffic, so the
+          share of rooms that connected directly is not measured.</li>
+        <li>A party snapshot is one match started by the host of a party of two or more, with every player's turtle confirmed.
+          Parties reported counts snapshots, not people.</li>
+        <li>Period comparison sets the selected range (including today so far) against the same number of days before it.
+          No percentage is shown when the earlier period has nothing to compare with.</li>
+        <li>Nothing here stores names, Friend Codes, accounts, addresses, rooms or gameplay.</li>
       </ul>
     </div>
   </section>
 </main>
+<div id="tip" class="tip" hidden></div>
 `;
 
 const JS = String.raw`(function () {
   'use strict';
   var KEY = 'tmnt-admin-token';
+  var ZONE = 'America/Sao_Paulo';
+  var SVG = 'http://www.w3.org/2000/svg';
   var token = '';
   var timer = null;
   var $ = function (id) { return document.getElementById(id); };
+  var regionNames = null;
+  try { regionNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { regionNames = null; }
+  var timeLabel = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  var dayLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+  var ABUSE = {
+    ws_upgrade_accepted: 'WebSocket upgrades accepted by the directory',
+    ws_upgrade_limited: 'WebSocket upgrades refused at the edge',
+    ws_upgrade_ip_cap: 'WebSocket upgrades refused: too many sockets from one address',
+    hello_accepted: 'Sign-ins accepted',
+    hello_limited: 'Sign-ins refused: too many',
+    hello_reconnect_deduped: 'Reconnects not counted as new sessions',
+    party_create_accepted: 'Parties created',
+    party_create_limited: 'Party creations refused',
+    party_join_limited: 'Party joins refused',
+    party_report_limited: 'Party snapshots refused: too many',
+    invite_limited: 'Invites refused',
+    friend_request_limited: 'Friend requests refused',
+    telemetry_limited: 'Telemetry batches refused for the account',
+    room_resume_limited: 'Match room reconnects refused',
+    relay_abuse_closed: 'Relay senders or relays closed for abuse'
+  };
+  var REJECTS = { lobby_protocol: 'Sign-in refused: different lobby protocol', online_protocol: 'Party join refused: different game image or online build' };
 
   function storedToken() {
     try { return sessionStorage.getItem(KEY) || ''; } catch (e) { return ''; }
@@ -147,18 +337,28 @@ const JS = String.raw`(function () {
   function storeToken(value) {
     try { if (value) sessionStorage.setItem(KEY, value); else sessionStorage.removeItem(KEY); } catch (e) { /* storage blocked */ }
   }
+
   function el(tag, cls, text) {
     var node = document.createElement(tag);
     if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = String(text);
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function svg(tag, attrs) {
+    var node = document.createElementNS(SVG, tag);
+    for (var k in attrs) node.setAttribute(k, attrs[k]);
     return node;
   }
   function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-  function fmt(n) { return n === null || n === undefined ? '-' : Number(n).toLocaleString('en-US'); }
-  function when(ms) { return ms ? new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + 'Z' : '-'; }
-  function pct(part, whole) { return whole ? Math.round(100 * part / whole) + '%' : '-'; }
+  function fmt(n) { return Number(n || 0).toLocaleString('en-US'); }
+  function dayText(day) { return dayLabel.format(new Date(day + 'T12:00:00Z')); }
+  function countryText(code) {
+    if (code === 'Unknown' || code === 'Other' || !regionNames) return code;
+    try { return code + ' · ' + regionNames.of(code); } catch (e) { return code; }
+  }
 
   function AuthError() {}
+
   function api(path) {
     return fetch(path, { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' })
       .then(function (r) {
@@ -168,235 +368,412 @@ const JS = String.raw`(function () {
       });
   }
 
-  function table(headers, rows, onCell) {
-    var wrap = el('div', 'scroll');
-    var t = el('table');
-    var head = el('tr');
-    headers.forEach(function (h) { head.appendChild(el('th', '', h)); });
-    var thead = el('thead');
-    thead.appendChild(head);
-    t.appendChild(thead);
-    var body = el('tbody');
-    rows.forEach(function (row) {
-      var tr = el('tr');
-      row.forEach(function (cell, i) {
-        var td = el('td');
-        if (onCell && onCell(td, cell, i, row)) { tr.appendChild(td); return; }
-        td.textContent = typeof cell === 'number' ? fmt(cell) : String(cell === null || cell === undefined ? '-' : cell);
-        tr.appendChild(td);
-      });
-      body.appendChild(tr);
+  var tip = $('tip');
+  function showTip(event, lines) {
+    clear(tip);
+    lines.forEach(function (line, i) { tip.appendChild(el('div', i ? '' : 'tip-head', line)); });
+    tip.hidden = false;
+    var x = event.clientX + 14;
+    var y = event.clientY + 14;
+    var w = tip.offsetWidth;
+    var h = tip.offsetHeight;
+    if (x + w > window.innerWidth - 8) x = event.clientX - w - 14;
+    if (y + h > window.innerHeight - 8) y = event.clientY - h - 14;
+    tip.style.left = Math.max(8, x) + 'px';
+    tip.style.top = Math.max(8, y) + 'px';
+  }
+  function hideTip() { tip.hidden = true; }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.card[data-help]'), function (card) {
+    var help = card.getAttribute('data-help');
+    card.addEventListener('mousemove', function (event) { showTip(event, [help]); });
+    card.addEventListener('mouseleave', hideTip);
+    card.addEventListener('focus', function () {
+      var box = card.getBoundingClientRect();
+      showTip({ clientX: box.left, clientY: box.bottom - 14 }, [help]);
     });
-    t.appendChild(body);
-    wrap.appendChild(t);
-    return wrap;
-  }
-  function counts(items) {
-    if (!items || !items.length) return el('p', 'empty', 'None');
-    var total = items.reduce(function (a, b) { return a + b.count; }, 0);
-    return table(['Value', 'Count', 'Share'], items.slice(0, 15).map(function (i) { return [i.value, i.count, pct(i.count, total)]; }));
-  }
-  function panel(title, content) {
-    var box = el('div', 'panel');
-    box.appendChild(el('h2', '', title));
-    (Array.isArray(content) ? content : [content]).forEach(function (c) { if (c) box.appendChild(c); });
-    return box;
-  }
-  function sub(title, node) {
-    var box = el('div');
-    box.appendChild(el('h3', '', title));
-    box.appendChild(node);
-    return box;
-  }
-  function entries(object) {
-    return Object.keys(object || {}).map(function (k) { return { value: k, count: object[k] }; });
-  }
-  function pairs(object) {
-    return Object.keys(object).map(function (k) { return [k.replace(/_/g, ' '), object[k]]; });
+    card.addEventListener('blur', hideTip);
+  });
+
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    var p = Math.pow(10, Math.floor(Math.log10(v)));
+    var steps = [1, 2, 2.5, 5, 10];
+    for (var i = 0; i < steps.length; i++) if (steps[i] * p >= v) return steps[i] * p;
+    return 10 * p;
   }
 
-  var ABUSE = {
-    ws_upgrade_accepted: 'WebSocket upgrades accepted by the directory',
-    ws_upgrade_limited: 'WebSocket upgrades refused at the edge',
-    ws_upgrade_ip_cap: 'WebSocket upgrades refused: too many sockets from one address',
-    hello_accepted: 'Sign-ins accepted',
-    hello_limited: 'Sign-ins refused: too many',
-    party_create_accepted: 'Parties created',
-    party_create_limited: 'Party creations refused',
-    party_join_limited: 'Party joins refused',
-    invite_limited: 'Invites refused',
-    friend_request_limited: 'Friend requests refused',
-    telemetry_limited: 'Telemetry batches refused for the account',
-    room_resume_limited: 'Match room reconnects refused',
-    relay_abuse_closed: 'Relay senders or relays closed for abuse'
-  };
+  function frame(width, height, max, pad) {
+    var root = svg('svg', { viewBox: '0 0 ' + width + ' ' + height, role: 'img' });
+    for (var i = 0; i <= 4; i++) {
+      var y = pad.top + (height - pad.top - pad.bottom) * (1 - i / 4);
+      root.appendChild(svg('line', { x1: pad.left, x2: width - pad.right, y1: y, y2: y, 'class': i ? 'gridline' : 'baseline' }));
+      var label = svg('text', { x: pad.left - 6, y: y + 4, 'text-anchor': 'end', 'class': 'axis' });
+      label.textContent = fmt(Math.round(max * i / 4));
+      root.appendChild(label);
+    }
+    return root;
+  }
+
+  var SERIES = [
+    { key: 'online', label: 'Online', cls: 's1', key_cls: 'k1' },
+    { key: 'in_rooms', label: 'In rooms', cls: 's2', key_cls: 'k2' },
+    { key: 'rooms', label: 'Open rooms', cls: 's3', key_cls: 'k3' }
+  ];
+
+  function usageChart(node, history) {
+    clear(node);
+    var samples = history.samples;
+    if (!samples.length) { node.appendChild(el('p', 'empty', 'No samples in this range yet.')); return; }
+    var step = history.sample_ms;
+    var byBucket = {};
+    samples.forEach(function (s) { byBucket[s.bucket] = s; });
+    var start = samples[0].bucket;
+    var end = Math.max(samples[samples.length - 1].bucket, history.generated - (history.generated % step));
+    var points = [];
+    for (var b = start; b <= end; b += step) points.push(byBucket[b] || { bucket: b, online: 0, in_rooms: 0, rooms: 0 });
+    var legend = el('div', 'legend');
+    SERIES.forEach(function (s) {
+      var item = el('span');
+      item.appendChild(el('i', s.key_cls));
+      item.appendChild(document.createTextNode(s.label));
+      legend.appendChild(item);
+    });
+    node.appendChild(legend);
+    var W = 900, H = 260, pad = { top: 10, right: 12, bottom: 26, left: 44 };
+    var max = niceMax(Math.max.apply(null, points.map(function (p) { return Math.max(p.online, p.in_rooms, p.rooms); })));
+    var root = frame(W, H, max, pad);
+    var plotW = W - pad.left - pad.right;
+    var plotH = H - pad.top - pad.bottom;
+    var n = points.length;
+    var xAt = function (i) { return pad.left + (n === 1 ? plotW / 2 : plotW * i / (n - 1)); };
+    var yAt = function (v) { return pad.top + plotH * (1 - v / max); };
+    var ticks = Math.min(6, n);
+    for (var t = 0; t < ticks; t++) {
+      var i = ticks === 1 ? 0 : Math.round((n - 1) * t / (ticks - 1));
+      var label = svg('text', { x: xAt(i), y: H - 8, 'text-anchor': t === 0 ? 'start' : t === ticks - 1 ? 'end' : 'middle', 'class': 'axis' });
+      label.textContent = timeLabel.format(points[i].bucket);
+      root.appendChild(label);
+    }
+    SERIES.slice().reverse().forEach(function (s) {
+      var d = points.map(function (p, i) { return (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yAt(p[s.key]).toFixed(1); }).join('');
+      root.appendChild(svg('path', { d: d, 'class': 'line ' + s.cls }));
+    });
+    var cursor = svg('line', { y1: pad.top, y2: pad.top + plotH, 'class': 'cursor', visibility: 'hidden' });
+    root.appendChild(cursor);
+    var hit = svg('rect', { x: pad.left, y: pad.top, width: plotW, height: plotH, 'class': 'hit' });
+    root.appendChild(hit);
+    hit.addEventListener('mousemove', function (event) {
+      var box = root.getBoundingClientRect();
+      var x = (event.clientX - box.left) * W / box.width;
+      var i = Math.max(0, Math.min(n - 1, Math.round((x - pad.left) / plotW * (n - 1))));
+      cursor.setAttribute('x1', xAt(i));
+      cursor.setAttribute('x2', xAt(i));
+      cursor.setAttribute('visibility', 'visible');
+      var p = points[i];
+      showTip(event, [timeLabel.format(p.bucket)].concat(SERIES.map(function (s) { return s.label + ': ' + fmt(p[s.key]); })));
+    });
+    hit.addEventListener('mouseleave', function () { cursor.setAttribute('visibility', 'hidden'); hideTip(); });
+    node.appendChild(root);
+  }
+
+  function barChart(node, daily, key, metric) {
+    clear(node);
+    var W = 900, H = 200, pad = { top: 22, right: 12, bottom: 26, left: 44 };
+    var labelled = daily.length <= 30;
+    var max = niceMax(Math.max.apply(null, daily.map(function (d) { return d[key]; })));
+    var root = frame(W, H, max, pad);
+    var plotW = W - pad.left - pad.right;
+    var plotH = H - pad.top - pad.bottom;
+    var slot = plotW / daily.length;
+    var gap = Math.min(2, slot * 0.2);
+    daily.forEach(function (d, i) {
+      var h = plotH * d[key] / max;
+      var x = pad.left + slot * i + gap / 2;
+      var w = Math.max(1, slot - gap);
+      if (h > 0) {
+        var r = Math.min(4, w / 2, h);
+        var y = pad.top + plotH - h;
+        var path = 'M' + x + ' ' + (pad.top + plotH) + 'V' + (y + r) + 'Q' + x + ' ' + y + ' ' + (x + r) + ' ' + y +
+          'H' + (x + w - r) + 'Q' + (x + w) + ' ' + y + ' ' + (x + w) + ' ' + (y + r) + 'V' + (pad.top + plotH) + 'Z';
+        root.appendChild(svg('path', { d: path, 'class': 'bar' }));
+        if (labelled) {
+          var value = svg('text', { x: x + w / 2, y: y - 5, 'text-anchor': 'middle', 'class': 'value-label' });
+          value.textContent = fmt(d[key]);
+          root.appendChild(value);
+        }
+      }
+      var hit = svg('rect', { x: pad.left + slot * i, y: pad.top, width: slot, height: plotH, 'class': 'hit' });
+      hit.addEventListener('mousemove', function (event) { showTip(event, [dayText(d.day), metric + ': ' + fmt(d[key])]); });
+      hit.addEventListener('mouseleave', hideTip);
+      root.appendChild(hit);
+    });
+    var ticks = Math.min(6, daily.length);
+    for (var t = 0; t < ticks; t++) {
+      var i = ticks === 1 ? 0 : Math.round((daily.length - 1) * t / (ticks - 1));
+      var label = svg('text', { x: pad.left + slot * (i + 0.5), y: H - 8, 'text-anchor': 'middle', 'class': 'axis' });
+      label.textContent = dayText(daily[i].day);
+      root.appendChild(label);
+    }
+    node.appendChild(root);
+  }
+
+  function rows(node, title, items, name) {
+    var box = el('div', 'dist');
+    box.appendChild(el('h3', '', title));
+    var total = items.reduce(function (a, b) { return a + b.count; }, 0);
+    if (!(total > 0)) {
+      box.appendChild(el('p', 'empty', 'No data yet'));
+      node.appendChild(box);
+      return;
+    }
+    var top = Math.max.apply(null, items.map(function (i) { return i.count; }));
+    items.slice(0, 12).forEach(function (item) {
+      var row = el('div', 'row');
+      var label = name ? name(item.value) : item.value;
+      row.appendChild(el('span', 'name', label)).title = label;
+      var track = el('span', 'track');
+      var fill = el('span', 'fill');
+      fill.style.width = (item.count > 0 ? Math.max(2, 100 * item.count / top) : 0) + '%';
+      track.appendChild(fill);
+      row.appendChild(track);
+      row.appendChild(el('span', 'count', fmt(item.count) + ' · ' + Math.round(100 * item.count / total) + '%'));
+      box.appendChild(row);
+    });
+    if (items.length > 12) box.appendChild(el('p', 'empty', (items.length - 12) + ' more not shown'));
+    node.appendChild(box);
+  }
+
+  function distribution(id, live, range, days, name) {
+    var node = $(id);
+    clear(node);
+    rows(node, 'Now · players online', live, name);
+    rows(node, 'Sessions · last ' + days + ' days', range, name);
+  }
+
+  function table(node, head, body) {
+    clear(node);
+    var thead = el('thead');
+    var tr = el('tr');
+    head.forEach(function (h) { tr.appendChild(el('th', '', h)); });
+    thead.appendChild(tr);
+    node.appendChild(thead);
+    var tbody = el('tbody');
+    body.forEach(function (cells) {
+      var row = el('tr');
+      cells.forEach(function (c) { row.appendChild(typeof c === 'string' ? el('td', '', c) : c); });
+      tbody.appendChild(row);
+    });
+    node.appendChild(tbody);
+  }
+
+  function changeCell(c) {
+    var td = el('td');
+    if (c.change === null) { td.textContent = c.current > 0 ? 'new' : '-'; return td; }
+    var diff = c.current - c.previous;
+    td.className = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+    td.textContent = (diff > 0 ? '+' : '') + fmt(diff) + ' (' + (c.change > 0 ? '+' : '') + c.change + '%)';
+    return td;
+  }
+
+  var COMPARE = [['unique_players', 'Unique players'], ['sessions', 'Sessions'], ['rooms_created', 'Rooms created'], ['room_joins', 'Successful joins'],
+    ['rooms_with_guest', 'Rooms with a guest'], ['peak_online', 'Peak online'], ['peak_in_rooms', 'Peak in rooms']];
+
+  function shiftDay(day, offset) {
+    var date = new Date(day + 'T12:00:00Z');
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function comparison(history) {
+    $('compare-note').textContent = history.first + ' to ' + history.last + ' compared with ' + shiftDay(history.first, -history.days) +
+      ' to ' + shiftDay(history.first, -1) + '.';
+    table($('compare'), ['Metric', 'This period', 'Previous period', 'Change'], COMPARE.map(function (m) {
+      var c = history.comparison[m[0]];
+      return [m[1], fmt(c.current), fmt(c.previous), changeCell(c)];
+    }));
+  }
 
   function card(label, value) {
-    var c = el('div', 'card');
-    c.appendChild(el('span', 'label', label));
-    c.appendChild(el('span', 'value', fmt(value)));
-    return c;
+    var node = el('div', 'card');
+    node.appendChild(el('span', 'label', label));
+    node.appendChild(el('span', 'value', value));
+    return node;
   }
 
-  function latencyTable(latency) {
-    var rows = [];
-    [['all', 'All links'], ['direct', 'Direct'], ['relay', 'Relay']].forEach(function (set) {
-      [['rtt_ms', 'RTT ms'], ['jitter_ms', 'Jitter ms'], ['loss', 'Loss']].forEach(function (metric) {
-        var d = latency[set[0]][metric[0]];
-        rows.push([set[1], metric[1], d.n, d.min, d.p50, d.p90, d.p95, d.p99, d.max]);
-      });
-    });
-    return table(['Set', 'Metric', 'N', 'Min', 'P50', 'P90', 'P95', 'P99', 'Max'], rows);
+  function share(part, whole) { return whole > 0 ? Math.round(100 * part / whole) + '%' : '–'; }
+  function sum(items, names) {
+    return items.reduce(function (a, i) { return names.indexOf(i.value) >= 0 ? a + i.count : a; }, 0);
   }
 
-  function renderDetail(data) {
-    var box = $('detail');
-    clear(box);
-    box.hidden = false;
-    box.appendChild(el('h2', 'mono', 'Session ' + data.diag));
-    data.reporters.forEach(function (r) {
-      var c = r.ctx || {};
-      box.appendChild(el('h3', '', 'Slot ' + r.slot + (c.host ? ' (host)' : '') + ' · ' + (c.platform || '?') + ' ' + (c.version || '?') +
-        ' · ' + (c.os || '?') + ' ' + (c.arch || '') + ' · build ' + (c.fp || '?') + ' · party of ' + (c.party || '?')));
-      box.appendChild(el('p', 'muted', 'First report ' + when(r.first_ms) + ', last ' + when(r.last_ms) + ', ' + fmt(r.batches) +
-        ' batches, ' + fmt(r.events) + ' events, ' + fmt(r.dropped) + ' dropped on the client.'));
-      if (r.session) box.appendChild(table(['Duration ms', 'Test usable', 'Worker', 'STUN', 'Direct', 'Relay', 'Compat', 'Reason'],
-        [[r.session.dur_ms, r.session.ct_usable, r.session.worker, r.session.stun, r.session.direct, r.session.relay,
-          r.session.compat, r.session.reason]]));
-      if (r.peers && r.peers.length) {
-        box.appendChild(table(['To', 'State', 'Transport', 'Direct', 'Relay', 'Fallback', 'Est ms', 'RTT avg', 'Jitter', 'Loss', 'Sent', 'Recv', 'Reason'],
-          r.peers.map(function (p) {
-            return [p.rs, p.state, p.transport, p.direct, p.relay, p.fallback, p.est_ms, p.ping.avg, p.ping.jit, p.ping.loss, p.tx, p.rx, p.reason];
-          })));
-      }
-    });
-    box.appendChild(el('h3', '', 'Events (' + data.events.length + ')'));
-    box.appendChild(table(['Time', 'From', 'Slot', 'Event', 'Fields'], data.events.map(function (e) {
-      var f = Object.keys(e.fields).map(function (k) { return k + '=' + e.fields[k]; }).join(' ');
-      return [when(e.ms), e.src, e.slot || '', e.name + (e.src === 'client' ? ' (t+' + e.t + 's)' : ''), f];
-    })));
-    box.scrollIntoView();
-  }
+  var OCCUPANCY = { '1': '1 player', '2': '2 players', '3': '3 players', '4': '4 players' };
+  var LIFETIME = { under_1m: 'Under 1 minute', '1_5m': '1 to 5 minutes', '5_15m': '5 to 15 minutes', '15_60m': '15 to 60 minutes',
+    over_1h: 'Over 1 hour' };
 
-  function openSession(diag) {
-    api('/admin/telemetry/session?diag=' + encodeURIComponent(diag)).then(renderDetail).catch(function (error) {
-      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
-      $('status').textContent = error && error.message ? error.message : 'Could not load the session.';
+  function ordered(items, order) {
+    return Object.keys(order).map(function (k) {
+      var found = items.filter(function (i) { return i.value === k; })[0];
+      return { value: k, count: found ? found.count : 0 };
     });
   }
 
-  function render(s) {
-    var cards = $('cards');
+  function activity(history) {
+    var t = history.totals;
+    var node = $('activity');
+    clear(node);
+    var without = t.rooms_closed - t.rooms_with_guest;
+    var average = t.rooms_closed > 0 ? (t.party_total / t.rooms_closed).toFixed(2) : '–';
+    node.appendChild(card('Rooms created', fmt(t.rooms_created)));
+    node.appendChild(card('Successful joins', fmt(t.room_joins)));
+    node.appendChild(card('Rooms with a guest', fmt(t.rooms_with_guest) + ' · ' + share(t.rooms_with_guest, t.rooms_closed)));
+    node.appendChild(card('Rooms without a guest', fmt(without) + ' · ' + share(without, t.rooms_closed)));
+    node.appendChild(card('Average largest party', average));
+    var joins = ' Joins are successful room joins, not players: a player entering several rooms counts each time.';
+    $('activity-note').textContent = t.rooms_closed > 0
+      ? 'Last ' + history.days + ' days. Guest shares and the average count rooms that ended (' + fmt(t.rooms_closed) + ').' + joins
+      : 'Room lifecycle statistics begin as rooms end.' + joins;
+    var occ = $('d-occupancy');
+    var life = $('d-lifetime');
+    clear(occ);
+    clear(life);
+    rows(occ, 'Largest party reached', ordered(history.dimensions.occupancy, OCCUPANCY), function (v) { return OCCUPANCY[v]; });
+    rows(life, 'Room lifetime', ordered(history.dimensions.lifetime, LIFETIME), function (v) { return LIFETIME[v]; });
+  }
+
+  var TURTLES = { Leonardo: 'Leonardo', Michelangelo: 'Michelangelo', Raphael: 'Raphael', Donatello: 'Donatello' };
+  var PARTY_SIZE = { '1': '1 player', '2': '2 players', '3': '3 players', '4': '4 players' };
+
+  function total(items) { return items.reduce(function (a, i) { return a + i.count; }, 0); }
+
+  function parties(history) {
+    var d = history.dimensions;
+    var sizes = d.party_size || [];
+    var reports = total(sizes);
+    var since = history.party_first_day || null;
+    var note = $('party-note');
+    var cards = $('party-cards');
     clear(cards);
-    var pairsTotal = s.transport.direct + s.transport.relay + s.transport.failed;
-    [['Parties started', s.totals.parties_started], ['Sessions', s.totals.sessions], ['Batches', s.totals.batches],
-      ['Client events', s.totals.client_events], ['Direct links', s.transport.direct], ['Relayed links', s.transport.relay],
-      ['Online now', s.live ? s.live.online : null], ['Parties now', s.live ? s.live.parties : null]]
-      .forEach(function (c) { cards.appendChild(card(c[0], c[1])); });
+    if (reports > 0) {
+      var seats = sizes.reduce(function (a, i) { return a + Number(i.value) * i.count; }, 0);
+      cards.appendChild(card('Parties reported', fmt(reports)));
+      cards.appendChild(card('Average party size', (seats / reports).toFixed(2)));
+      note.textContent = 'Last ' + history.days + ' days.' + (since ? ' Reporting began on ' + since + '; earlier rooms are not part of these counts.' : '');
+    } else if (since) {
+      note.textContent = 'No data yet in the last ' + history.days + ' days. The first party snapshot was reported on ' + since + '.';
+    } else {
+      note.textContent = 'No data yet. No game version has reported party snapshots to this service.';
+    }
+    var characters = $('d-character');
+    var hosts = $('d-host');
+    var size = $('d-party-size');
+    var compositions = $('d-composition');
+    [characters, hosts, size, compositions].forEach(clear);
+    rows(characters, 'Turtles in parties', ordered(d.character || [], TURTLES));
+    rows(hosts, 'Host turtle', ordered(d.host_character || [], TURTLES));
+    rows(size, 'Party size', ordered(sizes, PARTY_SIZE), function (v) { return PARTY_SIZE[v]; });
+    rows(compositions, 'Most common compositions · top 12', d.party_composition || [], function (v) { return v.split('+').join(' + '); });
+  }
 
-    var out = $('out');
-    clear(out);
-    var g1 = el('div', 'grid');
-    g1.appendChild(panel('Sessions by platform', counts(s.sessions_by.platform)));
-    g1.appendChild(panel('Sessions by port version', counts(s.sessions_by.version)));
-    g1.appendChild(panel('Sessions by OS', counts(s.sessions_by.os)));
-    g1.appendChild(panel('Sessions by protocol', counts(s.sessions_by.proto)));
-    out.appendChild(g1);
+  function health(history) {
+    var t = history.totals;
+    var abuseCounts = history.dimensions.abuse;
+    var node = $('health');
+    clear(node);
+    node.appendChild(card('Reconnects not counted as sessions', fmt(sum(abuseCounts, ['hello_reconnect_deduped']))));
+    node.appendChild(card('Incompatibility rejects', fmt(t.incompatible_rejects)));
+    node.appendChild(card('Rooms that used the relay', fmt(t.rooms_relayed) + ' · ' + share(t.rooms_relayed, t.rooms_closed)));
+    node.appendChild(card('Room operations refused', fmt(sum(abuseCounts, ['party_create_limited', 'party_join_limited']))));
+  }
 
-    out.appendChild(panel('Transport mix', [
-      table(['Pairs', 'Direct', 'Relay', 'Failed', 'Pending', 'Direct share', 'Relay share'],
-        [[s.transport.pairs, s.transport.direct, s.transport.relay, s.transport.failed, s.transport.pending,
-          pct(s.transport.direct, pairsTotal), pct(s.transport.relay, pairsTotal)]]),
-      sub('Chosen (client events)', counts(s.selected))
-    ]));
-    out.appendChild(panel('Latency percentiles (per peer link)', latencyTable(s.latency)));
+  function dailyTable(daily) {
+    var table = $('daily');
+    clear(table);
+    var cols = [['day', 'Day'], ['sessions', 'Sessions'], ['unique_players', 'Unique players'], ['peak_online', 'Peak online'], ['peak_in_rooms', 'Peak in rooms'],
+      ['peak_rooms', 'Peak rooms'], ['rooms_created', 'Rooms created'], ['room_joins', 'Joins'], ['rooms_with_guest', 'With guest'],
+      ['rooms_relayed', 'Relay rooms'], ['incompatible_rejects', 'Rejects']];
+    var head = el('tr');
+    cols.forEach(function (c) { head.appendChild(el('th', '', c[1])); });
+    var thead = el('thead');
+    thead.appendChild(head);
+    table.appendChild(thead);
+    var body = el('tbody');
+    daily.slice().reverse().forEach(function (d) {
+      var tr = el('tr');
+      cols.forEach(function (c) { tr.appendChild(el('td', '', c[0] === 'day' ? d.day : fmt(d[c[0]]))); });
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+  }
 
-    var g2 = el('div', 'grid');
-    g2.appendChild(panel('Direct results', counts(s.direct_results)));
-    g2.appendChild(panel('Relay results', counts(s.relay_results)));
-    out.appendChild(g2);
+  function rejects(history) {
+    var node = $('rejects');
+    clear(node);
+    node.appendChild(el('p', 'muted', fmt(history.totals.incompatible_rejects) + ' operations refused as incompatible in the last ' +
+      history.days + ' days, at most once per reason and account or address per 10 minutes.'));
+    rows(node, 'By reason', history.dimensions.reject, function (v) { return REJECTS[v] || v; });
+  }
 
-    var rs = s.reasons;
-    var g2b = el('div', 'grid');
-    g2b.appendChild(panel('Fallback / path reasons', counts(entries(rs.fallback))));
-    g2b.appendChild(panel('Disconnect reasons', counts(entries(rs.disconnect))));
-    g2b.appendChild(panel('Invite outcomes', counts(entries(rs.invite))));
-    g2b.appendChild(panel('Service errors', counts(entries(rs.service))));
-    g2b.appendChild(panel('Connection Test failures', counts(entries(rs.connection_test))));
-    g2b.appendChild(panel('Other (not in the shared list)', table(['Item', 'Count'], [['other', rs.other], ['unknown values seen', s.totals.unknown_reasons]])));
-    out.appendChild(g2b);
+  function abuse(history) {
+    var node = $('abuse');
+    clear(node);
+    var items = history.dimensions.abuse;
+    node.appendChild(el('p', 'muted', 'Counts over the last ' + history.days + ' days, written about every 5 minutes.'));
+    if (!items.length) node.appendChild(el('p', 'empty', 'None'));
+    var table = el('table');
+    var body = el('tbody');
+    items.forEach(function (item) {
+      var tr = el('tr');
+      tr.appendChild(el('td', '', ABUSE[item.value] || item.value));
+      tr.appendChild(el('td', '', fmt(item.count)));
+      body.appendChild(tr);
+    });
+    table.appendChild(body);
+    node.appendChild(table);
+  }
 
-    out.appendChild(panel('Invites', [
-      table(['Sent', 'Accepted', 'Declined', 'Expired', 'Fifth member rejected'],
-        [[s.invites.sent, s.invites.accepted, s.invites.declined, s.invites.expired, s.invites.party_full]]),
-      sub('Other endings', counts(s.invites.ended_other)),
-      sub('Failures seen by clients', counts(s.invites.client_failed))
-    ]));
-    var cb = s.connection_beacon;
-    var lat = cb.latency_ms;
-    out.appendChild(panel('Connection Tests', [
-      table(['Tests', 'Usable', 'Usable share', 'Unusable', 'Direct possible', 'Relay possible', 'Median ms', 'P90 ms'],
-        [[cb.total, cb.usable, pct(cb.usable, cb.total), cb.unusable, cb.direct_available, cb.relay_available, lat.p50, lat.p90]]),
-      sub('Failures', counts(cb.failures)),
-      sub('Worker', counts(cb.worker)),
-      sub('WebSocket', counts(cb.ws)),
-      sub('STUN', counts(cb.stun)),
-      sub('Router', counts(cb.router)),
-      sub('Platform', counts(cb.platform)),
-      sub('Version', counts(cb.version))
-    ]));
-    var ct = s.connection_tests;
-    out.appendChild(panel('Connection tests (session reports)', [
-      table(['Reports', 'Usable', 'Worker reachable', 'STUN ok', 'Direct possible', 'Relay possible'],
-        [[ct.reports, ct.usable, ct.worker_reachable, ct.stun_ok, ct.direct_available, ct.relay_available]]),
-      sub('Compatibility', counts(ct.compatibility))
-    ]));
-
-    var sv = s.server;
-    var g3 = el('div', 'grid');
-    g3.appendChild(panel('Worker: party ended', counts(sv.party_ended)));
-    g3.appendChild(panel('Worker: member left', counts(sv.member_left)));
-    g3.appendChild(panel('Worker: room left', counts(sv.room_left)));
-    g3.appendChild(panel('Worker: room ended', counts(sv.room_ended)));
-    g3.appendChild(panel('Worker: room transport', counts(sv.room_transport)));
-    g3.appendChild(panel('Worker: relay closed', counts(sv.relay_closed)));
-    g3.appendChild(panel('Worker: rate limited', counts(sv.rate_limited)));
-    g3.appendChild(panel('Rejected telemetry batches', counts(s.rejected_batches)));
-    out.appendChild(g3);
-    var abuse = s.abuse || [];
-    out.appendChild(panel('Abuse protection (aggregate counts)', abuse.length ? table(['Counter', 'Count'],
-      abuse.map(function (a) { return [ABUSE[a.value] || a.value, a.count]; })) : el('p', 'empty', 'None')));
-    out.appendChild(panel('Worker totals', table(['Item', 'Count'], pairs({ parties_started: sv.parties_started,
-      parties_reaching_4_of_4: sv.parties_reached_4 + ' (' + pct(sv.parties_reached_4, sv.parties_started) + ')',
-      host_disconnects: sv.host_disconnects, guest_disconnects: sv.guest_disconnects, member_joined: sv.member_joined,
-      room_joined: sv.room_joined, room_peer_lost: sv.room_peer_lost, fifth_member_rejected: sv.fifth_member_rejected,
-      ignored_client_events: s.totals.ignored_events, duplicate_events: s.totals.duplicate_events,
-      lobby_sessions: s.totals.lobby_sessions, redacted_values: s.totals.redacted_values,
-      dropped_on_clients: s.totals.client_dropped }))));
-    out.appendChild(panel('Client events', counts(s.client_events)));
-
-    var recent = s.recent_sessions;
-    out.appendChild(panel('Recent sessions', recent.length ? table(['Diag', 'Last seen', 'Reporters', 'Events', 'Platforms', 'Ended'],
-      recent.map(function (r) { return [r.diag, when(r.last_ms), r.reporters, r.events, r.platforms.join(', '), r.ended]; }),
-      function (td, cell, i) {
-        if (i !== 0) return false;
-        var b = el('button', 'link', cell);
-        b.type = 'button';
-        b.addEventListener('click', function () { openSession(cell); });
-        td.appendChild(b);
-        return true;
-      }) : el('p', 'empty', 'None yet')));
-
-    $('status').textContent = 'Updated ' + when(s.generated) + '; ' + fmt(s.stored.events) + ' events and ' + fmt(s.stored.sessions) + ' reports stored.';
+  function render(summary, history) {
+    $('c-online').textContent = fmt(summary.live.online);
+    $('c-in-rooms').textContent = fmt(summary.live.in_rooms);
+    $('c-rooms').textContent = fmt(summary.live.rooms);
+    $('c-peak').textContent = fmt(summary.today.peak_online);
+    $('c-unique-today').textContent = fmt(summary.today.unique_players);
+    $('c-unique-range-label').textContent = 'Unique players · ' + history.days + ' days';
+    $('c-unique-range').textContent = fmt(history.totals.unique_players);
+    $('c-sessions').textContent = fmt(summary.today.sessions);
+    $('c-rooms-today').textContent = fmt(summary.today.rooms_created);
+    $('c-joins-today').textContent = fmt(summary.today.room_joins);
+    comparison(history);
+    activity(history);
+    parties(history);
+    health(history);
+    usageChart($('usage'), history);
+    barChart($('h-sessions'), history.daily, 'sessions', 'Sessions');
+    barChart($('h-unique'), history.daily, 'unique_players', 'Unique players');
+    barChart($('h-rooms'), history.daily, 'rooms_created', 'Rooms created');
+    barChart($('h-joins'), history.daily, 'room_joins', 'Successful joins');
+    barChart($('h-peak-online'), history.daily, 'peak_online', 'Peak online');
+    barChart($('h-peak-rooms'), history.daily, 'peak_in_rooms', 'Peak in rooms');
+    distribution('d-platform', summary.live.platform, history.dimensions.platform, history.days);
+    distribution('d-version', summary.live.version, history.dimensions.version, history.days,
+      function (v) { return /^[0-9]/.test(v) ? 'v' + v : v; });
+    distribution('d-country', summary.live.country, history.dimensions.country, history.days, countryText);
+    dailyTable(history.daily);
+    rejects(history);
+    abuse(history);
+    $('status').textContent = 'Updated ' + timeLabel.format(summary.generated) + ' (Sao Paulo)';
   }
 
   function load() {
-    $('status').textContent = 'Loading...';
-    return api('/admin/telemetry/summary?days=' + encodeURIComponent($('range').value)).then(render).catch(function (error) {
-      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
-      $('status').textContent = error && error.message ? error.message : 'Could not load the telemetry.';
-    });
+    var days = $('range').value;
+    $('status').textContent = 'Loading…';
+    return Promise.all([api('/admin/api/summary'), api('/admin/api/history?days=' + encodeURIComponent(days))])
+      .then(function (r) { render(r[0], r[1]); })
+      .catch(function (error) {
+        if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
+        $('status').textContent = error && error.message ? error.message : 'Could not load the metrics.';
+      });
   }
+
   function showDashboard() {
     $('login').hidden = true;
     $('dash').hidden = false;
@@ -404,6 +781,7 @@ const JS = String.raw`(function () {
     if (timer) clearInterval(timer);
     timer = setInterval(function () { if (!document.hidden) load(); }, 60000);
   }
+
   function signOut(message) {
     token = '';
     storeToken('');
@@ -428,6 +806,7 @@ const JS = String.raw`(function () {
   $('refresh').addEventListener('click', load);
   $('range').addEventListener('change', load);
   $('signout').addEventListener('click', function () { signOut(''); });
+
   token = storedToken();
   if (token) { $('remember').checked = true; showDashboard(); }
 }());

@@ -6,6 +6,8 @@
 #include <string_view>
 #include <vector>
 
+#include "online/party_report.h"
+
 namespace tmnt::online {
 
 inline constexpr int kLobbyProtocol = 4;
@@ -229,6 +231,7 @@ std::string EncodePlayerMatchJoin(int seq, const std::string& session);
 std::string EncodePartyCreate(int seq);
 std::string EncodePartyLeave(int seq);
 std::string EncodePartyKick(int seq, const std::string& player);
+std::string EncodePartyReport(int seq, const PartySnapshot& snapshot);
 std::string EncodeInviteSend(int seq, const std::string& player);
 std::string EncodeInviteAccept(int seq, const std::string& invite);
 std::string EncodeInviteDecline(int seq, const std::string& invite);

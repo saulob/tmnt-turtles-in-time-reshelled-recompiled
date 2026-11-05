@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,8 @@ REXCVAR_DEFINE_BOOL(tmnt_online_ping_display, tmnt::kDefaultOnlinePing, "TMNT",
 REXCVAR_DEFINE_STRING(tmnt_online_connection_test, "", "TMNT",
                       "UDP configuration of the last Connection test finished with Online play on, written by the "
                       "launcher; empty: none since Online play was turned on");
+REXCVAR_DEFINE_INT32(tmnt_online_party_snapshot, 0, "TMNT",
+                     "Encoded turtles of the last match start, written by the character select hook in TMNT_r");
 
 namespace tmnt {
 namespace {
@@ -97,6 +100,16 @@ online::ServiceConfig MakeConfig() {
   return config;
 }
 
+void ForwardPartySnapshot() {
+  static int32_t forwarded = 0;
+  const int32_t encoded = REXCVAR_GET(tmnt_online_party_snapshot);
+  if (encoded == forwarded) return;
+  forwarded = encoded;
+  if (const std::optional<online::PartySnapshot> snapshot = online::DecodePartySnapshot(encoded)) {
+    Online().NotePartySnapshot(*snapshot);
+  }
+}
+
 online::UserSettings SavedSettings() {
   online::UserSettings settings;
   settings.enabled = REXCVAR_GET(tmnt_online_enabled);
@@ -137,6 +150,7 @@ void PumpOnlineService() {
     REXLOG_INFO("DEBUG_SAULO udp socket at game start open={} bound_in_game={}", g_game_socket.is_open(),
                 g_socket_bound_in_game);
   }
+  ForwardPartySnapshot();
   TickOnline(settings);
   const bool signed_in = Online().SignedIn();
   if (signed_in != g_runtime_signed_in) {

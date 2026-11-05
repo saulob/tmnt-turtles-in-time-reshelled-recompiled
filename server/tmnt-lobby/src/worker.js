@@ -7,7 +7,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 import { handleAdmin, isAdminPath } from './admin.js';
 import { BEACON_PATH, BeaconGate, beaconQuery, handleBeacon, parseBeacon } from './beacon.js';
-import { handleUpgrade, limitedCount } from './edge.js';
+import { COUNTRY_HEADER, handleUpgrade, limitedCount } from './edge.js';
 import { Hub } from './hub.js';
 import { LIMITS, PROTOCOL, RELAY, SERVICE, WORKER_BUILD } from './protocol.js';
 import { MatchRoom } from './room.js';
@@ -79,14 +79,14 @@ export class TMNTLobby extends DurableObject {
         log: (text) => console.log(text),
         room: (id, method, ...args) =>
           oneWay(ctx, () => env.MATCH.get(env.MATCH.idFromName(id))[method](...args), `room ${method}`),
-      }, { alarmAt: await ctx.storage.getAlarm() });
+      }, { alarmAt: await ctx.storage.getAlarm(), metricsSecret: env.METRICS_SECRET });
     });
   }
 
   async fetch(request) {
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return this.telemetryRoute(request);
     this.hub.edgeLimited(limitedCount(request.headers));
-    const first = this.hub.admit(request.headers.get('CF-Connecting-IP') ?? '');
+    const first = this.hub.admit(request.headers.get('CF-Connecting-IP') ?? '', request.headers.get(COUNTRY_HEADER) ?? '');
     if (!first) return new Response('Too many connections from this address', { status: 429 });
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
@@ -106,6 +106,8 @@ export class TMNTLobby extends DurableObject {
         this.hub.telemetryBeacon(beacon);
         return new Response(null, { status: 204 });
       }
+      if (url.pathname === '/metrics/summary') return Response.json(this.hub.metricsSummary());
+      if (url.pathname === '/metrics/history') return Response.json(this.hub.metricsHistory(Number(url.searchParams.get('days'))));
       if (url.pathname === '/telemetry/session') {
         const found = this.hub.telemetrySession(url.searchParams.get('diag') ?? '');
         return found ? Response.json(found) : Response.json({ error: 'not_found' }, { status: 404 });
@@ -268,6 +270,8 @@ export default {
       return handleAdmin(request, env, {
         summary: (days) => read(`/telemetry/summary?days=${days}`),
         session: (diag) => read(`/telemetry/session?diag=${diag}`),
+        metricsSummary: () => read('/metrics/summary'),
+        metricsHistory: (days) => read(`/metrics/history?days=${days}`),
       }, (text) => console.log(text));
     }
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {

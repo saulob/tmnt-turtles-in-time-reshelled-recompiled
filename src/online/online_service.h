@@ -197,6 +197,8 @@ class OnlineService {
   std::optional<NetplayAssignment> Assignment(int slot) const;
   // The game called XSessionStart: telemetry follows whether every other member then exchanges game traffic.
   void NoteGameStart();
+  // The game committed the party's turtles to a match; best effort, sent from Update by the party's host only.
+  void NotePartySnapshot(const PartySnapshot& snapshot);
   const std::string& url() const { return config_.url; }
 
  private:
@@ -205,7 +207,7 @@ class OnlineService {
   enum class Purpose {
     kHello, kFriends, kRequests, kAdd, kAccept, kDecline, kRemove, kPlayerMatchHost, kPlayerMatchCancel,
     kPlayerMatchSearch, kPlayerMatchJoin, kPartyCreate, kPartyLeave, kPartyKick, kInviteSend, kInviteAccept,
-    kInviteDecline, kRoomHello, kTelemetry
+    kInviteDecline, kRoomHello, kTelemetry, kPartyReport
   };
   struct Pending {
     Purpose purpose = Purpose::kHello;
@@ -267,6 +269,7 @@ class OnlineService {
   TelemetryContext MakeContext(const std::string& diag, int slot, int party_size) const;
   void RestoreInflightTelemetry();
   void UpdateGameStart(double now);
+  void PumpPartyReport();
   void FinishGameStart(const std::string& reason);
   void SendTestBeacon(const ConnectionReport& report);
   void DropAcceptedInviteLocked(const std::string& reason);
@@ -365,6 +368,7 @@ class OnlineService {
     bool active = false;
     double since = 0;
   } game_start_;
+  PartyReporter party_reporter_;
   double party_started_ = 0;
 
   struct TestState;

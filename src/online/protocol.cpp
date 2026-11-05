@@ -364,6 +364,11 @@ std::string EncodeHello(int seq, const HelloFields& hello) {
 }
 
 std::string EncodePing(int seq) { return Envelope("ping", seq); }
+std::string EncodePartyReport(int seq, const PartySnapshot& snapshot) {
+  std::string characters;
+  for (int i = 0; i < snapshot.size; ++i) characters += (i ? "," : "") + std::to_string(snapshot.characters[size_t(i)]);
+  return Envelope("party.report", seq, ",\"characters\":[" + characters + "],\"host\":" + std::to_string(snapshot.host));
+}
 std::string EncodeFriendsList(int seq) { return Envelope("friends.list", seq); }
 std::string EncodeFriendsRequests(int seq) { return Envelope("friends.requests", seq); }
 std::string EncodeFriendsAdd(int seq, const std::string& code) { return Envelope("friends.add", seq, ",\"code\":" + Quote(code)); }

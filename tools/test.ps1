@@ -4,27 +4,36 @@
   build. Prints one PASS, FAIL or NOT RUN line per check and a summary; exits 1 when a check fails.
 
 .DESCRIPTION
-  Checks the ReXGlue patch manifest against the patch files, the names and the documentation, and that both platform
-  series apply to the pinned SDK source; the Windows and Linux packaging scripts, the AppImage inputs (desktop file,
+  Checks the ReXGlue patch manifest against the patch files, the names and the documentation, that both platform
+  series apply to the pinned SDK source, and the audio client teardown of patch 0086 (a threaded regression test and a
+  syntax check of the patched source, compile only); the Windows and Linux packaging scripts, the AppImage inputs (desktop file,
   icons, licenses, FUSE-fallback runtime pins), the glibc baseline logic, the release check, and the repository for
-  temporary markers, local paths, game data and player data. Nothing is built, launched or published.
+  temporary markers, local paths, game data and player data. Nothing is linked into the game, launched or published.
 
-  -SdkRepo (or REXGLUE_SDK_REPO) is a clone of the official ReXGlue repository; without it the patch apply check is
-  NOT RUN. -CppTests <build folder> additionally builds the tmnt_runtime_tests target there (a configured build) and
-  runs every test program; without it that check is NOT RUN. Everything else is static.
+  -SdkRepo (or REXGLUE_SDK_REPO) is a clone of the official ReXGlue repository with its submodules; by default it is
+  out\rexglue-sdk-src, which tools\build-patched-rexruntime.ps1 creates. Without one the checks that need the SDK source
+  are NOT RUN. -CppTests <build folder> additionally builds the tmnt_runtime_tests target there (a configured build) and
+  runs every test program; without it that check is NOT RUN.
+
+  -Release is the final gate: the temporary DEBUG_SAULO diagnostics listed in $TemporaryMarkers fail it. Without it they
+  are reported and only the exact listed files, up to the listed counts, are accepted.
 
 .EXAMPLE
   .\tools\test.ps1
+  .\tools\test.ps1 -Release
   .\tools\test.ps1 -SdkRepo S:\path\to\rexglue-sdk
 #>
 [CmdletBinding()]
 param(
     [string]$SdkRepo = $env:REXGLUE_SDK_REPO,
-    [string]$CppTests
+    [string]$CppTests,
+    [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path $PSScriptRoot -Parent
+if (-not $SdkRepo) { $SdkRepo = Join-Path $Root 'out\rexglue-sdk-src' }
+$SdkHelp = "$SdkRepo is missing or incomplete: run tools\build-patched-rexruntime.ps1 (tools\build.ps1 does when needed), or pass -SdkRepo or set REXGLUE_SDK_REPO"
 $PatchDir = Join-Path $Root 'patches\rexglue-sdk'
 $Results = [System.Collections.Generic.List[object]]::new()
 $PowerShellHost = (Get-Process -Id $PID).Path
@@ -137,38 +146,74 @@ Invoke-Check 'patch docs: docs/rexglue-runtime-patch.md covers every patch with 
     $problems
 }
 
-Invoke-Check 'patch apply: the Windows and Linux series apply to the pinned SDK source in order' {
+$AudioPatch = '0086-audio-unregister-waits-for-callback.patch'
+$HostPlatform = if ($IsLinux) { 'linux' } else { 'windows' }
+$PatchSeries = @{}
+$PatchedSdk = $null
+
+Invoke-Check 'ReXGlue patch stack: the Windows and Linux series apply to the pinned SDK source in order' {
     $baseline = @{}
     foreach ($line in Get-Content -LiteralPath (Join-Path $PatchDir 'baseline.env')) { if ($line -match '^([A-Z0-9_]+)=(.*)$') { $baseline[$Matches[1]] = $Matches[2] } }
     if ($baseline['SDK_COMMIT'] -notmatch '^[0-9a-f]{40}$') { return 'baseline.env has no SDK_COMMIT' }
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
-    if (-not $SdkRepo -or -not (Test-Path -LiteralPath $SdkRepo)) { return 'NOT RUN: pass -SdkRepo (a clone of the official ReXGlue repository) or set REXGLUE_SDK_REPO' }
+    if (-not (Test-Path -LiteralPath $SdkRepo)) { return "NOT RUN: $SdkHelp" }
     & git -C $SdkRepo cat-file -e "$($baseline['SDK_COMMIT'])^{commit}" 2>$null
-    if ($LASTEXITCODE) { return "NOT RUN: $SdkRepo does not hold commit $($baseline['SDK_COMMIT'])" }
+    if ($LASTEXITCODE) { return "NOT RUN: $SdkRepo does not hold commit $($baseline['SDK_COMMIT']). $SdkHelp" }
     if (-not (Get-Command tar -ErrorAction SilentlyContinue)) { return 'NOT RUN: tar is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
     foreach ($platform in 'windows', 'linux') {
         $work = Join-Path ([IO.Path]::GetTempPath()) "tmnt_patch_apply_$platform"
         if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
         New-Item -ItemType Directory $work | Out-Null
+        $keep = $false
         try {
             $archive = Join-Path $work 'sdk.tar'
             & git -C $SdkRepo archive --format=tar -o $archive $baseline['SDK_COMMIT']
             $tree = Join-Path $work 'tree'
             New-Item -ItemType Directory $tree | Out-Null
-            & tar -xf $archive -C $tree
+            # Relative: MSYS tar reads the drive colon of an absolute path as a remote host.
+            Push-Location $work
+            try { & tar -xf 'sdk.tar' -C 'tree' 2>&1 | Out-Null; $extracted = $LASTEXITCODE } finally { Pop-Location }
+            if ($extracted) { $problems.Add("tar could not extract the SDK source for the $platform series"); continue }
             & git -C $tree init -q
             $other = if ($platform -eq 'windows') { 'linux' } else { 'windows' }
             $names = [string[]]@(Get-ChildItem -LiteralPath $PatchDir -Filter '*.patch' -File | Where-Object { $_.Name -notlike "*.$other.patch" } | ForEach-Object Name)
             [Array]::Sort($names, [StringComparer]::Ordinal)
+            $series = @{ Applied = 0; Failed = $null; Count = $names.Count }
             foreach ($name in $names) {
                 & git -C $tree apply --whitespace=nowarn (Join-Path $PatchDir $name) 2>&1 | Out-Null
-                if ($LASTEXITCODE) { $problems.Add("$name does not apply on the $platform series"); break }
+                if ($LASTEXITCODE) { $series.Failed = $name; break }
+                $series.Applied++
             }
-            Write-Host "   $platform series: $($names.Count) patches"
+            $PatchSeries[$platform] = $series
+            if ($series.Failed -and $series.Failed -ne $AudioPatch) { $problems.Add("patch sequence: $($series.Failed) does not apply on the $platform series") }
+            elseif ($series.Failed) { $problems.Add("$AudioPatch does not apply on the $platform series after the patches before it") }
+            Write-Host "   $platform series: $($series.Applied) of $($names.Count) patches"
+            if ($platform -eq $HostPlatform -and -not $series.Failed) {
+                $script:PatchedSdk = $tree
+                $keep = $true
+            }
         } finally {
-            Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not $keep) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
         }
+    }
+    $problems
+}
+
+Invoke-Check 'Audio unregister patch: 0086 is listed once, in order, and applies after the patches before it' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    if (-not (Test-Path -LiteralPath (Join-Path $PatchDir $AudioPatch))) { $problems.Add("$AudioPatch does not exist") }
+    $listed = @(Read-PatchManifest | ForEach-Object { $_.Fields[0] })
+    $rows = @($listed | Where-Object { $_ -eq $AudioPatch })
+    if ($rows.Count -ne 1) { $problems.Add("patches.txt lists $AudioPatch $($rows.Count) times, expected once") }
+    $at = [Array]::IndexOf([string[]]$listed, $AudioPatch)
+    if ($at -ge 1 -and $listed[$at - 1] -notlike '0085-*') { $problems.Add("patches.txt lists $($listed[$at - 1]) right before $AudioPatch, expected 0085") }
+    if ($problems.Count) { return $problems }
+    if (-not $PatchSeries.Count) { return 'NOT RUN: the patch stack check did not run' }
+    foreach ($platform in $PatchSeries.Keys) {
+        $failed = $PatchSeries[$platform].Failed
+        if ($failed -eq $AudioPatch) { $problems.Add("$AudioPatch does not apply on the $platform series") }
+        elseif ($failed) { $problems.Add("$AudioPatch was not reached on the $platform series: $failed failed first") }
     }
     $problems
 }
@@ -419,9 +464,22 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
     $problems
 }
 
+# Temporary diagnostics of the current development branch, with how many markers each file may hold: remove a row when
+# its file is clean. -Release accepts none of them.
+$TemporaryMarkers = @{
+    'patches/rexglue-sdk/0086-audio-unregister-waits-for-callback.patch' = 3
+    'src/frame_block_sampler.cpp' = 1
+    'src/frame_block_sampler.h' = 2
+    'src/frame_trace.cpp' = 8
+    'src/frame_trace.h' = 3
+    'src/live_hooks_tmnt_r.cpp' = 8
+    'src/lobby_trace_hook.cpp' = 4
+}
+
 Invoke-Check 'hygiene: no temporary markers or local absolute paths in the project files' {
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
+    $temporary = [System.Collections.Generic.List[string]]::new()
     $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$', '^src/(online|netplay)/', '^src/(online_|clipboard|friend_code_field|player_match)[^/]*$'
     $localPath = ('S:\\+VisualStudio', 'C:\\+Users', '/Users/[A-Za-z]', 'scratchpad', 'AppData[\\/]Local[\\/]Temp') -join '|'
     foreach ($file in $ProjectFiles) {
@@ -431,9 +489,18 @@ Invoke-Check 'hygiene: no temporary markers or local absolute paths in the proje
         $path = Join-Root $normalized
         if (-not (Test-Path -LiteralPath $path)) { continue }
         $text = [IO.File]::ReadAllText($path)
-        if ($text.Contains('DEBUG_SAULO') -and -not ($markerAllowed | Where-Object { $normalized -match $_ })) { $problems.Add("$normalized has a DEBUG_SAULO marker") }
+        if ($text.Contains('DEBUG_SAULO') -and -not ($markerAllowed | Where-Object { $normalized -match $_ })) {
+            $markers = [regex]::Matches($text, 'DEBUG_SAULO').Count
+            if ($Release -or -not $TemporaryMarkers.ContainsKey($normalized)) { $problems.Add("$normalized has a DEBUG_SAULO marker") }
+            elseif ($markers -gt $TemporaryMarkers[$normalized]) { $problems.Add("$normalized has $markers DEBUG_SAULO markers, $($TemporaryMarkers[$normalized]) are listed") }
+            else { $temporary.Add($normalized) }
+        }
         if ($normalized -notlike 'tests/*' -and $text -match $localPath) { $problems.Add("$normalized names a local path") }
         if ($normalized -notlike 'tests/*' -and $normalized -notlike 'patches/*' -and $text -match '(?m)^\s*(//|#)\s*TODO\b') { $problems.Add("$normalized has a TODO") }
+    }
+    if (-not $Release) {
+        foreach ($listed in $TemporaryMarkers.Keys) { if ($listed -notin $temporary) { $problems.Add("$listed has no DEBUG_SAULO marker left: remove it from `$TemporaryMarkers") } }
+        $script:TemporaryMarkerFiles = $temporary.Count
     }
     $problems
 }
@@ -501,6 +568,81 @@ Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every test program (-C
     $problems
 }
 
+# ---- Audio client teardown (patch 0086) --------------------------------------------------------------------------------
+
+function Find-CppCompiler {
+    foreach ($name in 'clang++-20', 'clang++') {
+        $found = Get-Command $name -ErrorAction SilentlyContinue
+        if ($found) { return $found.Source }
+    }
+    if ($IsLinux) { return $null }
+    . (Join-Path $PSScriptRoot 'rexruntime-patch.ps1')
+    try { $clang = Join-Path (Get-VisualStudioRoot) 'VC\Tools\Llvm\x64\bin\clang++.exe' } catch { return $null }
+    if (Test-Path -LiteralPath $clang) { return $clang }
+    return $null
+}
+
+# Paths and quoted defines go through a response file so every PowerShell version passes them unchanged.
+function Invoke-Compiler([string]$Compiler, [string[]]$Arguments, [string]$ResponseFile) {
+    $quoted = $Arguments | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '\\', '/' -replace '"', '\"') + '"' } else { $_ -replace '\\', '/' } }
+    [IO.File]::WriteAllLines($ResponseFile, [string[]]$quoted)
+    $output = & $Compiler "@$ResponseFile" 2>&1
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Output = @($output | ForEach-Object { "$_" }) }
+}
+
+$CppCompiler = Find-CppCompiler
+$CompilerHelp = 'NOT RUN: no clang++ found (on Windows: Visual Studio with the C++ Clang tools; on Linux: clang++-20)'
+
+Invoke-Check 'Audio teardown regression: tests/audio_client_teardown_tests.cpp, threaded, standalone' {
+    if (-not $CppCompiler) { return $CompilerHelp }
+    $work = Join-Path ([IO.Path]::GetTempPath()) 'tmnt_audio_teardown_test'
+    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    New-Item -ItemType Directory $work | Out-Null
+    try {
+        $program = Join-Path $work $(if ($IsLinux) { 'audio_teardown' } else { 'audio_teardown.exe' })
+        $arguments = @('-std=c++20', '-O1', '-pthread', "-DTMNT_PATCH_DIR=`"$($PatchDir -replace '\\', '/')`"",
+            (Join-Root 'tests\audio_client_teardown_tests.cpp'), '-o', $program)
+        $compiled = Invoke-Compiler $CppCompiler $arguments (Join-Path $work 'build.rsp')
+        if ($compiled.Code) { return @('compile failed') + @($compiled.Output | Select-Object -First 8) }
+        $log = Join-Path $work 'output.txt'
+        $run = Start-Process -FilePath $program -NoNewWindow -PassThru -RedirectStandardOutput $log
+        [void]$run.Handle
+        if (-not $run.WaitForExit(60000)) {
+            Stop-Process -Id $run.Id -Force -ErrorAction SilentlyContinue
+            return 'the regression test did not finish within 60 s: a teardown wait is stuck'
+        }
+        $lines = @(Get-Content -LiteralPath $log)
+        if ($run.ExitCode) { return @("the regression test failed ($($run.ExitCode))") + @($lines | Select-Object -Last 8) }
+        Write-Host "   $($lines | Select-Object -Last 1)"
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Invoke-Check 'Patched AudioSystem syntax: audio_system.cpp with the whole patch stack, compile only' {
+    $tree = $PatchedSdk
+    try {
+        if (-not $CppCompiler) { return $CompilerHelp }
+        if (-not $tree) { return 'NOT RUN: the patch stack did not produce a patched source tree' }
+        $thirdparty = Join-Path $SdkRepo 'thirdparty'
+        $includes = 'fmt\include', 'spdlog\include', 'sdl3\include', 'simde', 'tomlplusplus\include', 'tracy\public', 'utfcpp\source'
+        foreach ($include in $includes) {
+            if (-not (Test-Path -LiteralPath (Join-Path $thirdparty $include))) { return "NOT RUN: $(Join-Path $thirdparty $include) is missing. $SdkHelp" }
+        }
+        $platformDefine = if ($IsLinux) { 'REX_PLATFORM_LINUX=1' } else { 'REX_PLATFORM_WINDOWS=1' }
+        $arguments = @('-std=c++23', '-fsyntax-only', '-w', '-march=x86-64-v2', "-D$platformDefine", '-DREXGLUE_BUILD_CONFIG="RelWithDebInfo"',
+            '-DREXGLUE_ENABLE_PROFILING', "-I$(Join-Path $tree 'include')", "-I$(Join-Path $tree 'src')")
+        if (-not $IsLinux) { $arguments += '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS' }
+        $arguments += @($includes | ForEach-Object { "-I$(Join-Path $thirdparty $_)" })
+        $source = Join-Path $tree 'src\audio\audio_system.cpp'
+        if ([IO.File]::ReadAllText($source) -notmatch 'WaitForCallbackExit') { return 'the patched audio_system.cpp does not hold patch 0086' }
+        $checked = Invoke-Compiler $CppCompiler ($arguments + $source) (Join-Path (Split-Path $tree -Parent) 'syntax.rsp')
+        if ($checked.Code) { return @($checked.Output | Where-Object { $_ -match 'error' } | Select-Object -First 8) + 'audio_system.cpp does not compile with the patch stack' }
+    } finally {
+        if ($tree) { Remove-Item -LiteralPath (Split-Path $tree -Parent) -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
 # ---- Summary ---------------------------------------------------------------------------------------------------------
 
 Write-Host ''
@@ -512,5 +654,6 @@ foreach ($result in $Results) {
 $failed = @($Results | Where-Object Status -eq 'FAIL').Count
 $notRun = @($Results | Where-Object Status -eq 'NOT RUN').Count
 Write-Host "$($Results.Count) checks: $(@($Results | Where-Object Status -eq 'PASS').Count) passed, $failed failed, $notRun not run"
+if ($TemporaryMarkerFiles) { Write-Host "Development gate: $TemporaryMarkerFiles listed files hold temporary DEBUG_SAULO diagnostics; tools\test.ps1 -Release fails until they are removed." -ForegroundColor Yellow }
 if ($failed) { exit 1 }
 $global:LASTEXITCODE = 0

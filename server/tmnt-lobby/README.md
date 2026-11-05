@@ -27,7 +27,8 @@ generalized from two players to a party of four (protocol 4, relay frame version
 - `src/protocol.js`: versions, limits, validation, relay frame codec, friend code derivation.
 - `src/telemetry.js`: validation and storage of client telemetry and of the Worker's own party events, aggregates and
   percentiles (see "Telemetry"). `src/reasons.js`: the shared reason-code list. `src/beacon.js`: the Connection Test
-  beacon route and its limits. `src/admin.js` + `src/admin_page.js`: the private `/admin` routes and dashboard.
+  beacon route and its limits. `src/metrics.js` + `src/party.js`: the anonymous service metrics (see "Service metrics").
+  `src/admin.js` + `src/admin_page.js`: the private `/admin` routes and dashboard.
 - `local/server.js` + `local/rooms.js`: the development server (one in-process room per match, commands queued like
   two objects would see them).
 
@@ -89,6 +90,7 @@ Directory ops (`wss://<host>/`):
 | `pm.search` | | `sessions[]`: the own party's advertisement to its non-host members; online friends' open sessions to a player in no party |
 | `pm.join` | `session` | `session`, `match`, `slot`, `generation` (a player in no party also gets `join_token` and the party snapshot) |
 | `telemetry.batch` | `diag`, `ctx`, optional `session`, `peers[]`, `events[]`, `dropped` (see "Telemetry") | `accepted`, `ignored`, `duplicates`; errors `bad_request`, `too_large`, `limit`, `internal`; never affects a party |
+| `party.report` | `characters` (1 to 4 turtle numbers), optional `host` (one of them) (see "Party snapshots") | `counted`; errors `bad_request`, `no_party`, `not_host`, `limit`; optional, never affects a party |
 
 Directory events: `friend.request`, `friend.added`, `friend.removed`, `friend.status`, `friend.offline`,
 `invite` (`invite`, `from {player, name}`, `expires_ms`), `invite.ended` (`invite`, `reason`: `declined`, `expired`,
@@ -166,6 +168,7 @@ own backoff, and nothing is written for it.
 | `invite.send` | per account / per address | burst 20, then 1 per 3 s / burst 60, then 1 per 2 s |
 | `friends.add` that writes a request | per account | burst 30, then 1 per 2 s |
 | `telemetry.batch` | per account, across sockets | burst 12, then 1 per 5 s |
+| `party.report` | whole service / per account / per address | burst 30, then 1 per 30 s / burst 3, then 1 per 2 min / burst 12, then 1 per 30 s; a refusal spends none of them, an exact repeat is answered without counting |
 | room `match.hello` (reconnect and resume) | per seat, counted only after the join token matched | burst 12, then 1 per 10 s |
 | room relay frames | per socket; malformed, wrong `src`, bad token, `dst` outside 1 to 4 or the sender itself, or no `match.hello` | burst 200, then 5 per s, then that socket only is closed `1008` |
 
@@ -178,12 +181,114 @@ unchanged advertisement is refreshed at most every 45 s (the client refreshes ev
 a repeated `pm.join`, `match.link`, room report or reconnect seat writes nothing. Both objects remember the alarm they set (or
 read it with `getAlarm()` when they wake) and only set an earlier one; an alarm that fires early reschedules itself.
 
-Aggregate counters (`abuse.*` in `tel_counters`, shown in the dashboard as "Abuse protection"): `ws_upgrade_accepted`,
-`ws_upgrade_limited`, `ws_upgrade_ip_cap`, `hello_accepted`, `hello_limited`, `party_create_accepted`, `party_create_limited`,
-`party_join_limited`, `invite_limited`, `friend_request_limited`, `telemetry_limited`, `room_resume_limited`,
+Aggregate counters (`abuse.*` in `tel_counters`, and `abuse` rows of `metrics_daily_dimensions` for ranges past 35 days, shown in
+the dashboard as "Abuse protection"): `ws_upgrade_accepted`, `ws_upgrade_limited`, `ws_upgrade_ip_cap`, `hello_accepted`,
+`hello_limited`, `hello_reconnect_deduped`, `party_create_accepted`, `party_create_limited`, `party_join_limited`,
+`party_report_limited`, `invite_limited`, `friend_request_limited`, `telemetry_limited`, `room_resume_limited`,
 `relay_abuse_closed`. They are counted in memory and written together at most once per 5 minutes (an alarm flushes what
 is left); upgrades refused at the edge ride on the next upgrade the Worker forwards to the directory, and rooms report
 theirs to the directory the same way. No address, token, player, party or session is ever part of a counter.
+
+## Service metrics
+
+`src/metrics.js` keeps anonymous aggregate statistics in four tables of the directory object, created with `CREATE TABLE IF
+NOT EXISTS` when it starts. They answer how many people use the service; "Telemetry" below is the separate operational data
+about how connections behave, and is unchanged by them. Days are America/Sao_Paulo calendar days (`YYYY-MM-DD`).
+
+| Table | Row | Columns | Kept |
+|---|---|---|---|
+| `metrics_daily` | one per day | `sessions`, `rooms_created`, `room_joins`, `incompatible_rejects`, `peak_online`, `peak_in_rooms`, `peak_rooms`, `rooms_closed`, `rooms_with_guest`, `rooms_relayed`, `party_total` | 3 years |
+| `metrics_daily_dimensions` | day, dimension, value | `count`, see below | 3 years, bounded per day |
+| `metrics_samples` | one per 15 minutes (UTC ms) | highest `online`, `in_rooms`, `rooms` of the interval | 90 days |
+| `metrics_players` | day, player key | none; primary key `(day, player)` | 730 days |
+
+Dimensions: `platform`, `version` and `country` count sessions started; `reject` counts refusals by reason; `abuse` the
+protection counters; `occupancy` (`1` to `4`) and `lifetime` (`under_1m`, `1_5m`, `5_15m`, `15_60m`, `over_1h`) count ended
+rooms; `character`, `host_character`, `party_size`, `party_composition` and `party_duplicate` count party snapshots. Dimensions
+other than the party ones hold at most 64 values a day, then `Other`.
+
+The existing database needs no migration step: `players.session`, `parties.peak` and `parties.relayed` are added when missing
+(default 0) and no row is changed. Parties already open then have `peak` 0 and are not counted as rooms. There is no backfill:
+days before the first deploy have no rows.
+
+Definitions, each from the Worker's own view of a request:
+
+| Metric | Definition |
+|---|---|
+| Online now | accounts with an open presence connection, one per account; never stored |
+| In rooms | party members with a directory connection right now; never stored |
+| Open rooms | parties that exist right now; never stored |
+| Peak online, peak in rooms, peak rooms | highest of the above in the day; written only when it grows (after `hello`, a create or a join, and at the 15-minute alarm while someone is connected) |
+| Session | a `hello` with `presence: true` for an account with no counted session in the last 10 minutes. The Connection test (`presence: false`) and refused sign-ins are none. **Sessions are not players**: one player has several in a day, and a reconnect inside the window is `hello_reconnect_deduped`, not a session |
+| Unique player | one account counted once for a day, and once for a selected period however many days it played. Every presence `hello` records it, so a reconnect across midnight counts on the new day although it is not a new session. A period's value is `COUNT(DISTINCT player)` over its days, never a sum of daily values. The launcher and the game share an account, so they are one player. A second instance with an ephemeral identity is a different account |
+| Room | one party, from `party.create` (or the `pm.host` that creates it) until it ends |
+| Rooms created | parties created |
+| Successful joins | a player entering a party: `invite.accept`, or `pm.join` from outside it. **Joins are not players**: a player entering several rooms counts each time. `pm.join` by a member already in the party is not a join |
+| Rooms closed | parties that ended, counted once when the row goes |
+| Rooms with a guest | ended rooms whose largest party was 2 or more |
+| Largest party | `occupancy`, the most members held at once. Average: `party_total / rooms_closed` |
+| Room lifetime | creation to end, in the five buckets, including any seat grace |
+| Rooms that used the relay | ended rooms where a pair chose `relay` in `match.transport`, marked once from the room's `room_transport` report and never per packet. Peer-to-peer traffic is invisible to the service, so direct success is not a room statistic. Per-link transport is in the operational telemetry |
+| Rejects | `hello` with another protocol, and a join refused `version_mismatch`, at most once per reason and address or account per 10 minutes |
+
+**Unique-player privacy.** `metrics_players.player` is `HMAC-SHA-256(key, "metrics-player|" + player)` truncated to 128 bits,
+computed in the directory and never returned by any route or sent to a client: summaries carry counts only. `key` is the
+`METRICS_SECRET` Worker secret when set, so the stored value cannot be matched to a friend code from the database alone;
+without it the key is the directory's stored random salt, which someone holding the database also has, and
+`/admin/api/history` reports `player_key: "salt"`. The table holds no name, friend code, address or raw id. Rows live 730 days (the longest range and the comparison
+period before it); on each new sample the oldest expired day is deleted. Storage grows with players per day, about 100
+bytes per player-day. **Setting or changing `METRICS_SECRET` changes every key**: a player active on both sides of the change
+counts twice in a period that spans it, and earlier days keep their counts.
+
+**History** also returns `totals` for the range, `previous` for the same number of days before it, and `comparison` (current,
+previous and percent change, `null` when the previous value is 0) for unique players, sessions, rooms created, joins, rooms
+with a guest, rooms that used the relay, parties reported and the peaks; `metrics_first_day`, `players_first_day` and
+`party_first_day`, so "nothing yet" is never shown as zero use; and `player_key` (`secret` or `salt`).
+
+### Party snapshots
+
+`party.report` is optional. A client that never sends it signs in, hosts, joins and plays exactly as before and appears in every
+other figure, the lobby protocol (4) and the online build are unchanged, and a service without the operation answers
+`bad_request`, which a client ignores. No capability announces it. It rides the directory WebSocket, and carries numbers only:
+
+```
+{"op": "party.report", "seq": 7, "characters": [0, 2], "host": 2}
+```
+
+- `characters`: 1 to 4 of the game's actor ids, in any order: `0` Leonardo, `1` Michelangelo, `2` Raphael, `3` Donatello (the
+  game's `ACTOR_*` constants; `PARTY_CHARACTERS` in `src/party.js` and `src/online/party_report.h` are the one table). `host`
+  (optional): the turtle of the party's host, which must be one of `characters`. Anything else is `bad_request`: a missing or
+  non-array `characters`, another size, a number outside 0 to 3 or not an integer, a `host` not in the party, any other field,
+  and any repeated key. The service never reads a name or text from the request; it derives every stored value from the numbers.
+- Only the party's host may send it, on a presence connection (`not_host`, `no_party`), so a party is counted once and a
+  Connection test never qualifies. It cannot name more turtles than the party has places (`bad_request`).
+- **One sample** is one started match of a real party: the game's `CSL_StartGame` runs once on each machine when the party's turtles
+  are committed, the game's session flags refuse joins in progress, and the client reports only as host of a party of two or
+  more with every booked seat confirmed. A sample is therefore never a network message, a frame or a menu change. A character
+  select with no match behind it reports nothing.
+- It is answered `{"counted": true}`, or `{"counted": false}` for an exact repeat (same party, turtles and host) on the same
+  connection, which spends no budget. The repeat check lives in the socket's attachment, so a reconnect can count a party a second
+  time: a small duplicate accepted in preference to keeping more state. The client also holds a report back for 60 s after the last
+  one and never repeats one for the same party. Changed turtles are a new sample.
+- Accepted snapshots add at most eight upserts to today's rows, with values built from the numbers: `character` (seats per turtle in
+  the snapshot), `host_character`, `party_size`, `party_composition` (turtles in the game's id order joined with `+`, so a party's
+  order never splits it: `Leonardo+Raphael`; 69 possible values) and `party_duplicate`. The dimensions hold 4, 4, 4, 69 and 2 values,
+  83 rows a day at most, and a value outside those sets cannot be written. The game refuses a turtle another player confirmed, so
+  `party_duplicate` stays `no`; the Worker accepts repeats so the schema does not depend on that rule.
+- Nothing about the sender or the party is stored with the counts, and a metrics failure never fails the request.
+
+Formulas on the dashboard, over the selected range:
+
+| Figure | Formula |
+|---|---|
+| Parties reported | accepted snapshots (sum of `party_size`) |
+| Average party size | sum of size x count over `party_size` / Parties reported |
+| Turtles in parties | turtle's `character` count / all `character` counts, the four turtles in game order, zero rows kept |
+| Host turtle | turtle's `host_character` count / all `host_character` counts |
+| Party size | `party_size` bucket / Parties reported |
+| Composition | `party_composition` count / Parties reported |
+
+Older days have no snapshots, so these figures start at `party_first_day` and earlier rooms are in no denominator here.
 
 ## Telemetry
 
@@ -315,22 +420,25 @@ otherwise every `/admin*` path answers 404.
   external resources). It holds no data; it asks for the token (kept in memory, or this tab with "Keep for this tab") and
   calls the two routes below with it. A browser cannot send a bearer header on navigation, which is why the page itself is
   the only unauthenticated route.
-- `GET /admin/telemetry/summary[?days=1..30]`: the aggregates as JSON.
+- `GET /admin/telemetry/summary[?days=1..30]`: the operational aggregates as JSON. Not shown by the dashboard.
 - `GET /admin/telemetry/session?diag=<12 hex>`: everything kept about one party (reporters, per-peer reports, merged event
-  timeline). 400 for a malformed `diag`, 404 when nothing is kept.
+  timeline). 400 for a malformed `diag`, 404 when nothing is kept. Not shown by the dashboard.
+- `GET /admin/api/summary`: live numbers and today's figures (see "Service metrics").
+- `GET /admin/api/history[?days=1..365]`: daily rows, dimensions, samples, totals and the period comparison; 30 days by default.
 
-Both need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time).
+All four need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time). They only read; nothing under
+`/admin` takes data. Clients report over the directory WebSocket, and there is no HTTP route for it.
 
 ```
 npx wrangler secret put ADMIN_TOKEN       # manual; never commit a value
 curl -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>/admin/telemetry/summary
 ```
 
-The dashboard shows counts, the transport mix, reason tables grouped by category (Fallback / path reasons, Disconnect reasons,
-Invite outcomes, Service errors, Connection Test failures), the Connection Tests block (total, usable share, failures,
-Worker/WebSocket/STUN status, median latency), parties reaching 4/4 with the derived host and guest disconnects, the percentile
-table, the recent sessions list and a session drill-down. Every value is written as text, never as markup. **None of this is deployed**: the Worker and its secret do
-not exist yet.
+The dashboard follows the Dragon's Crown Pro one and reads only `/admin/api/summary` and `/admin/api/history`. It has a range
+selector (7, 30, 90, 365 days) and shows, in order: the live cards (with unique players today and in the range), the period
+comparison, multiplayer activity, Characters & parties, the usage and daily charts, daily totals, connection health, platforms,
+versions and countries, the protection counters and "How to read this". The operational telemetry routes above stay available for
+debugging and are not part of the page. Every value is written as text, never as markup.
 
 ## Local
 
@@ -376,6 +484,7 @@ Telemetry reads need the secret, set once and never committed:
 
 ```
 npx wrangler secret put ADMIN_TOKEN
+npx wrangler secret put METRICS_SECRET    # optional, 32+ random characters; keys unique players (see "Service metrics")
 ```
 
 Without it the `/admin` routes stay 404. Check the Worker:

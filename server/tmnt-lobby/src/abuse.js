@@ -1,7 +1,9 @@
 // In-memory abuse limits and counters. Nothing here is written to SQL on its own: a limit that cost a write per hit
 // would defeat its purpose. No Cloudflare import, so Node runs it in the tests.
 export const PROTECTION = {
+  sessionWindowMs: 10 * 60 * 1000,
   seenRefreshMs: 15 * 60 * 1000,
+  rejectWindowMs: 10 * 60 * 1000,
   advertiseRefreshMs: 45 * 1000,
   hello: { burst: 12, perSecond: 1 / 15 },
   createAccount: { burst: 6, perSecond: 1 / 20 },
@@ -12,6 +14,9 @@ export const PROTECTION = {
   inviteAddress: { burst: 60, perSecond: 1 / 2 },
   friendAccount: { burst: 30, perSecond: 1 / 2 },
   telemetryAccount: { burst: 12, perSecond: 0.2 },
+  partyReportAll: { burst: 30, perSecond: 1 / 30 },
+  partyReportAccount: { burst: 3, perSecond: 1 / 120 },
+  partyReportAddress: { burst: 12, perSecond: 1 / 30 },
   trackedKeys: 4096,
   flushMs: 5 * 60 * 1000,
 };
@@ -19,7 +24,7 @@ export const PROTECTION = {
 export const DIAGNOSTICS = new Set([
   'ws_upgrade_accepted', 'ws_upgrade_limited', 'ws_upgrade_ip_cap', 'hello_accepted', 'hello_limited',
   'party_create_accepted', 'party_create_limited', 'party_join_limited', 'invite_limited', 'friend_request_limited',
-  'telemetry_limited', 'room_resume_limited', 'relay_abuse_closed',
+  'telemetry_limited', 'room_resume_limited', 'relay_abuse_closed', 'hello_reconnect_deduped', 'party_report_limited',
 ]);
 
 const MAX_COUNT = 1_000_000;

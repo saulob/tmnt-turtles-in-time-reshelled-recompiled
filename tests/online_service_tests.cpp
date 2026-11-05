@@ -559,6 +559,111 @@ void OpenRoom(Rig& rig, const std::string& members = "[]") {
            members + "}");
 }
 
+PartySnapshot TwoTurtles() {
+  PartySnapshot snapshot;
+  snapshot.characters = {0, 2, 0, 0};
+  snapshot.size = 2;
+  snapshot.host = 2;
+  return snapshot;
+}
+
+void HostWithGuest(Rig& rig) {
+  InPartyAsHost(rig);
+  rig.Feed(std::string("{\"ev\":\"party.update\",\"party\":") +
+           PartyJson({MemberJson(1, rig.me.c_str(), "Saulo"), MemberJson(2, kFriendA, "SauloB")}) + "}");
+}
+
+void TestTheHostReportsItsPartyOnceOverTheLobbyConnection() {
+  Rig rig;
+  HostWithGuest(rig);
+  const size_t sockets = rig.channels.size();
+  rig.service->NotePartySnapshot(TwoTurtles());
+  rig.Tick();
+  CHECK(rig.Count("party.report") == 1);
+  CHECK(Contains(rig.LastRequest("party.report"), "\"characters\":[0,2],\"host\":2"));
+  CHECK(rig.channels.size() == sockets);  // no socket of its own
+  rig.service->NotePartySnapshot(TwoTurtles());
+  rig.Tick();
+  rig.Tick(120);
+  CHECK(rig.Count("party.report") == 1);  // the same party, whatever the time
+}
+
+void TestAChangedPartyWaitsForTheMinimumGap() {
+  Rig rig;
+  HostWithGuest(rig);
+  rig.service->NotePartySnapshot(TwoTurtles());
+  rig.Tick();
+  PartySnapshot changed = TwoTurtles();
+  changed.characters[1] = 3;
+  rig.service->NotePartySnapshot(changed);
+  rig.Tick(30);
+  CHECK(rig.Count("party.report") == 1);
+  rig.Tick(31);
+  CHECK(rig.Count("party.report") == 2);
+  CHECK(Contains(rig.LastRequest("party.report"), "\"characters\":[0,3]"));
+}
+
+void TestOnlyAHostOfARealPartyReports() {
+  Rig alone;
+  InPartyAsHost(alone);
+  alone.service->NotePartySnapshot(TwoTurtles());
+  alone.Tick(120);
+  CHECK(alone.Count("party.report") == 0);
+
+  Rig guest;
+  guest.SignInWithFriends();
+  guest.Feed("{\"ev\":\"invite\",\"invite\":\"i1\",\"from\":{\"player\":\"ABCD-2345\",\"name\":\"SauloB\"},\"expires_ms\":120000}");
+  CHECK(guest.service->AcceptPartyInvite("i1"));
+  guest.Reply("invite.accept", AccessBody(2, PartyJson({MemberJson(1, kFriendA, "SauloB"), MemberJson(2, guest.me.c_str(), "Saulo")})));
+  CHECK(guest.service->my_slot() == 2);
+  guest.service->NotePartySnapshot(TwoTurtles());
+  guest.Tick(120);
+  CHECK(guest.Count("party.report") == 0);
+
+  Rig offline;
+  offline.SignInWithFriends();
+  offline.service->NotePartySnapshot(TwoTurtles());
+  offline.Tick(120);
+  CHECK(offline.Count("party.report") == 0);
+
+  Rig off;
+  off.service->NotePartySnapshot(TwoTurtles());
+  off.Tick(120);
+  CHECK(off.channels.empty());
+}
+
+void TestAPartyReportWaitsForALostLinkAndNeverOutlivesItsParty() {
+  Rig rig;
+  HostWithGuest(rig);
+  rig.Event(ChannelEvent::Kind::kClosed, "gone");
+  rig.service->NotePartySnapshot(TwoTurtles());
+  rig.Tick(0.1);
+  CHECK(rig.service->party().has_value());
+  rig.Tick(120);
+  rig.service->LeaveParty();
+  rig.Tick(120);
+  int reports = 0;
+  for (const auto& channel : rig.channels) {
+    for (const std::string& sent : channel->sent) reports += Contains(sent, "party.report") ? 1 : 0;
+  }
+  CHECK(reports <= 1);
+}
+
+void TestARefusedPartyReportChangesNothing() {
+  for (const char* code : {"bad_request", "limit", "not_host", "internal", "no_party"}) {
+    Rig rig;
+    HostWithGuest(rig);
+    rig.service->NotePartySnapshot(TwoTurtles());
+    rig.Tick();
+    const size_t sockets = rig.channels.size();
+    rig.Reply("party.report", {}, code);
+    rig.Tick(120);
+    CHECK(rig.Count("party.report") == 1);  // never retried
+    CHECK(rig.service->party().has_value() && rig.service->SignedIn() && rig.channels.size() == sockets);
+    CHECK(!rig.Last().closed);
+  }
+}
+
 void TestPartyIsCreatedByTheHostAndOpensItsRoom() {
   Rig rig;
   rig.SignInWithFriends();
@@ -1775,6 +1880,11 @@ int main() {
   TestConnectionTestRunsOnlyWhenEnabled();
   TestTemporaryIdentityGetsASuffix();
   TestPartyIsCreatedByTheHostAndOpensItsRoom();
+  TestTheHostReportsItsPartyOnceOverTheLobbyConnection();
+  TestAChangedPartyWaitsForTheMinimumGap();
+  TestOnlyAHostOfARealPartyReports();
+  TestAPartyReportWaitsForALostLinkAndNeverOutlivesItsParty();
+  TestARefusedPartyReportChangesNothing();
   TestThreeInvitesAreSentForTheSameParty();
   TestInviteErrorsAreExplainedAndReported();
   TestInviteIsAcceptedAndJoinsTheHiddenMatch();

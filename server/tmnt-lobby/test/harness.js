@@ -9,13 +9,13 @@ export function identity(n) {
   return { token, player: playerIdFor(token) };
 }
 
-export function makeHub({ local = false, db } = {}) {
+export function makeHub({ local = false, db, metricsSecret } = {}) {
   const clock = { now: 1_700_000_000_000 };
   const logs = [];
   const now = () => clock.now;
   const log = (text) => logs.push(text);
   const host = new LocalHost(sqliteStore(db), { now, log });
-  const hub = new Hub(host, { local });
+  const hub = new Hub(host, { local, metricsSecret });
   const rooms = new LocalRooms({ now, log });
   rooms.install(host, hub);
   const env = {

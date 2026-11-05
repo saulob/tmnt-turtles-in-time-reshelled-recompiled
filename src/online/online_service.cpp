@@ -171,6 +171,7 @@ void OnlineService::Update(double now) {
     next_telemetry_ = now + kTelemetryFlushSeconds;
     FlushTelemetry(now);
   }
+  PumpPartyReport();
   if (SessionName() != greeted_name_ && !party_ && now - name_since_ >= kNameSettleSeconds) {
     Log("DEBUG_SAULO online name changed, signing in again");
     if (channel_) channel_->Close();
@@ -355,6 +356,7 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
     case Purpose::kInviteDecline:
     case Purpose::kPlayerMatchCancel:
     case Purpose::kRoomHello:
+    case Purpose::kPartyReport:
       if (!ok) Log("DEBUG_SAULO online request failed code=" + message.code);
       break;
   }
@@ -856,6 +858,23 @@ void OnlineService::NoteGameStart() {
   });
   Emit({"game_start_attempt", 0, {{"members", std::to_string(party_->members.size())}, {"ready", std::to_string(ready)}}});
   Log("DEBUG_SAULO game start attempt members=" + std::to_string(party_->members.size()) + " ready=" + std::to_string(ready));
+}
+
+void OnlineService::NotePartySnapshot(const PartySnapshot& snapshot) {
+  Locked lock(*this);
+  if (settings_.enabled && party_) party_reporter_.Offer(snapshot);
+}
+
+void OnlineService::PumpPartyReport() {
+  if (!party_reporter_.pending()) return;
+  if (!CanReportParty(Connected(), party_.has_value(), access_ ? access_->slot : 0, party_ ? party_->members.size() : 0)) {
+    party_reporter_.Clear();
+    return;
+  }
+  const std::optional<PartySnapshot> due = party_reporter_.Take(party_->match, now_);
+  if (!due) return;
+  Send(Purpose::kPartyReport, [&](int seq) { return EncodePartyReport(seq, *due); });
+  Log("DEBUG_SAULO party report sent size=" + std::to_string(due->size) + " host=" + std::to_string(due->host));
 }
 
 void OnlineService::UpdateGameStart(double now) {

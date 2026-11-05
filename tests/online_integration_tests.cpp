@@ -297,6 +297,17 @@ void TestFourPlayersAllDirect(const std::string& url) {
   }, clients, 10.0));
   for (Client* client : clients) CHECK(client->Saw("game_start_attempt") && !client->Saw("game_start_failure"));
 
+  // The match started: only the host's report of the turtles goes out, and the service takes it.
+  PartySnapshot turtles;
+  turtles.characters = {0, 1, 2, 3};
+  turtles.size = 4;
+  turtles.host = 2;
+  a.service.NotePartySnapshot(turtles);
+  b.service.NotePartySnapshot(turtles);
+  CHECK(WaitFor([&] { return a.Logged("party report sent"); }, clients));
+  WaitFor([] { return false; }, clients, 1.0);
+  CHECK(!b.Logged("party report sent") && !a.Logged("online request failed"));
+
   // One guest leaving takes only its own links away.
   d.service.LeaveParty();
   CHECK(WaitFor([&] { return a.service.party() && a.service.party()->members.size() == 3; }, with_e));

@@ -133,7 +133,7 @@ The same scan (forbidden names and types, Xbox packages, `DEBUG_SAULO`, local fo
 Vulkan layer files, RPATH/RUNPATH, debug sections of the program and the module library, the exact file list) runs on both.
 `tools/package-linux.sh --verify-only FILE` runs the scan, the runtime check and the glibc check on an existing AppImage.
 
-`tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, packaging inputs,
+`tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, the audio client teardown of patch 0086, packaging inputs,
 hygiene); it builds and launches nothing.
 `tools/setup-linux-build-env.sh` prepares a clean Ubuntu 20.04 machine for it, as root: clang 20 from
 [apt.llvm.org](https://apt.llvm.org), the GCC 13 runtime from the `ubuntu-toolchain-r/test` PPA, CMake 3.31.8 and the

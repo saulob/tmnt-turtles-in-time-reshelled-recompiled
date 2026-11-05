@@ -1,7 +1,8 @@
-// The private telemetry routes under /admin: a static dashboard shell and two JSON routes, all answering 404 unless the
-// ADMIN_TOKEN secret is set, the JSON routes only with `Authorization: Bearer <ADMIN_TOKEN>`. No Cloudflare import, so
-// Node runs it in the tests and in the development server.
+// The private routes under /admin: a static dashboard shell and its JSON routes, all answering 404 unless the ADMIN_TOKEN
+// secret is set, the JSON routes only with `Authorization: Bearer <ADMIN_TOKEN>`. No Cloudflare import, so Node runs it in
+// the tests and in the development server.
 import { ADMIN_CSP, ADMIN_HTML } from './admin_page.js';
+import { HISTORY_MAX_DAYS } from './metrics.js';
 import { TELEMETRY_LIMITS, isDiag } from './telemetry.js';
 import { sha256Hex } from './sha256.js';
 
@@ -36,16 +37,24 @@ export function tokenMatches(authorization, token) {
   return diff === 0;
 }
 
-// ?days=N for 1..maxDays, else null; no parameter is the default range.
-export function summaryDays(params) {
+// ?days=N for 1..max, else null; no parameter is the default range.
+function dayRange(params, fallback, max) {
   const text = params.get('days');
-  if (text === null) return TELEMETRY_LIMITS.defaultDays;
+  if (text === null) return fallback;
   if (!/^[1-9][0-9]{0,2}$/.test(text)) return null;
   const days = Number(text);
-  return days <= TELEMETRY_LIMITS.maxDays ? days : null;
+  return days <= max ? days : null;
 }
 
-// source: { summary(days): Promise<object>, session(diag): Promise<object | null> }, read only after the token matched.
+export const summaryDays = (params) => dayRange(params, TELEMETRY_LIMITS.defaultDays, TELEMETRY_LIMITS.maxDays);
+export const DEFAULT_HISTORY_DAYS = 30;
+export const historyDays = (params) => dayRange(params, DEFAULT_HISTORY_DAYS, HISTORY_MAX_DAYS);
+
+const ROUTES = { '/admin/telemetry/summary': 'summary', '/admin/telemetry/session': 'session',
+  '/admin/api/summary': 'metrics', '/admin/api/history': 'history' };
+
+// source: { summary(days), session(diag), metricsSummary(), metricsHistory(days) }, each a Promise of an object (session
+// also of null), read only after the token matched.
 export async function handleAdmin(request, env, source, log = () => {}) {
   if (!adminEnabled(env)) return json({ error: 'not_found' }, 404);
   const url = new URL(request.url);
@@ -53,7 +62,7 @@ export async function handleAdmin(request, env, source, log = () => {}) {
   if (url.pathname === '/admin' || url.pathname === '/admin/') {
     return reply(ADMIN_HTML, 200, 'text/html; charset=utf-8', { 'Content-Security-Policy': ADMIN_CSP });
   }
-  const route = url.pathname === '/admin/telemetry/summary' ? 'summary' : url.pathname === '/admin/telemetry/session' ? 'session' : null;
+  const route = Object.hasOwn(ROUTES, url.pathname) ? ROUTES[url.pathname] : null;
   if (!route) return json({ error: 'not_found' }, 404);
   if (!tokenMatches(request.headers.get('Authorization'), env.ADMIN_TOKEN)) {
     return json({ error: 'unauthorized' }, 401, { 'WWW-Authenticate': 'Bearer' });
@@ -63,12 +72,17 @@ export async function handleAdmin(request, env, source, log = () => {}) {
   if (route === 'summary') {
     days = summaryDays(url.searchParams);
     if (days === null) return json({ error: 'bad_request', detail: `days must be 1 to ${TELEMETRY_LIMITS.maxDays}` }, 400);
-  } else {
+  } else if (route === 'history') {
+    days = historyDays(url.searchParams);
+    if (days === null) return json({ error: 'bad_request', detail: `days must be 1 to ${HISTORY_MAX_DAYS}` }, 400);
+  } else if (route === 'session') {
     diag = url.searchParams.get('diag') ?? '';
     if (!isDiag(diag)) return json({ error: 'bad_request', detail: 'diag must be 12 lower-case hex characters' }, 400);
   }
   try {
     if (route === 'summary') return json(await source.summary(days));
+    if (route === 'metrics') return json(await source.metricsSummary());
+    if (route === 'history') return json(await source.metricsHistory(days));
     const found = await source.session(diag);
     return found ? json(found) : json({ error: 'not_found' }, 404);
   } catch (error) {

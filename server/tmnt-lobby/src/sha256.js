@@ -47,3 +47,21 @@ export function sha256(bytes) {
 export const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
 export const sha256Hex = (text) => toHex(sha256(new TextEncoder().encode(text)));
+
+// RFC 2104; the hub's handlers are synchronous, so crypto.subtle is out of reach.
+export function hmacSha256Hex(key, text) {
+  const encoder = new TextEncoder();
+  const keyBytes = encoder.encode(key);
+  const block = new Uint8Array(64);
+  block.set(keyBytes.length > 64 ? sha256(keyBytes) : keyBytes);
+  const message = encoder.encode(text);
+  const inner = new Uint8Array(64 + message.length);
+  const outer = new Uint8Array(64 + 32);
+  for (let i = 0; i < 64; i++) {
+    inner[i] = block[i] ^ 0x36;
+    outer[i] = block[i] ^ 0x5c;
+  }
+  inner.set(message, 64);
+  outer.set(sha256(inner), 64);
+  return toHex(sha256(outer));
+}

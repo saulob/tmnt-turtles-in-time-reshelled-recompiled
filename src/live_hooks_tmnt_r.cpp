@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <optional>
 #include <thread>
 #include <string>
 
@@ -13,6 +14,7 @@
 #include "gamer_card_rules.h"
 #include "guest_memory.h"
 #include "live_scope.h"
+#include "online/party_report.h"
 
 using namespace tmnt;
 using namespace tmnt::live;
@@ -26,6 +28,25 @@ constexpr uint32_t kWorldScriptOffset = 7216;
 constexpr uint32_t kPltSucceed = 0;
 
 thread_local bool t_stats_requested = false;
+
+// CharSelection's script variables: *(this + 8) is their block, whose layout CSL_InitializePersistentProfiles shows.
+constexpr uint32_t kCharSelVars = 8;
+constexpr uint32_t kCharSelChoices = 88;
+constexpr uint32_t kCharSelConfirmed = 104;
+constexpr uint32_t kCharSelStations = 136;
+constexpr uint32_t kImportLocalStation = 1143;  // ONL_GetLocalStationId
+
+online::PartySeats ReadPartySeats(const uint8_t* base, uint32_t script) {
+  online::PartySeats seats;
+  const uint32_t vars = LoadBE32(base + GuestHostOffset(script), script + kCharSelVars);
+  const uint8_t* block = base + GuestHostOffset(vars);
+  for (uint32_t i = 0; i < seats.size(); ++i) {
+    seats[i].choice = int32_t(LoadBE32(block, vars + kCharSelChoices + 4 * i));
+    seats[i].confirmed = int32_t(LoadBE32(block, vars + kCharSelConfirmed + 4 * i));
+    seats[i].station = int32_t(LoadBE32(block, vars + kCharSelStations + 4 * i));
+  }
+  return seats;
+}
 
 bool HasLocalDisplayName(uint32_t user) {
   if (user < 1 || user > 3) return false;
@@ -43,11 +64,37 @@ void LogLocalProfileAccepted(int32_t controller) {
 
 }  // namespace
 
+REX_EXTERN(__imp__sub_87520018);
+
+// After the original, so only registers the caller already expects to lose are touched.
+void PublishPartySnapshot(PPCContext& ctx, uint8_t* base, const online::PartySeats& seats) {
+  if (online::BookedSeats(seats) < online::kMinPartyReported) return;
+  const uint64_t lr = ctx.lr;
+  ctx.r3.u64 = kImportLocalStation;
+  __imp__sub_87520018(ctx, base);
+  PPCFunc* local_station = rex::runtime::ResolveIndirectFunction(ctx.r3.u32);
+  if (!local_station) return;
+  local_station(ctx, base);
+  const int32_t station = ctx.r3.s32;
+  ctx.lr = lr;
+  const std::optional<online::PartySnapshot> snapshot = online::BuildPartySnapshot(seats, station);
+  REXLOG_INFO("DEBUG_SAULO party seats local={} valid={} stations={},{},{},{} choices={},{},{},{} confirmed={},{},{},{}", station,
+              snapshot.has_value(), seats[0].station, seats[1].station, seats[2].station, seats[3].station, seats[0].choice,
+              seats[1].choice, seats[2].choice, seats[3].choice, seats[0].confirmed, seats[1].confirmed, seats[2].confirmed,
+              seats[3].confirmed);
+  if (!snapshot) return;
+  static std::atomic<uint32_t> sequence{0};
+  rex::cvar::SetFlagByName("tmnt_online_party_snapshot", std::to_string(online::EncodePartySnapshot(*snapshot, ++sequence)));
+}
+
 // DEBUG_SAULO: CSL_StartGame. The caller tells CSL_OnStart (master) from the RPC_StartGame case (slave).
+// It runs once on every machine when the party is final, so the party's turtles are read here and never written.
 REX_EXTERN(__imp__sub_875E8A10);
 REX_HOOK_RAW(sub_875E8A10) {
   REXLOG_INFO("DEBUG_SAULO start trace CSL_StartGame lr={:08X}", uint32_t(ctx.lr));
+  const online::PartySeats seats = ReadPartySeats(base, ctx.r3.u32);
   __imp__sub_875E8A10(ctx, base);
+  PublishPartySnapshot(ctx, base, seats);
 }
 
 // PLT_IsSignedIntoFullAccountOnline(controller in r5): the shared check behind every Live gate in the scripts.

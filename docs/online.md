@@ -119,6 +119,31 @@ party. A member's LAN addresses reach only members behind the same address. A ga
 service ends the party, the game plays on and the party ends with the game's session. Every match has one 15 s
 establishment budget.
 
+## Privacy and usage statistics
+
+The online service stores anonymous aggregate usage statistics: player counts, sessions, unique players, rooms created
+and joined, how many players each room reached and how long it lasted, how many rooms chose the relay, the port version,
+the platform (Windows, Linux, Steam Deck), the country, and which turtles appear in online parties. Only the maintainer
+can see them, on a private, token-protected page of the service.
+
+- Game traffic goes directly between the players' PCs (P2P) whenever it can. A pair that cannot connect directly is
+  relayed by the service, which forwards that pair's packets unread and unstored.
+- The statistics store no player names, Online names, friend codes, tokens, addresses or room ids. The country is worked
+  out by Cloudflare from your connection and kept only as a count per day; the game never sends one, and the address is
+  not kept for these statistics.
+- **Unique players** need one thing per player: for each day you played, the service stores an anonymous key it derives
+  from your account with a keyed hash. The key cannot be turned back into your account without the service's secret, is
+  never shown on the dashboard or sent to any client, and is deleted after two years.
+- **Turtle statistics**: when a match starts, the host's game sends the numbers of the turtles in the party. The service
+  keeps only daily counts of turtles, host turtles, party sizes and party compositions, with nothing about who played
+  them. Nothing is sent for offline play, local multiplayer, a party of one, or with Online play Off. The report goes over
+  the connection the game already has, is sent once, and a refused or lost report changes nothing in the game.
+- Saves, scores, kills, deaths, gameplay inputs, Ping and FPS are not part of these statistics.
+
+The service still needs your account, Online name, friends and, while you are in a party, your address and port to
+connect you to other players; that is not part of these statistics. Definitions, tables and retention are in
+[server/tmnt-lobby/README.md](../server/tmnt-lobby/README.md).
+
 ## Telemetry
 
 Operational telemetry for support, only while Online play is on, and never in the way of the game: batched, bounded

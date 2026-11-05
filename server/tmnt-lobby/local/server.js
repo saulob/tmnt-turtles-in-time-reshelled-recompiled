@@ -4,7 +4,7 @@
 //                                           [--admin-token <16+ characters>]   (or TMNT_ADMIN_TOKEN)
 // Instances reach it with TMNT_LOBBY=ws://127.0.0.1:8791/ in their environment. Loopback clients are exempt from the
 // per-address limits. With a --db file, players and friendships survive restarts; parties, rooms and presence never do.
-// With an admin token, /admin serves the private telemetry dashboard and /admin/telemetry/* its JSON (admin.js).
+// With an admin token, /admin serves the private dashboard, and /admin/api/* and /admin/telemetry/* its JSON (admin.js).
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -34,6 +34,8 @@ export function startLobbyServer({ host: address = '127.0.0.1', port = 8791, db 
   const adminSource = {
     summary: async (days) => hub.telemetrySummary(days),
     session: async (diag) => hub.telemetrySession(diag),
+    metricsSummary: async () => hub.metricsSummary(),
+    metricsHistory: async (days) => hub.metricsHistory(days),
   };
 
   async function send(res, response) {

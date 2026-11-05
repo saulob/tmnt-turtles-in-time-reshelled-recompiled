@@ -37,12 +37,15 @@ function populated() {
 const source = (env) => ({
   summary: async (days) => env.hub.telemetrySummary(days),
   session: async (diag) => env.hub.telemetrySession(diag),
+  metricsSummary: async () => env.hub.metricsSummary(),
+  metricsHistory: async (days) => env.hub.metricsHistory(days),
 });
 
 test('the admin routes answer 404 until an admin token of enough length is set', async () => {
   const env = populated();
   for (const config of [{}, { ADMIN_TOKEN: '' }, { ADMIN_TOKEN: 'short' }, { ADMIN_TOKEN: undefined }, undefined]) {
-    for (const path of ['/admin', '/admin/', '/admin/telemetry/summary', `/admin/telemetry/session?diag=${DIAG}`, '/admin/other']) {
+    for (const path of ['/admin', '/admin/', '/admin/telemetry/summary', `/admin/telemetry/session?diag=${DIAG}`, '/admin/api/summary',
+      '/admin/api/history', '/admin/other']) {
       const response = await handleAdmin(get(path, bearer(TOKEN)), config, source(env), quiet);
       assert.equal(response.status, 404, path);
     }
@@ -53,7 +56,7 @@ test('the admin routes answer 404 until an admin token of enough length is set',
 
 test('the JSON routes need the exact bearer token', async () => {
   const env = populated();
-  const paths = ['/admin/telemetry/summary', `/admin/telemetry/session?diag=${DIAG}`];
+  const paths = ['/admin/telemetry/summary', `/admin/telemetry/session?diag=${DIAG}`, '/admin/api/summary', '/admin/api/history?days=7'];
   const rejected = [{}, { Authorization: TOKEN }, { Authorization: `Basic ${TOKEN}` }, bearer(''), bearer('wrong'), bearer(`${TOKEN}x`),
     bearer(TOKEN.slice(0, -1)), bearer(TOKEN.toUpperCase()), { Authorization: `bearer ${TOKEN}` }];
   for (const path of paths) {
@@ -90,7 +93,8 @@ test('the summary and the session route validate their parameters and report fai
     assert.equal((await ok(`/admin/telemetry/session?diag=${diag}`)).status, 400, diag);
   }
   assert.equal((await ok('/admin/telemetry/session?diag=000000000000')).status, 404);
-  for (const path of ['/admin/telemetry', '/admin/telemetry/sql', '/admin/api/summary', '/admin/telemetry/summary/x']) {
+  for (const path of ['/admin/telemetry', '/admin/telemetry/sql', '/admin/api', '/admin/api/sql', '/admin/api/players',
+    '/admin/telemetry/summary/x']) {
     assert.equal((await ok(path)).status, 404, path);
   }
   assert.equal((await handleAdmin(get('/admin/telemetry/summary', bearer(TOKEN), 'POST'), ENV, source(env), quiet)).status, 405);
@@ -129,7 +133,8 @@ test('the dashboard is one self-contained page under a strict policy', async () 
   assert.match(ADMIN_CSP, /default-src 'none'/);
   assert.doesNotMatch(ADMIN_CSP, /unsafe-/);
   assert.doesNotMatch(ADMIN_HTML, /<script[^>]*\ssrc=|<link\b|<img\b|<iframe|<form[^>]*action/i);
-  assert.doesNotMatch(ADMIN_HTML, /https?:\/\/|\/\/cdn|@import|url\(/i);
+  const page = ADMIN_HTML.replaceAll('http://www.w3.org/2000/svg', '');
+  assert.doesNotMatch(page, /https?:\/\/|\/\/cdn|@import|url\(/i);
   assert.doesNotMatch(ADMIN_JS, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\b|new Function|setAttribute\(\s*['"]style/);
   assert.doesNotMatch(ADMIN_JS, /localStorage|console\.log/);
   assert.equal(isAdminPath('/admin'), true);
@@ -139,7 +144,7 @@ test('the dashboard is one self-contained page under a strict policy', async () 
 class FakeNode {
   constructor(tag, id = '') {
     Object.assign(this, { tag, id, children: [], listeners: {}, text: '', className: '', hidden: false, value: '', checked: false,
-      title: '', type: '' });
+      title: '', type: '', style: {}, attrs: {}, offsetWidth: 50, offsetHeight: 20 });
   }
 
   get firstChild() { return this.children[0] ?? null; }
@@ -163,7 +168,11 @@ class FakeNode {
 
   insertAdjacentHTML() { throw new Error('insertAdjacentHTML used'); }
 
-  setAttribute() {}
+  setAttribute(name, value) { this.attrs[name] = String(value); }
+
+  getAttribute(name) { return this.attrs[name] ?? null; }
+
+  getBoundingClientRect() { return { left: 0, top: 0, right: 900, bottom: 200, width: 900, height: 200 }; }
 
   focus() {}
 
@@ -172,24 +181,31 @@ class FakeNode {
   all() { return [this, ...this.children.flatMap((c) => c.all())]; }
 }
 
-async function runDashboard(summary, detail) {
-  const nodes = Object.fromEntries(['login', 'token', 'remember', 'dash', 'range', 'refresh', 'status', 'signout', 'login-error', 'cards',
-    'out', 'detail'].map((id) => [id, new FakeNode('div', id)]));
+async function runDashboard(env, tamper = () => {}) {
+  const nodes = new Proxy({}, { get: (all, id) => (all[id] ??= new FakeNode('div', String(id))) });
   nodes.range.value = '7';
   nodes.dash.hidden = true;
   const requests = [];
+  const answer = (path) => {
+    const body = JSON.parse(JSON.stringify(path.startsWith('/admin/api/summary') ? env.hub.metricsSummary() : env.hub.metricsHistory(7)));
+    tamper(path, body);
+    return body;
+  };
   const sandbox = {
-    document: { getElementById: (id) => nodes[id], createElement: (tag) => new FakeNode(tag), hidden: false },
+    document: { getElementById: (id) => nodes[id], createElement: (tag) => new FakeNode(tag),
+      createElementNS: (ns, tag) => new FakeNode(tag), createTextNode: (text) => new FakeNode('#text', String(text)),
+      querySelectorAll: () => [], hidden: false },
+    window: { innerWidth: 1200, innerHeight: 800 },
     sessionStorage: { getItem: () => '', setItem() {}, removeItem() {} },
     fetch: async (path, options) => {
       requests.push({ path, options });
-      const body = path.includes('/session') ? detail : summary;
-      return { status: 200, ok: true, json: async () => body };
+      return { status: 200, ok: true, json: async () => answer(path) };
     },
     setInterval: () => 1,
     clearInterval() {},
     encodeURIComponent,
     Date,
+    Intl,
     Number,
     String,
     Object,
@@ -210,45 +226,25 @@ async function runDashboard(summary, detail) {
 
 test('the dashboard script writes every value as text, never as markup', async () => {
   const env = populated();
-  const summary = JSON.parse(JSON.stringify(env.hub.telemetrySummary(7)));
-  summary.sessions_by.platform = [{ value: PAYLOAD, count: 3 }];
-  summary.fallback_reasons = [{ value: PAYLOAD, count: 2 }];
-  summary.server.party_ended = [{ value: PAYLOAD, count: 1 }];
-  summary.reasons.fallback = { [PAYLOAD]: 4 };
-  summary.connection_beacon.failures = [{ value: PAYLOAD, count: 2 }];
-  summary.recent_sessions = [{ diag: PAYLOAD, last_ms: 1, reporters: 1, events: 1, first_ms: 1, platforms: [PAYLOAD], ended: PAYLOAD }];
-  const detail = JSON.parse(JSON.stringify(env.hub.telemetrySession(DIAG)));
-  detail.diag = PAYLOAD;
-  detail.reporters[0].ctx.platform = PAYLOAD;
-  detail.reporters[0].peers[0].reason = PAYLOAD;
-  detail.events[0].name = PAYLOAD;
-  detail.events[0].fields = { [PAYLOAD]: PAYLOAD };
-
-  const { nodes, requests, settle } = await runDashboard(summary, detail);
+  const hostile = (value) => ({ value, count: 3 });
+  const { nodes, requests } = await runDashboard(env, (path, body) => {
+    if (path.startsWith('/admin/api/summary')) {
+      for (const key of ['platform', 'version', 'country']) body.live[key] = [hostile(PAYLOAD)];
+      return;
+    }
+    for (const key of ['platform', 'version', 'country', 'abuse', 'reject', 'party_composition']) body.dimensions[key] = [hostile(PAYLOAD)];
+  });
   assert.equal(nodes.login.hidden, true);
   assert.equal(nodes.dash.hidden, false);
-  assert.equal(requests[0].path, '/admin/telemetry/summary?days=7');
-  assert.equal(JSON.stringify(requests[0].options.headers), JSON.stringify({ Authorization: `Bearer ${TOKEN}` }));
-  assert.equal(requests[0].options.credentials, 'omit');
-  const texts = nodes.out.all().map((n) => n.text);
-  assert.ok(texts.includes(PAYLOAD), 'the hostile value is shown as plain text');
-  assert.ok(texts.some((t) => t.includes('Sessions by platform')));
-  assert.ok(nodes.cards.all().some((n) => n.text === 'Parties started'));
-  assert.ok(texts.includes('Latency percentiles (per peer link)'));
-  for (const title of ['Fallback / path reasons', 'Disconnect reasons', 'Invite outcomes', 'Service errors', 'Connection Test failures',
-    'Connection Tests']) {
-    assert.ok(texts.includes(title), title);
+  assert.deepEqual(requests.map((r) => r.path).sort(), ['/admin/api/history?days=7', '/admin/api/summary']);
+  for (const request of requests) {
+    assert.equal(JSON.stringify(request.options.headers), JSON.stringify({ Authorization: `Bearer ${TOKEN}` }));
+    assert.equal(request.options.credentials, 'omit');
   }
-  assert.ok(texts.includes('parties reaching 4 of 4'));
-
-  const link = nodes.out.all().find((n) => n.tag === 'button' && n.text === PAYLOAD);
-  assert.ok(link);
-  link.listeners.click[0]();
-  await settle();
-  assert.equal(requests.at(-1).path, `/admin/telemetry/session?diag=${encodeURIComponent(PAYLOAD)}`);
-  assert.equal(nodes.detail.hidden, false);
-  assert.ok(nodes.detail.all().some((n) => n.text === `Session ${PAYLOAD}`));
-  assert.ok(nodes.detail.all().some((n) => n.text.includes(PAYLOAD)));
+  for (const id of ['d-platform', 'd-version', 'd-country', 'abuse', 'rejects', 'd-composition']) {
+    const texts = nodes[id].all().map((n) => n.text);
+    assert.ok(texts.some((t) => t.includes(PAYLOAD)), `${id}: the hostile value is shown as plain text`);
+  }
 });
 
 let server;
@@ -266,7 +262,7 @@ after(async () => {
 test('the development server serves the dashboard and the routes, and takes telemetry over a real WebSocket', async () => {
   const page = await fetch(`http://${base}/admin`);
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /Online Telemetry/);
+  assert.match(await page.text(), /Online Metrics/);
   assert.equal((await fetch(`http://${base}/admin/telemetry/summary`)).status, 401);
   assert.equal((await fetch(`http://${base}/admin/telemetry/summary`, { headers: bearer('nope') })).status, 401);
   assert.equal((await fetch(`http://${base}/health`)).status, 200);
@@ -309,6 +305,12 @@ test('the development server serves the dashboard and the routes, and takes tele
   assert.equal(summary.totals.client_events, 12);
   const session = await (await fetch(`http://${base}/admin/telemetry/session?diag=${DIAG}`, { headers: bearer(TOKEN) })).json();
   assert.equal(session.events.length, 12);
+  assert.equal((await fetch(`http://${base}/admin/api/summary`)).status, 401);
+  const metrics = await (await fetch(`http://${base}/admin/api/summary`, { headers: bearer(TOKEN) })).json();
+  assert.equal(metrics.today.sessions, 1);
+  assert.equal(metrics.today.unique_players, 1);
+  const history = await (await fetch(`http://${base}/admin/api/history?days=365`, { headers: bearer(TOKEN) })).json();
+  assert.equal(history.daily.length, 365);
 });
 
 test('without an admin token the development server has no admin routes', async () => {

@@ -58,6 +58,11 @@ void TestRequestsAreWellFormed() {
   CHECK(!Contains(EncodeMatchEndpoint(6, 7001, {}, "179.113.149.63", 0), "public_ip"));
   CHECK(!Contains(EncodeMatchEndpoint(6, 7001, {}, "", 54114), "public_port"));
   CHECK(Contains(EncodeMatchLeave(1), "match.leave"));
+  PartySnapshot party;
+  party.characters = {0, 2, 3, 0};
+  party.size = 3;
+  party.host = 2;
+  CHECK(EncodePartyReport(9, party) == "{\"op\":\"party.report\",\"seq\":9,\"characters\":[0,2,3],\"host\":2}");
   CHECK(EncodeMatchTransport(9, 3, "relay") == "{\"op\":\"match.transport\",\"seq\":9,\"peer\":3,\"transport\":\"relay\"}");
   CHECK(EncodeMatchLink(2, 4, "connected") == "{\"op\":\"match.link\",\"seq\":2,\"peer\":4,\"state\":\"connected\"}");
   const std::string room_hello = EncodeMatchHello(5, "00ff00ff00ff00ff", 3, std::string(32, 'a'), 7);

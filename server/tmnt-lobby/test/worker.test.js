@@ -5,7 +5,7 @@ import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 
-import { edgeCounts } from '../src/edge.js';
+import { COUNTRY_HEADER, edgeCounts, withEdgeLimited } from '../src/edge.js';
 import { GAME_ID, PROTOCOL, encodeRelayFrame } from '../src/protocol.js';
 import { identity } from './harness.js';
 
@@ -296,6 +296,47 @@ test('the Worker takes telemetry frames up to the batch limit and serves the adm
   const missing = await rig.worker.fetch(request('/admin/telemetry/session?diag=000000000000', { Authorization: `Bearer ${secret}` }), rig.env);
   assert.equal(missing.status, 404);
   console.log = quiet;
+});
+
+test('the Worker serves the metrics routes only with the token, and keeps them off the public surface', { skip }, async () => {
+  stubCloudflare();
+  const quiet = console.log;
+  console.log = () => {};
+  const rig = await setup();
+  await rig.open('/');
+  const player = directory(rig.lobby(), identity(6), 6);
+  assert.equal(player.call('hello', { proto: PROTOCOL, game: GAME_ID, guest: 'base', build: 1, player: player.who.player,
+    token: player.who.token, name: 'W6', version: '0.2.2', platform: 'Windows' }).code, 'ok');
+  const secret = 'a-long-enough-admin-secret';
+  rig.env.ADMIN_TOKEN = secret;
+  const get = (path, headers = {}) => rig.worker.fetch(new Request(`https://lobby.example${path}`, { headers }), rig.env);
+  const auth = { Authorization: `Bearer ${secret}` };
+  for (const path of ['/admin/api/summary', '/admin/api/history?days=365']) {
+    assert.equal((await get(path)).status, 401, path);
+    assert.equal((await get(path, auth)).status, 200, path);
+  }
+  assert.equal((await (await get('/admin/api/summary', auth)).json()).today.unique_players, 1);
+  assert.equal((await (await get('/admin/api/history?days=7', auth)).json()).daily.at(-1).sessions, 1);
+  assert.equal((await get('/admin/api/history?days=366', auth)).status, 400);
+  for (const path of ['/metrics/summary', '/metrics/history?days=7', '/party.report', '/telemetry/party']) {
+    assert.equal((await get(path, auth)).status, 404, path);
+  }
+  console.log = quiet;
+});
+
+test('the country is the edge\'s: a client cannot supply it, and only the directory keeps it', { skip }, async () => {
+  stubCloudflare();
+  const rig = await setup();
+  const upgrade = async (ip, cf) => {
+    const request = new Request('https://lobby.example/', { headers: { Upgrade: 'websocket', 'CF-Connecting-IP': ip, [COUNTRY_HEADER]: 'ZZ' } });
+    if (cf) Object.defineProperty(request, 'cf', { value: cf });
+    assert.equal((await rig.worker.fetch(request, rig.env)).status, 101);
+    return rig.lobby().context.sockets.at(-1).deserializeAttachment().country;
+  };
+  assert.equal(await upgrade('203.0.113.8', { country: 'BR' }), 'BR');
+  assert.equal(await upgrade('203.0.113.9', { country: 'XX' }), 'Unknown');
+  assert.equal(await upgrade('203.0.113.10'), 'Unknown');
+  assert.equal(withEdgeLimited(new Request('https://lobby.example/', { headers: { [COUNTRY_HEADER]: 'ZZ' } })).headers.get(COUNTRY_HEADER), 'Unknown');
 });
 
 test('the Worker answers the Connection Test beacon without a session, limits it per address, and the directory counts it', { skip }, async () => {

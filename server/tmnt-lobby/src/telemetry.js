@@ -566,8 +566,10 @@ export class TelemetryStore {
 
   flushAbuse() {
     this.lastAbuseFlush = this.now();
-    const counts = new Map(this.abuse.drain().map(([name, n]) => [`abuse.${name}`, n]));
-    if (counts.size) this.addCounts(counts);
+    const entries = this.abuse.drain();
+    if (!entries.length) return;
+    this.addCounts(new Map(entries.map(([name, n]) => [`abuse.${name}`, n])));
+    this.onAbuse?.(entries);
   }
 
   abuseDueAt() {
