@@ -27,8 +27,6 @@
 #include "diagnostics.h"
 #include "frame_counter.h"
 #include "game_files.h"
-#include "gamer_card.h"
-#include "gamer_card_overlay.h"
 #include "invite_ui.h"
 #include "gpu_plugin_check.h"
 #include "guest_functions.h"
@@ -247,11 +245,6 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
           .open = [this] { app_context().CallInUIThreadDeferred([this] { OpenAchievements(); }); },
           .close = [this] { app_context().CallInUIThreadDeferred([this] { RequestCloseOverlay(); }); },
       });
-      tmnt::InstallGamerCard({
-          .open = [this](tmnt::GamerCardRequest request) {
-            app_context().CallInUIThreadDeferred([this, request] { OpenGamerCard(request); });
-          },
-      });
       static_cast<rex::input::InputSystem*>(runtime()->input_system())
           ->SetActiveCallback([this] {
             if (tmnt::AchievementMenuHoldsInput()) return true;
@@ -293,7 +286,6 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     }
     tmnt::ModalDialog::DetachEscapeKey();
     tmnt::StopOnline();
-    CloseGamerCard();
     CloseAchievements();
     DetachWindowHost();
     REXLOG_INFO("{}", tmnt::FormatCleanExit(tmnt::ProcessUptimeText()));
@@ -370,39 +362,10 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (achievements_) {
       achievements_->RequestClose();
     }
-    if (gamer_card_) {
-      gamer_card_->RequestClose();
-    }
-  }
-
-  void OpenGamerCard(tmnt::GamerCardRequest request) {
-    if (gamer_card_ || tmnt::ModalDialog::AnyOpen() || !runtime() || !runtime()->kernel_state() || !imgui_drawer()) {
-      return;
-    }
-    const tmnt::GamerCardSources sources = tmnt::ReadGamerCardSources(*runtime()->kernel_state(), achievements());
-    tmnt::GamerCardView view = tmnt::BuildGamerCardView(request, sources);
-    if (view.available) {
-      REXLOG_INFO("[GamerCard] opened local profile for player {}", request.user_index + 1);
-    } else {
-      REXLOG_INFO("[GamerCard] requested unknown XUID {:016X}", request.xuid);
-    }
-    gamer_card_ = new tmnt::GamerCardOverlay(imgui_drawer(), std::move(view), [this] {
-      gamer_card_ = nullptr;
-      tmnt::SetAchievementMenuOpen(false);
-    });
-    tmnt::SetAchievementMenuOpen(true);
-  }
-
-  void CloseGamerCard() {
-    if (!gamer_card_ || gamer_card_->Closing()) {
-      return;
-    }
-    delete gamer_card_;
   }
 
   tmnt::GameSettings game_settings_;
   tmnt::AchievementsOverlay* achievements_ = nullptr;
-  tmnt::GamerCardOverlay* gamer_card_ = nullptr;
   std::filesystem::path shipped_config_;
   tmnt::UserDataSelection user_data_;
   bool show_launcher_ = false;

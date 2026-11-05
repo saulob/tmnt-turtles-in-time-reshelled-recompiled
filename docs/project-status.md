@@ -59,12 +59,10 @@ need attention at first boot.
 - **Achievements.** Unlocks and their persistence are ReXGlue's: the title XDBF supplies the 12 names, descriptions, icons and 200
   gamerscore, and `achievements\584109D2.toml` holds the unlock state. The game's `XamShowAchievementsUI` wrapper is bridged to the
   project's local overlay, which also handles controller input while it is open.
-- **Gamer Card.** The Summary and Leaderboards `Y GAMER CARD` actions reach the `XamShowGamerCardUIForXUID(user, xuid)` wrapper
-  `sub_826EDB48`, which is bridged to a local overlay (`src/gamer_card*.cpp`). It shows the gamertag, gamerscore, achievement
-  progress and the Story and Survival scores from the local stats, plus motto, zone and region when the profile has them; an
-  XUID that is not the local player's gets an "unavailable" card. `BasicWorld_CheckIfPlayerCanViewProfile` (`sub_8757E9E0`),
-  the privilege gate only the Gamer Card actions use, is answered for local controllers.
-- **Leaderboards.** The game's leaderboard page uses a local store at `584109D2\live\stats.toml`. Only the local player's own
+- **Removed menu entries.** Leaderboards (main and pause menus), XBOX LIVE PARTY (Online menu) and every reachable
+  `Y GAMER CARD` hint (Lobby, Matchmaking, Summary, Game Over) are edited out of the FIRE menu movies as they are unpacked
+  from the world bundles (`src/fire_movie_patch.cpp`). There is no Gamer Card overlay.
+- **Leaderboards.** No menu reaches the page any more. It uses a local store at `584109D2\live\stats.toml`. Only the local player's own
   submitted score is answered, as rank 1; there are no remote players, friends or global rankings. The scripts are
   compiled into `TMNT_r.xex` and hooked there (`src/live_hooks_tmnt_r.cpp`): the local profile counts as signed in to
   Xbox Live only while the leaderboard page, its sign-in check and the leaderboard, single-player and local-multiplayer

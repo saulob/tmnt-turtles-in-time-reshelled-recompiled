@@ -12,7 +12,7 @@ struct AchievementMenuBridge {
 // Installs the XamShowAchievementsUI bridge and the guest controller gate. Called before the game starts.
 void InstallAchievementMenu(AchievementMenuBridge bridge);
 
-// The achievements list or the Gamer Card is up, or the B that closed it is still held.
+// The achievements list is up, or the B that closed it is still held.
 void SetAchievementMenuOpen(bool open);
 bool AchievementMenuHoldsInput();
 

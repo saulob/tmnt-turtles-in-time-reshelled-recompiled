@@ -11,7 +11,6 @@
 #include <rex/logging.h>
 #include <rex/system/kernel_state.h>
 
-#include "gamer_card_rules.h"
 #include "guest_memory.h"
 #include "live_scope.h"
 #include "online/party_report.h"
@@ -25,7 +24,6 @@ namespace {
 constexpr uint32_t kReturnsTrue = 0x8761B470;
 constexpr int kMaxLoggedOverrides = 8;
 constexpr uint32_t kWorldScriptOffset = 7216;
-constexpr uint32_t kPltSucceed = 0;
 
 thread_local bool t_stats_requested = false;
 
@@ -478,17 +476,6 @@ REX_HOOK_RAW(sub_875BA650) {
   }
   ForcedImport signed_in(kImportPlayerSignedIntoConsole);
   __imp__sub_875BA650(ctx, base);
-}
-
-// BasicWorld_CheckIfPlayerCanViewProfile(this, joy_id, player_id): only the Gamer Card actions ask. A local player
-// has no Xbox Live privileges, and the card shown is the local one.
-REX_EXTERN(__imp__sub_8757E9E0);
-REX_HOOK_RAW(sub_8757E9E0) {
-  if (IsLocalGamerCardUser(ctx.r4.u32)) {
-    ctx.r3.u64 = kPltSucceed;
-    return;
-  }
-  __imp__sub_8757E9E0(ctx, base);
 }
 
 // Engine import table lookup used by every compiled script call.

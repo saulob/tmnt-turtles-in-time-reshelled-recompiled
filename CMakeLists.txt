@@ -228,8 +228,6 @@ set(TMNT_SOURCES
     src/frame_wait.cpp
     src/friend_code_field.cpp
     src/game_files.cpp
-    src/gamer_card.cpp
-    src/gamer_card_overlay.cpp
     src/graphics_adapters.cpp
     src/guest_functions.cpp
     src/imgui_gamepad.cpp
@@ -708,12 +706,6 @@ endif()
 add_executable(tmnt_achievement_menu_tests EXCLUDE_FROM_ALL tests/achievement_menu_tests.cpp)
 target_include_directories(tmnt_achievement_menu_tests PRIVATE src)
 
-# Gamer Card tests (request resolution, card contents, B and Escape close),
-# not part of the default build: cmake --build <dir> --target tmnt_gamer_card_tests
-add_executable(tmnt_gamer_card_tests EXCLUDE_FROM_ALL tests/gamer_card_tests.cpp)
-target_include_directories(tmnt_gamer_card_tests PRIVATE src)
-target_compile_definitions(tmnt_gamer_card_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
-
 # Skip intro and host key tests, not part of the default build: tools/test.ps1 also runs them standalone.
 add_executable(tmnt_skip_intro_tests EXCLUDE_FROM_ALL tests/skip_intro_tests.cpp)
 target_include_directories(tmnt_skip_intro_tests PRIVATE src)
@@ -920,9 +912,9 @@ if(WIN32)
     target_link_libraries(tmnt_player_match_net_tests PRIVATE ws2_32)
 endif()
 
-add_executable(tmnt_fire_movie_patch_tests EXCLUDE_FROM_ALL tests/fire_movie_patch_tests.cpp src/fire_movie_patch.cpp)
+add_executable(tmnt_fire_movie_patch_tests EXCLUDE_FROM_ALL tests/fire_movie_patch_tests.cpp)
 target_include_directories(tmnt_fire_movie_patch_tests PRIVATE src)
-target_compile_definitions(tmnt_fire_movie_patch_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_definitions(tmnt_fire_movie_patch_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_options(tmnt_fire_movie_patch_tests PRIVATE -Wall -Wextra)
 
 add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)

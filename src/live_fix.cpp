@@ -94,14 +94,6 @@ void Install(InstallParams params) {
   g_services.store(services, std::memory_order_release);
 }
 
-std::optional<int64_t> LocalRating(uint64_t xuid, uint32_t view) {
-  Services* services = Active();
-  if (!services) return std::nullopt;
-  const auto stats = services->stats.Get(xuid, view);
-  if (!stats) return std::nullopt;
-  return stats->rating;
-}
-
 }  // namespace tmnt::live
 
 using namespace tmnt;

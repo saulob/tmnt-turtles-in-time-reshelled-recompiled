@@ -1,4 +1,4 @@
-// The archive's decompressor: the Online menu movie is patched once it is unpacked.
+// The archive's decompressor: the menu movies are patched as their world bundle is unpacked.
 #include <rex/hook.h>
 #include <rex/logging.h>
 
@@ -13,8 +13,11 @@ REX_HOOK_RAW(sub_824EC4C8) {
   __imp__sub_824EC4C8(ctx, base);
   if (!output || !size_pointer) return;
   const uint32_t size = tmnt::LoadBE32(tmnt::GuestHost(base, size_pointer), 0);
-  if (size != tmnt::kOnlineMenuMovieBytes) return;
-  if (tmnt::PatchOnlineMenuMovie(tmnt::GuestHost(base, output), size)) {
-    REXLOG_INFO("Online menu movie: Quick, Create and Custom Match only");
+  if (!tmnt::IsMenuBundle(size)) return;
+  const tmnt::BundlePatchResult result = tmnt::PatchMenuBundle(tmnt::GuestHost(base, output), size);
+  if (result.failed) {
+    REXLOG_WARN("Menu movies: {} patched, {} left unchanged in a bundle of {} bytes", result.patched, result.failed, size);
+  } else {
+    REXLOG_INFO("Menu movies: {} patched in a bundle of {} bytes", result.patched, size);
   }
 }

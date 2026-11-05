@@ -664,6 +664,10 @@ Invoke-Check 'Host keys: F3 Ping, ReXGlue F3/F4 overlays removed, Ping text and 
     Invoke-FocusedTest 'tests\host_key_tests.cpp' @($sdkInclude, (Join-Root 'third_party\trg-launcher\include'))
 }
 
+Invoke-Check 'Menu cleanup: Leaderboards, Xbox Live Party and Gamer Card removed, rows and footers intact, tests/fire_movie_patch_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\fire_movie_patch_tests.cpp'
+}
+
 Invoke-Check 'Patched AudioSystem syntax: audio_system.cpp with the whole patch stack, compile only' {
     $tree = $PatchedSdk
     try {

@@ -38,7 +38,7 @@ gets the online profile.
 While Online play is signed in, the controller that chose **ONLINE** (the first one until then) sees a title-local Xbox LIVE profile: signed in, multiplayer
 allowed, the Online name as gamer name and a stable XUID derived from the friend code (never from the private token).
 With Online play Off nothing changes: no sign-in, no service, no relay, no test and no telemetry, and every local feature
-(local multiplayer, achievements, leaderboards, Gamer Card, player names) behaves as before.
+(local multiplayer, achievements, player names) behaves as before.
 
 ### The Party section
 
