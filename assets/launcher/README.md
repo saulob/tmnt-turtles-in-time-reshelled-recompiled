@@ -22,17 +22,18 @@ Every colour is one line at the top of the SVG's `<style>`; change it there and 
 
 | Class | Colour | Use |
 | --- | --- | --- |
-| `.black` | `#03140D` | tunnel interior |
-| `.deep` | `#082318` | floor |
-| `.green` | `#0E4F30` | pipes, ambient light |
+| `.deep` | `#03140D` | backdrop, tunnel interior, shell backing |
+| `.dark-green-stop` | `#082318` | water |
+| `.green-line` | `#0E4F30` | pipes, ambient light |
 | `.emerald` | `#1F7448` | tunnel rim, fence, brick lines |
-| `.glow` | `#5CE070` | launcher accent: small lights only |
-| `orange-stop` | `#FF8A1F` | streak 1 |
-| `blue-stop` | `#1E9DFF` | streak 2 |
-| `purple-stop` | `#A844FF` | streak 3 |
-| `red-stop` | `#FF2B3A` | streak 4 |
+| `.accent` | `#5CE070` | launcher accent: small lights only |
+| `.shell-orange` | `#FF8A1F` | shell 1 |
+| `.shell-blue` | `#1E9DFF` | shell 2 |
+| `.shell-purple` | `#A844FF` | shell 3 |
+| `.shell-red` | `#FF2B3A` | shell 4 |
 
-The streaks run bottom to top as orange, blue, purple, red.
+The four shells are `<use>` instances of one `#shell` group, coloured through `currentColor`, and
+run left to right as orange, blue, purple, red.
 
 ## Layout
 
