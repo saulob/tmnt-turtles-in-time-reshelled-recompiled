@@ -456,14 +456,18 @@ add_custom_command(
 add_custom_target(tmnt_turtles_in_time_reshelled_toml ALL DEPENDS "${TMNT_STAGED_TOML}")
 add_dependencies(tmnt_turtles_in_time_reshelled tmnt_turtles_in_time_reshelled_toml)
 
-add_custom_command(TARGET tmnt_turtles_in_time_reshelled POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-        "$<TARGET_FILE_DIR:tmnt_turtles_in_time_reshelled>/assets/launcher"
+set(TMNT_STAGED_HEADER_ART "${CMAKE_CURRENT_BINARY_DIR}/assets/launcher/header-art.png")
+add_custom_command(
+    OUTPUT "${TMNT_STAGED_HEADER_ART}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/assets/launcher"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header-art.png"
-        "$<TARGET_FILE_DIR:tmnt_turtles_in_time_reshelled>/assets/launcher/header-art.png"
+        "${TMNT_STAGED_HEADER_ART}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header-art.png"
     VERBATIM
 )
+add_custom_target(tmnt_launcher_header_art ALL DEPENDS "${TMNT_STAGED_HEADER_ART}")
+add_dependencies(tmnt_turtles_in_time_reshelled tmnt_launcher_header_art)
 
 find_package(Threads REQUIRED)
 

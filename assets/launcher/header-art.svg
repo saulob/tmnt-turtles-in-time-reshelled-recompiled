@@ -1,103 +1,160 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 180" preserveAspectRatio="xMidYMid meet">
   <style>
-    .accent { fill: #5CE070; }
-    .accent-line { fill: none; stroke: #5CE070; }
+    .black { fill: #03140D; }
+    .deep { fill: #082318; }
+    .green { fill: #0E4F30; }
+    .green-line { fill: none; stroke: #0E4F30; }
+    .emerald { fill: #1F7448; }
     .emerald-line { fill: none; stroke: #1F7448; }
-    .accent-stop { stop-color: #5CE070; }
+    .glow { fill: #5CE070; }
+    .glow-line { fill: none; stroke: #5CE070; }
+    .deep-stop { stop-color: #082318; }
+    .green-stop { stop-color: #0E4F30; }
     .emerald-stop { stop-color: #1F7448; }
+    .glow-stop { stop-color: #5CE070; }
+    .orange-stop { stop-color: #FF8A1F; }
+    .blue-stop { stop-color: #1E9DFF; }
+    .purple-stop { stop-color: #A844FF; }
+    .red-stop { stop-color: #FF2B3A; }
+    .tint-stop { stop-color: #FFFFFF; }
   </style>
 
   <defs>
-    <radialGradient id="glow" cx="1430" cy="92" r="300" gradientUnits="userSpaceOnUse">
-      <stop offset="0" class="accent-stop" stop-opacity=".10"/>
-      <stop offset=".55" class="accent-stop" stop-opacity=".03"/>
-      <stop offset="1" class="accent-stop" stop-opacity="0"/>
+    <radialGradient id="ambient" cx="1530" cy="112" r="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="green-stop" stop-opacity=".30"/>
+      <stop offset="1" class="green-stop" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="fin" x1="1320" y1="180" x2="1470" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" class="emerald-stop" stop-opacity=".015"/>
-      <stop offset=".55" class="emerald-stop" stop-opacity=".09"/>
-      <stop offset="1" class="accent-stop" stop-opacity=".02"/>
+    <radialGradient id="lamp" cx="1530" cy="118" r="46" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="glow-stop" stop-opacity=".34"/>
+      <stop offset="1" class="glow-stop" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mist-a" cx="1130" cy="146" r="270" gradientTransform="translate(0 132) scale(1 .09)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="glow-stop" stop-opacity=".10"/>
+      <stop offset="1" class="glow-stop" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mist-b" cx="1430" cy="150" r="230" gradientTransform="translate(0 137) scale(1 .09)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="glow-stop" stop-opacity=".10"/>
+      <stop offset="1" class="glow-stop" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mist-left" cx="460" cy="152" r="420" gradientTransform="translate(0 139) scale(1 .07)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="glow-stop" stop-opacity=".035"/>
+      <stop offset="1" class="glow-stop" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ground" x1="600" y1="0" x2="1120" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="emerald-stop" stop-opacity="0"/>
+      <stop offset="1" class="emerald-stop" stop-opacity=".55"/>
     </linearGradient>
-    <linearGradient id="bus" x1="900" y1="0" x2="1240" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" class="accent-stop" stop-opacity="0"/>
-      <stop offset="1" class="accent-stop" stop-opacity=".44"/>
+    <linearGradient id="floor" x1="900" y1="0" x2="1300" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="deep-stop" stop-opacity="0"/>
+      <stop offset="1" class="deep-stop" stop-opacity=".85"/>
     </linearGradient>
-    <linearGradient id="trace" x1="1000" y1="0" x2="1160" y2="0" gradientUnits="userSpaceOnUse">
-      <stop offset="0" class="accent-stop" stop-opacity="0"/>
-      <stop offset="1" class="accent-stop" stop-opacity=".30"/>
+    <linearGradient id="fence-fade" x1="1030" y1="0" x2="1180" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="emerald-stop" stop-opacity="0"/>
+      <stop offset="1" class="emerald-stop" stop-opacity=".55"/>
+    </linearGradient>
+    <linearGradient id="wall-fade" x1="1290" y1="0" x2="1470" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="emerald-stop" stop-opacity="0"/>
+      <stop offset="1" class="emerald-stop" stop-opacity=".42"/>
+    </linearGradient>
+    <linearGradient id="streak-orange">
+      <stop offset="0" class="orange-stop" stop-opacity="0"/>
+      <stop offset=".4" class="orange-stop" stop-opacity=".85"/>
+      <stop offset=".85" class="orange-stop"/>
+      <stop offset="1" class="orange-stop" stop-opacity=".4"/>
+    </linearGradient>
+    <linearGradient id="streak-blue">
+      <stop offset="0" class="blue-stop" stop-opacity="0"/>
+      <stop offset=".4" class="blue-stop" stop-opacity=".85"/>
+      <stop offset=".85" class="blue-stop"/>
+      <stop offset="1" class="blue-stop" stop-opacity=".4"/>
+    </linearGradient>
+    <linearGradient id="streak-purple">
+      <stop offset="0" class="purple-stop" stop-opacity="0"/>
+      <stop offset=".4" class="purple-stop" stop-opacity=".85"/>
+      <stop offset=".85" class="purple-stop"/>
+      <stop offset="1" class="purple-stop" stop-opacity=".4"/>
+    </linearGradient>
+    <linearGradient id="streak-red">
+      <stop offset="0" class="red-stop" stop-opacity="0"/>
+      <stop offset=".4" class="red-stop" stop-opacity=".85"/>
+      <stop offset=".85" class="red-stop"/>
+      <stop offset="1" class="red-stop" stop-opacity=".4"/>
+    </linearGradient>
+    <linearGradient id="highlight">
+      <stop offset="0" class="tint-stop" stop-opacity="0"/>
+      <stop offset=".6" class="tint-stop" stop-opacity=".5"/>
+      <stop offset="1" class="tint-stop" stop-opacity="0"/>
     </linearGradient>
   </defs>
 
   <g id="ambient">
-    <rect x="0" y="0" width="1600" height="180" fill="url(#glow)"/>
-    <g class="emerald-line" stroke-opacity=".06" stroke-width="1">
-      <path d="M1120 36H1600"/>
-      <path d="M1200 0V180"/>
-      <path d="M1320 0V180"/>
-    </g>
+    <rect x="1200" y="0" width="400" height="180" fill="url(#ambient)"/>
+    <rect x="0" y="130" width="1000" height="50" fill="url(#mist-left)"/>
+    <path d="M600 150H1600" fill="none" stroke="url(#ground)" stroke-width="1"/>
+    <path d="M780 44H1180" fill="none" stroke="url(#ground)" stroke-width="1" stroke-opacity=".5"/>
   </g>
 
-  <g id="fins">
-    <path d="M1320 180L1470 0H1600V112L1418 180Z" fill="url(#fin)"/>
-    <path d="M1320 180L1470 0" class="accent-line" stroke-opacity=".26" stroke-width="1.2"/>
-    <path d="M1500 180L1580 0H1600V30L1540 180Z" class="accent" fill-opacity=".035"/>
-    <path d="M1500 180L1580 0" class="accent-line" stroke-opacity=".18" stroke-width="1"/>
+  <g id="wall">
+    <path d="M1300 22H1600M1340 46H1462M1320 70H1462M1350 94H1462M1330 118H1462" fill="none" stroke="url(#wall-fade)" stroke-width="1"/>
+    <path d="M1370 0V22M1450 0V22M1580 0V22M1380 22V46M1440 22V46M1400 46V70M1360 70V94M1430 70V94M1400 94V118" fill="none" stroke="url(#wall-fade)" stroke-width="1"/>
   </g>
 
-  <g id="reticle">
-    <circle cx="1430" cy="92" r="118" class="accent-line" stroke-opacity=".21" stroke-width="1" stroke-dasharray="2 7"/>
-    <path d="M1355 29A98 98 0 0 1 1505 29" class="accent-line" stroke-opacity=".46" stroke-width="1.2"/>
-    <path d="M1505 155A98 98 0 0 1 1355 155" class="accent-line" stroke-opacity=".46" stroke-width="1.2"/>
-    <path d="M1506 2A118 118 0 0 1 1546 72" class="accent-line" stroke-opacity=".68" stroke-width="1.6"/>
-    <path d="M1544 123A118 118 0 0 1 1520 168" class="accent-line" stroke-opacity=".22" stroke-width="1.4"/>
-    <circle cx="1430" cy="92" r="64" class="emerald-line" stroke-opacity=".38" stroke-width="1" stroke-dasharray="1 5"/>
-    <g class="accent-line" stroke-opacity=".26" stroke-width="1">
-      <path d="M1430 28V78"/>
-      <path d="M1430 106V156"/>
-      <path d="M1366 92H1418"/>
-      <path d="M1442 92H1494"/>
-    </g>
-    <g class="accent-line" stroke-opacity=".28" stroke-width="1">
-      <path d="M1370 0V10M1490 0V10M1370 170V180M1490 170V180"/>
-      <path d="M1582 92H1592"/>
-    </g>
-    <g class="accent-line" stroke-opacity=".62" stroke-width="1.2">
-      <path d="M1402 72V64H1410"/>
-      <path d="M1458 72V64H1450"/>
-      <path d="M1402 112V120H1410"/>
-      <path d="M1458 112V120H1450"/>
-    </g>
-    <circle cx="1430" cy="92" r="7" class="accent-line" stroke-opacity=".42" stroke-width="1"/>
-    <circle cx="1430" cy="92" r="3.2" class="accent" fill-opacity=".95"/>
+  <g id="pipes">
+    <path d="M1450 10H1560" class="green-line" stroke-width="6"/>
+    <path d="M1450 8.2H1560" class="emerald-line" stroke-opacity=".6" stroke-width="1"/>
+    <path d="M1470 10V52" class="green-line" stroke-width="4"/>
+    <path d="M1400 56H1462" class="green-line" stroke-width="3"/>
+    <rect x="1465" y="26" width="10" height="3" class="emerald" fill-opacity=".7"/>
+    <rect x="1500" y="6" width="3" height="8" class="emerald" fill-opacity=".7"/>
   </g>
 
-  <g id="telemetry">
-    <path d="M900 118H1600" fill="none" stroke="url(#bus)" stroke-width="1"/>
-    <path d="M1032 136H1600" class="accent-line" stroke-opacity=".10" stroke-width="1" stroke-dasharray="2 8"/>
-    <path d="M1000 136H1060V120H1108" fill="none" stroke="url(#trace)" stroke-width="1"/>
-    <path d="M1150 44V58H1196" fill="none" stroke="url(#trace)" stroke-width="1"/>
-    <path d="M1240 148H1282V136H1312" class="accent-line" stroke-opacity=".18" stroke-width="1"/>
-    <path d="M1050 118L1088 94H1132" class="accent-line" stroke-opacity=".30" stroke-width="1"/>
-    <g class="accent" fill-opacity=".65">
-      <rect x="1112" y="54" width="13" height="4" fill-opacity=".28"/>
-      <rect x="1131" y="54" width="13" height="4" fill-opacity=".38"/>
-      <rect x="1150" y="54" width="13" height="4" fill-opacity=".62"/>
+  <g id="tunnel">
+    <path d="M1462 150V104A68 68 0 0 1 1598 104V150Z" class="black"/>
+    <path d="M1462 150V104A68 68 0 0 1 1598 104V150" class="emerald-line" stroke-opacity=".85" stroke-width="4"/>
+    <path d="M1478 150V104A52 52 0 0 1 1582 104V150" class="emerald-line" stroke-opacity=".38" stroke-width="1"/>
+    <path d="M1492 150V104A38 38 0 0 1 1568 104V150" class="emerald-line" stroke-opacity=".30" stroke-width="1"/>
+    <path d="M1504 150V108A26 26 0 0 1 1556 108V150" class="emerald-line" stroke-opacity=".24" stroke-width="1"/>
+    <circle cx="1530" cy="118" r="46" fill="url(#lamp)"/>
+    <circle cx="1530" cy="118" r="2.6" class="glow" fill-opacity=".95"/>
+    <circle cx="1530" cy="60" r="1.6" class="glow" fill-opacity=".7"/>
+  </g>
+
+  <g id="fence">
+    <path d="M1050 40V150M1160 40V150M1270 40V150" class="emerald-line" stroke-opacity=".55" stroke-width="2.4"/>
+    <path d="M1050 40H1270M1050 146H1270" fill="none" stroke="url(#fence-fade)" stroke-width="1.6"/>
+    <path d="M1050 52L1100 146M1070 40L1130 146M1110 40L1160 124M1160 52L1210 146M1180 40L1240 146M1220 40L1270 124" fill="none" stroke="url(#fence-fade)" stroke-width=".8" stroke-opacity=".6"/>
+    <path d="M1050 124L1100 40M1050 146L1130 40M1090 146L1160 52M1160 124L1210 40M1160 146L1240 40M1200 146L1270 52" fill="none" stroke="url(#fence-fade)" stroke-width=".8" stroke-opacity=".6"/>
+  </g>
+
+  <g id="floor">
+    <rect x="900" y="148" width="700" height="32" fill="url(#floor)"/>
+    <path d="M1486 156H1574M1506 163H1554M1520 170H1540" class="glow-line" stroke-opacity=".28" stroke-width="1.2"/>
+    <path d="M1180 156H1260M1204 163H1240" class="emerald-line" stroke-opacity=".35" stroke-width="1"/>
+  </g>
+
+  <g id="mist">
+    <rect x="860" y="120" width="540" height="60" fill="url(#mist-a)"/>
+    <rect x="1200" y="120" width="400" height="60" fill="url(#mist-b)"/>
+  </g>
+
+  <g id="streaks">
+    <path d="M1040 138C1150 131 1215 100 1330 80C1215 108 1150 139 1040 138Z" fill="url(#streak-orange)"/>
+    <path d="M1076 116C1186 110 1253 75 1368 54C1253 81 1186 116 1076 116Z" fill="url(#streak-blue)"/>
+    <path d="M1112 94C1222 87.2 1291 58.2 1406 38C1291 65.8 1222 94.8 1112 94Z" fill="url(#streak-purple)"/>
+    <path d="M1148 72C1258 65.8 1327 36.8 1442 16C1327 43.2 1258 72.2 1148 72Z" fill="url(#streak-red)"/>
+    <g fill="none" stroke="url(#highlight)" stroke-width=".7">
+      <path d="M1040 138C1150 135 1215 104 1330 80"/>
+      <path d="M1076 116C1186 113 1253 78 1368 54"/>
+      <path d="M1112 94C1222 91 1291 62 1406 38"/>
+      <path d="M1148 72C1258 69 1327 40 1442 16"/>
     </g>
-    <g class="accent" fill-opacity=".35">
-      <rect x="1040" y="126" width="9" height="2"/>
-      <rect x="1055" y="126" width="9" height="2" fill-opacity=".78"/>
-      <rect x="1070" y="126" width="9" height="2" fill-opacity=".4"/>
-    </g>
-    <path d="M1104 116L1108 120L1104 124L1100 120Z" class="accent-line" stroke-opacity=".45" stroke-width="1"/>
-    <path d="M1180 112L1186 118L1180 124L1174 118Z" class="emerald-line" stroke-opacity=".35" stroke-width="1"/>
-    <circle cx="1196" cy="58" r="1.8" class="accent" fill-opacity=".4"/>
-    <circle cx="1312" cy="136" r="1.4" class="accent" fill-opacity=".3"/>
   </g>
 
   <g id="particles">
-    <circle cx="1218" cy="34" r="1.2" class="accent" fill-opacity=".32"/>
-    <circle cx="1268" cy="72" r=".9" class="accent" fill-opacity=".20"/>
-    <circle cx="1336" cy="156" r="1" class="accent" fill-opacity=".24"/>
-    <circle cx="1562" cy="44" r="1.4" class="accent" fill-opacity=".30"/>
+    <circle cx="1002" cy="36" r="1" class="glow" fill-opacity=".20"/>
+    <circle cx="1124" cy="20" r="1.1" class="glow" fill-opacity=".26"/>
+    <circle cx="1292" cy="112" r="1.2" class="glow" fill-opacity=".30"/>
+    <circle cx="1420" cy="96" r="1" class="glow" fill-opacity=".26"/>
+    <circle cx="1596" cy="82" r="1.2" class="glow" fill-opacity=".34"/>
   </g>
 </svg>
