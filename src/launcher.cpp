@@ -39,6 +39,8 @@
 #include "language.h"
 #include "launcher_achievements.h"
 #include "launcher_quit.h"
+#include "localization/active_language.h"
+#include "localization/ui_text.h"
 #include "log_filter.h"
 #include "online_page.h"
 #include "online_runtime.h"
@@ -143,8 +145,10 @@ struct DlcOutcome {
 };
 
 std::string InstalledDlcMessage(const DlcInfo& dlc) {
-  return dlc.display_name + " installed.";
+  return dlc.display_name + Tr(" installed.");
 }
+
+const char* TranslateLauncherText(const char* english) { return Tr(english); }
 
 // The theme's only alert colours; destructive actions use them instead of the accent.
 void PushDangerButton(const trg::Theme& t) {
@@ -167,10 +171,10 @@ std::string DisplayUrl(const char* url) {
 std::vector<trg::Option> RenderResolutionOptions(AspectRatio aspect) {
   std::vector<trg::Option> options;
   for (int scale = 1; scale <= 4; ++scale) {
-    std::string label = scale == 1 ? "Original" : std::to_string(scale) + "x";
+    std::string label = scale == 1 ? std::string(Tr("Original")) : std::to_string(scale) + "x";
     label += " \xE2\x80\x94 " + std::to_string(GuestWidth(aspect) * scale) + "x" + std::to_string(kGuestHeight * scale);
     if (scale == 2) {
-      label += " \xE2\x80\x94 Recommended for 1440p";
+      label += Tr(" \xE2\x80\x94 Recommended for 1440p");
     }
     options.push_back({std::to_string(scale), label});
   }
@@ -207,6 +211,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     dlc_ = ListInstalledDlc(paths_.user_dir);
     ConfigureOnline(paths_.user_dir);
     header_art_ = LoadHeaderArt(paths_.immediate_drawer);
+    trg::SetTranslator(&TranslateLauncherText);
+    localization::SetActiveLanguage(settings_.Get(kLanguageSetting, kLanguageDefault));
     launcher_ = std::make_unique<trg::Launcher>(MakeConfig());
     updater_ = std::make_unique<trg::update::UpdateController>(MakeUpdateConfig(PortFolder()));
     updater_->StartCheck();
@@ -223,6 +229,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (done_) {
       return;
     }
+    localization::SetActiveLanguage(settings_.Get(kLanguageSetting, kLanguageDefault));
     online_page_.SetOwnerWindow(WindowHandle());
     PollInstall();
     PollDlcTask();
@@ -295,7 +302,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         return;
       }
       starting_ = false;
-      launcher_->SetStatus("Could not start the game in a new window. Press Play to try again.", 8);
+      launcher_->SetStatus(Tr("Could not start the game in a new window. Press Play to try again."), 8);
       return;
     }
     RestoreStartupWindow();
@@ -304,7 +311,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 
   // Drawn outside the disabled frame so the message keeps full brightness.
   void DrawStartingMessage() {
-    constexpr const char* kText = "Settings saved. Starting game...";
+    const char* kText = Tr("Settings saved. Starting game...");
     ImFont* font = g_fonts.semibold ? g_fonts.semibold : ImGui::GetFont();
     const float size = g_fonts.size * 1.25f;
     const ImGuiViewport* vp = ImGui::GetMainViewport();
@@ -452,7 +459,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   void PollOnline() {
     const std::vector<std::string> notices = online_page_.Tick(settings_);
     if (!notices.empty()) {
-      launcher_->SetStatus(notices.back(), 5.0);
+      launcher_->SetStatus(TrMessage(notices.back()), 5.0);
     }
   }
 
@@ -537,7 +544,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
     if (game_files_ == GameFiles::kReady && online_page_.PlayNeedsTest(settings_)) {
       ImGui::PushStyleColor(ImGuiCol_Text, ui.theme().warn_dot);
-      ImGui::TextWrapped("%s", kConnectionTestRequired);
+      ImGui::TextWrapped("%s", Tr(kConnectionTestRequired));
       ImGui::PopStyleColor();
     }
     if (!install_failure_.empty()) {
@@ -551,7 +558,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
              "copied next to the program.");
       if (!ui.TaskProgress(install_)) {
         const bool clicked = game_files_ == GameFiles::kReady
-                                 ? ImGui::Button("Reinstall from package...", ImVec2(-FLT_MIN, 0))
+                                 ? ImGui::Button(Tr("Reinstall from package..."), ImVec2(-FLT_MIN, 0))
                                  : ui.AccentButton("Install from package...");
         if (clicked) {
           BrowseAndInstall();
@@ -565,9 +572,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   static void DrawFailure(trg::Ui& ui, const std::string& title, const std::string& text) {
     ui.Spacer(4);
     ImGui::PushStyleColor(ImGuiCol_Text, ui.theme().warn_dot);
-    ImGui::TextUnformatted(title.c_str());
+    ImGui::TextUnformatted(Tr(title).c_str());
     ImGui::PopStyleColor();
-    ui.Help(text.c_str());
+    ui.Help(Tr(text).c_str());
     ui.Spacer(4);
   }
 
@@ -576,8 +583,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (install_.running()) {
       return;
     }
-    const std::string picked = trg::BrowseForFile("Select your Turtles in Time Re-Shelled Xbox Live Arcade package",
-                                                  {{"Xbox Live Arcade package", "*"}});
+    const std::string picked = trg::BrowseForFile(Tr("Select your Turtles in Time Re-Shelled Xbox Live Arcade package"),
+                                                  {{Tr("Xbox Live Arcade package"), "*"}});
     if (picked.empty()) {
       if (trg::FileDialogUnavailable()) {
         launcher_->SetStatus("Could not open the file picker. Install xdg-desktop-portal, zenity, or kdialog.", 8.0);
@@ -590,11 +597,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     achievements_tried_ = false;
     outcome_ = std::make_shared<InstallOutcome>();
     const bool started = install_.Start(
-        "Reading package...",
+        Tr("Reading package..."),
         [outcome = outcome_, package = PathFromUtf8(picked), game_dir = paths_.game_dir](trg::Task& task) {
           InstallHooks hooks;
           hooks.phase = [&task](const char* text) {
-            task.SetLabel(text);
+            task.SetLabel(Tr(text));
             task.Progress(0, 0);
           };
           hooks.progress = [&task](uint64_t done, uint64_t total) {
@@ -679,13 +686,13 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       } else {
         REXLOG_INFO("Game install cancelled");
       }
-      launcher_->SetStatus(std::string(message.title) + ". " + message.text, 6.0);
+      launcher_->SetStatus(std::string(Tr(message.title)) + ". " + Tr(message.text), 6.0);
       return;
     }
     REXLOG_WARN("Game install failed: {} ({})", message.title, result.detail);
     install_failure_ = message.title;
     install_failure_text_ = message.text;
-    launcher_->SetStatus("Install failed: " + install_failure_, 8.0);
+    launcher_->SetStatus(Tr("Install failed: ") + Tr(install_failure_), 8.0);
   }
 
   void PageDlc(trg::Ui& ui) {
@@ -702,7 +709,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
     ui.Spacer(6);
     if (!dlc_removing_name_.empty()) {
-      ui.Help(("Removing " + dlc_removing_name_ + "...").c_str());
+      ui.Help((Tr("Removing ") + dlc_removing_name_ + "...").c_str());
     } else if (!ui.TaskProgress(dlc_task_) && ui.AccentButton("Install DLC...")) {
       BrowseAndInstallDlc();
     }
@@ -738,10 +745,10 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       const ImU32 green = ImGui::GetColorU32(t.good_dot);
       dl->AddCircleFilled(ImVec2(origin.x + pad + 4 * s, status_y + ImGui::GetFontSize() * 0.5f), 4 * s, green);
       dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(origin.x + pad + 14 * s, status_y), green,
-                  "Installed");
+                  Tr("Installed"));
     } else {
       dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(origin.x + pad, status_y),
-                  ImGui::GetColorU32(t.dim), "Not installed");
+                  ImGui::GetColorU32(t.dim), Tr("Not installed"));
     }
     ImGui::PopFont();
 
@@ -753,7 +760,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       ImGui::PushID(installed->content_id.c_str());
       ImGui::BeginDisabled(busy);
       PushDangerButton(t);
-      remove_clicked = ImGui::Button("Remove", ImVec2(button_w, button_h));
+      remove_clicked = ImGui::Button(Tr("Remove"), ImVec2(button_w, button_h));
       ImGui::PopStyleColor(4);
       ImGui::EndDisabled();
       ImGui::PopID();
@@ -796,22 +803,21 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 
     const DlcInfo target = *dlc_remove_target_;
     ImGui::PushFont(ui.fonts().semibold, ui.fonts().size * 1.1f);
-    ImGui::TextUnformatted(("Remove " + target.display_name + " DLC").c_str());
+    ImGui::TextUnformatted((Tr("Remove ") + target.display_name + Tr(" DLC")).c_str());
     ImGui::PopFont();
     ImGui::Dummy(ImVec2(0, 6 * s));
     ImGui::PushStyleColor(ImGuiCol_Text, t.dim);
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextUnformatted(
-        "This removes the installed DLC files from this PC.\nYou can install the package again later.");
+    ImGui::TextUnformatted(Tr("This removes the installed DLC files from this PC.\nYou can install the package again later."));
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::Dummy(ImVec2(0, 14 * s));
 
-    bool cancel = ImGui::Button("Cancel", ImVec2(150 * s, 0));
+    bool cancel = ImGui::Button(Tr("Cancel"), ImVec2(150 * s, 0));
     ImGui::SetItemDefaultFocus();
     ImGui::SameLine();
     PushDangerButton(t);
-    const bool remove = ImGui::Button("Remove", ImVec2(150 * s, 0));
+    const bool remove = ImGui::Button(Tr("Remove"), ImVec2(150 * s, 0));
     ImGui::PopStyleColor(4);
 
     cancel |= ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
@@ -832,8 +838,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (dlc_task_.running()) {
       return;
     }
-    const std::string picked = trg::BrowseForFile("Select a Turtles in Time Re-Shelled DLC package",
-                                                  {{"Xbox 360 package", "*"}});
+    const std::string picked = trg::BrowseForFile(Tr("Select a Turtles in Time Re-Shelled DLC package"),
+                                                  {{Tr("Xbox 360 package"), "*"}});
     if (picked.empty()) {
       if (trg::FileDialogUnavailable()) {
         launcher_->SetStatus("Could not open the file picker. Install xdg-desktop-portal, zenity, or kdialog.", 8.0);
@@ -844,11 +850,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     dlc_failure_text_.clear();
     dlc_outcome_ = std::make_shared<DlcOutcome>();
     const bool started = dlc_task_.Start(
-        "Reading package...",
+        Tr("Reading package..."),
         [outcome = dlc_outcome_, package = PathFromUtf8(picked), user_dir = paths_.user_dir](trg::Task& task) {
           InstallHooks hooks;
           hooks.phase = [&task](const char* text) {
-            task.SetLabel(text);
+            task.SetLabel(Tr(text));
             task.Progress(0, 0);
           };
           hooks.progress = [&task](uint64_t done, uint64_t total) {
@@ -874,7 +880,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     dlc_outcome_->removal = true;
     dlc_outcome_->name = dlc.display_name;
     const bool started = dlc_task_.Start(
-        "Removing DLC...",
+        Tr("Removing DLC..."),
         [outcome = dlc_outcome_, user_dir = paths_.user_dir, game_dir = paths_.game_dir,
          content_id = dlc.content_id](trg::Task&) {
           outcome->removal_result = RemoveInstalledDlc(user_dir, game_dir, content_id);
@@ -918,27 +924,27 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
     if (result.status == InstallStatus::kCancelled) {
       REXLOG_INFO("DLC install cancelled");
-      launcher_->SetStatus(std::string(message.title) + ". " + message.text, 6.0);
+      launcher_->SetStatus(std::string(Tr(message.title)) + ". " + Tr(message.text), 6.0);
       return;
     }
     REXLOG_WARN("DLC install failed: {} ({})", message.title, result.detail);
     dlc_failure_ = message.title;
     dlc_failure_text_ = message.text;
-    launcher_->SetStatus("DLC install failed: " + dlc_failure_, 8.0);
+    launcher_->SetStatus(Tr("DLC install failed: ") + Tr(dlc_failure_), 8.0);
   }
 
   void FinishDlcRemoval(const DlcOutcome& outcome) {
     const RemoveResult& result = outcome.removal_result;
     if (result.ok()) {
       REXLOG_INFO("DLC removed: {}", outcome.name);
-      launcher_->SetStatus(outcome.name + " removed. You can install the package again later.", 6.0);
+      launcher_->SetStatus(outcome.name + Tr(" removed. You can install the package again later."), 6.0);
       return;
     }
     const RemoveMessage message = DescribeRemove(result.status);
     REXLOG_WARN("DLC removal failed: {} ({})", message.title, result.detail);
     dlc_failure_ = message.title;
     dlc_failure_text_ = message.text;
-    launcher_->SetStatus("Removal failed: " + dlc_failure_, 8.0);
+    launcher_->SetStatus(Tr("Removal failed: ") + Tr(dlc_failure_), 8.0);
   }
 
   void PageDisplay(trg::Ui& ui) {
@@ -1024,11 +1030,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     const float scale = monitor ? monitor->scale : 1.0f;
     auto label = [scale](int w, int h) {
       if (w <= 0 || h <= 0) {
-        return std::string("Default");
+        return std::string(Tr("Default"));
       }
       std::string text = Size(w, h);
       if (scale != 1.0f) {
-        text += "   (" + Size(int(std::lround(w * scale)), int(std::lround(h * scale))) + " on screen)";
+        text += "   (" + Size(int(std::lround(w * scale)), int(std::lround(h * scale))) + Tr(" on screen)");
       }
       return text;
     };
@@ -1054,13 +1060,13 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     const int current = settings_.GetInt("monitor", 0);
     auto label = [this](int index) {
       if (index <= 0) {
-        return std::string("Default");
+        return std::string(Tr("Default"));
       }
       if (index > int(monitors_.size())) {
-        return "Display " + std::to_string(index) + " (not connected)";
+        return Tr("Display ") + std::to_string(index) + Tr(" (not connected)");
       }
       const MonitorInfo& m = monitors_[size_t(index - 1)];
-      return "Display " + std::to_string(index) + (m.primary ? " (primary)" : "") + "   " + Size(m.width, m.height);
+      return Tr("Display ") + std::to_string(index) + (m.primary ? Tr(" (primary)") : "") + "   " + Size(m.width, m.height);
     };
     if (ImGui::BeginCombo("##monitor", label(current).c_str())) {
       for (int i = 1; i <= int(monitors_.size()); ++i) {
@@ -1119,7 +1125,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
               "tmnt_show_render_resolution", false, "Off", "On");
     ui.Toggle("Frame counter", "Shows the game's frame rate in the corner. F2 toggles it while playing.",
               "tmnt_show_frame_counter", false, "Hidden", "Shown");
-    if (ui.Section("Local player names", true)) {
+    if (ui.Section(Tr("Local player names"), true)) {
       ui.Help(kPlayerNamesHelp);
       for (const PlayerNameSetting& player : kPlayerNames) {
         PlayerNameRow(ui, player);
@@ -1148,7 +1154,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     std::snprintf(text, sizeof text, "%s", edit.previous.c_str());
     ImGui::PushID(player.key);
     ImGui::SetNextItemWidth(-FLT_MIN);
-    if (ImGui::InputTextWithHint("##text", player.default_name, text, sizeof text, ImGuiInputTextFlags_CallbackEdit,
+    if (ImGui::InputTextWithHint("##text", Tr(player.default_name), text, sizeof text, ImGuiInputTextFlags_CallbackEdit,
                                  reject_invalid, &edit)) {
       ui.settings().Set(player.key, text);
       blocked[player.key] = edit.blocked;
@@ -1192,7 +1198,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 
   static void DrawAchievementSummary(trg::Ui& ui, const AchievementSummary& summary) {
     ImGui::PushFont(ui.fonts().semibold, 0.0f);
-    ImGui::Text("%d / %d unlocked", summary.unlocked, summary.total);
+    ImGui::Text(Tr("%d / %d unlocked"), summary.unlocked, summary.total);
     ImGui::SameLine();
     ImGui::TextColored(kAccent, "%dG / %dG", summary.earned_gamerscore, summary.total_gamerscore);
     ImGui::PopFont();
@@ -1212,7 +1218,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       ResetKeyboardDefaults(ui.settings());
       ui.SetStatus("Keyboard controls reset to defaults.");
     }
-    if (ui.Section("Keyboard controls", true)) {
+    if (ui.Section(Tr("Keyboard controls"), true)) {
       ui.Help("Click a key, then press the new one. Esc cancels.");
       const bool enabled = ui.settings().GetBool("mnk_mode", true);
       if (!enabled) {
@@ -1228,7 +1234,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
   static void KeyboardRow(trg::Ui& ui, const KeyboardAction& action) {
-    const std::string shown = KeyboardBindingLabel(SavedKeyboardBinding(ui.settings(), action));
+    const std::string shown = TrMessage(KeyboardBindingLabel(SavedKeyboardBinding(ui.settings(), action)));
     const std::optional<ImGuiKey> key = ui.KeyBindRow(action.label, nullptr, shown);
     if (!key) {
       return;

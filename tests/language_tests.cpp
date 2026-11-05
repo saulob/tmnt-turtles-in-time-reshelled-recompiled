@@ -49,10 +49,11 @@ size_t Count(const std::string& text, const char* needle) {
 // The exact matrix proven from TMNT.bf's TextBank/ErrorTextBank/WaitingTextBank/MovieSubtitleBank files
 // (00_French, 01_English, 05_German, 06_Italian, 07_Spanish) and the boot-time locale switch in
 // default.xex (sub_8228E938, keyed by XLanguage-1). No other language has banks in the archive, and
-// the archive has no audio files at all, so none of these five has localized voice either.
+// the archive has no audio files at all, so none of these five has localized voice either. Portugu\xC3\xAAs Brasil
+// is the port's own sixth entry, on the English slot; tests/localization_tests.cpp covers it.
 void TestTable() {
-  std::printf("exactly the five TMNT-proven languages, with their Xbox XLanguage IDs\n");
-  CHECK(tmnt::kLanguages.size() == 5);
+  std::printf("the five TMNT-proven languages with their Xbox XLanguage IDs, then the port's pt-BR\n");
+  CHECK(tmnt::kLanguages.size() == 6);
   CHECK(std::string(tmnt::kLanguageSetting) == "tmnt_language");
   CHECK(std::string(tmnt::kLanguageDefault) == "en");
   CHECK(tmnt::kLanguageDefault == std::string(tmnt::kLanguages[0].key));
@@ -63,7 +64,7 @@ void TestTable() {
     keys.insert(language.key);
     xbox_ids.insert(language.xbox_language);
   }
-  CHECK(keys.size() == 5);
+  CHECK(keys.size() == 6);
   CHECK(xbox_ids.size() == 5);
 
   CHECK(std::string(tmnt::kLanguages[0].key) == "en" && std::string(tmnt::kLanguages[0].label) == "English" &&
@@ -103,7 +104,7 @@ void TestSettingsAndLauncherWiring() {
   CHECK(Has(settings, "#include \"language.h\""));
   CHECK(Has(settings, "SetFlagByName(\"user_language\", std::to_string(language.xbox_language))"));
   CHECK(Has(settings, "ApplyLanguage();"));
-  CHECK(Has(settings, "REXLOG_INFO(\"Language: {}\", language.label)"));
+  CHECK(Has(settings, "REXLOG_INFO(\"Language: {} (user_language {})\", language.label, language.xbox_language)"));
   CHECK(Has(settings, "diagnostics.launcher_gameplay.language ="));
 
   const std::string settings_header = ReadSource("settings.h");

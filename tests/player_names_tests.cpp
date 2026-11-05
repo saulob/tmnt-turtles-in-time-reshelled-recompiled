@@ -199,14 +199,14 @@ void TestSettingsAndLauncher() {
   CHECK(Has(ReadSource("tmnt_turtles_in_time_reshelled_app.h"), "tmnt::ApplyPlayerNames();"));
 
   const std::string launcher = ReadSource("launcher.cpp");
-  CHECK(Count(launcher, "ui.Section(\"Local player names\"") == 1);
+  CHECK(Count(launcher, "ui.Section(Tr(\"Local player names\")") == 1);
   const size_t gameplay = launcher.find("static void PageGameplay");
   const size_t achievements = launcher.find("void PageAchievements");
   const size_t controls = launcher.find("static void PageControls");
-  const size_t names = launcher.find("ui.Section(\"Local player names\"");
+  const size_t names = launcher.find("ui.Section(Tr(\"Local player names\")");
   CHECK(gameplay < names && names < achievements);
   CHECK(controls > achievements);
-  CHECK(launcher.find("ui.Section(\"Local player names\"", controls) == std::string::npos);
+  CHECK(launcher.find("ui.Section(Tr(\"Local player names\")", controls) == std::string::npos);
   CHECK(Has(launcher, "ui.Help(kPlayerNamesHelp);"));
   CHECK(std::string(tmnt::kPlayerNamesHelp) == "Names shown in Local Game. Online Game uses your Online name.");
   CHECK(Has(launcher, "ImGuiInputTextFlags_CallbackEdit"));

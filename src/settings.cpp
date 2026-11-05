@@ -28,6 +28,7 @@
 #include "internal_render_scale.h"
 #include "keybinds.h"
 #include "language.h"
+#include "localization/active_language.h"
 #include "legacy_settings.h"
 #include "multisampling.h"
 #include "player_names.h"
@@ -53,7 +54,7 @@ REXCVAR_DEFINE_BOOL(tmnt_msaa_compatibility, false, "TMNT",
 REXCVAR_DEFINE_STRING(tmnt_aspect_ratio, "16:9", "TMNT",
                       "Aspect ratio chosen in the launcher: 16:9, 16:10, 21:9, 32:9, 4:3 or 5:4");
 REXCVAR_DEFINE_STRING(tmnt_language, "en", "TMNT",
-                      "Text language: en, fr, de, it or es (sets user_language at start)");
+                      "Text language: en, fr, de, it, es or pt-BR (sets user_language at start)");
 REXCVAR_DEFINE_STRING(tmnt_graphics_adapter, "auto", "TMNT",
                       "Graphics card: auto, or the index d3d12_adapter takes (applied at start)");
 REXCVAR_DEFINE_STRING(tmnt_player_1_name, "Player 1", "TMNT",
@@ -485,7 +486,8 @@ void ApplyPlayerNames() {
 void ApplyLanguage() {
   const LanguageSetting& language = LanguageFor(rex::cvar::GetFlagByName(kLanguageSetting));
   rex::cvar::SetFlagByName("user_language", std::to_string(language.xbox_language));
-  REXLOG_INFO("Language: {}", language.label);
+  localization::SetActiveLanguage(language.key);
+  REXLOG_INFO("Language: {} (user_language {})", language.label, language.xbox_language);
 }
 
 void ApplyInternalRenderPath() {

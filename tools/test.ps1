@@ -668,6 +668,10 @@ Invoke-Check 'Menu cleanup: Leaderboards, Xbox Live Party and Gamer Card removed
     Invoke-FocusedTest 'tests\fire_movie_patch_tests.cpp'
 }
 
+Invoke-Check 'Portugues Brasil: registration, live launcher language, tables, font and banks against the game data, tests/localization_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\localization_tests.cpp'
+}
+
 Invoke-Check 'Patched AudioSystem syntax: audio_system.cpp with the whole patch stack, compile only' {
     $tree = $PatchedSdk
     try {

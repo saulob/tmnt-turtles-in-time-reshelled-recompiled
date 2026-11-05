@@ -11,6 +11,7 @@
 #include <rex/ui/imgui_dialog.h>
 
 #include "launcher.h"
+#include "localization/ui_text.h"
 #include "modal_dialog.h"
 #include "online/friend_view.h"
 #include "online_runtime.h"
@@ -65,22 +66,22 @@ class InvitePicker final : public ModalDialog {
   void DrawContent(ImGuiIO& io) override {
     ImGui::PushFont(LauncherRegularFont());
     if (BeginStyledWindow("##tmnt_invite_picker", io, &focused_)) {
-      ImGui::TextColored(kAccent, "Invite friends");
+      ImGui::TextColored(kAccent, "%s", Tr("Invite friends"));
       ImGui::Separator();
       const online::Snapshot state = Online().snapshot();
       const std::vector<online::InviteChoice> choices = online::PartyInviteChoices(state);
-      if (!state.party) ImGui::TextWrapped("Create a match first, then invite friends.");
-      else if (state.my_slot != 1) ImGui::TextWrapped("Only the host of the match can invite friends.");
-      else if (choices.empty()) ImGui::TextWrapped("No friends yet. Add them on the launcher's Online page.");
+      if (!state.party) ImGui::TextWrapped("%s", Tr("Create a match first, then invite friends."));
+      else if (state.my_slot != 1) ImGui::TextWrapped("%s", Tr("Only the host of the match can invite friends."));
+      else if (choices.empty()) ImGui::TextWrapped("%s", Tr("No friends yet. Add them on the launcher's Online page."));
       for (const online::InviteChoice& choice : choices) {
         ImGui::PushID(choice.player.c_str());
-        const std::string row = choice.name + "    " + choice.status;
+        const std::string row = choice.name + "    " + Tr(choice.status);
         const ImGuiSelectableFlags flags = choice.selectable ? 0 : ImGuiSelectableFlags_Disabled;
         if (ImGui::Selectable(row.c_str(), false, flags) && choice.selectable) Online().InviteToParty(choice.player);
         ImGui::PopID();
       }
       ImGui::Spacing();
-      ImGui::TextColored(kDim, "A  Invite     B  Back");
+      ImGui::TextColored(kDim, "%s", Tr("A  Invite     B  Back"));
     }
     EndStyledWindow();
     ImGui::PopFont();
@@ -102,21 +103,21 @@ class InvitePrompt final : public ModalDialog {
     }
     ImGui::PushFont(LauncherRegularFont());
     if (BeginStyledWindow("##tmnt_invite_prompt", io, &focused_)) {
-      ImGui::TextColored(kAccent, "Online match invite");
+      ImGui::TextColored(kAccent, "%s", Tr("Online match invite"));
       ImGui::Separator();
-      ImGui::TextWrapped("%s invited you to an online match.", invite_.from_name.c_str());
+      ImGui::TextWrapped(Tr("%s invited you to an online match."), invite_.from_name.c_str());
       ImGui::Spacing();
-      if (ImGui::Button("Accept")) {
+      if (ImGui::Button(Tr("Accept"))) {
         Online().AcceptPartyInvite(invite_.id);
         RequestClose();
       }
       ImGui::SameLine();
-      if (ImGui::Button("Decline")) {
+      if (ImGui::Button(Tr("Decline"))) {
         Online().DeclinePartyInvite(invite_.id);
         RequestClose();
       }
       ImGui::SameLine();
-      ImGui::TextColored(kDim, "A  Choose     B  Later");
+      ImGui::TextColored(kDim, "%s", Tr("A  Choose     B  Later"));
     }
     EndStyledWindow();
     ImGui::PopFont();

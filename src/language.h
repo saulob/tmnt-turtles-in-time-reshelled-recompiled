@@ -10,7 +10,8 @@ namespace tmnt {
 // (01/00/05/06/07_<Language>_UI_{TextBank,ErrorTextBank,WaitingTextBank,MovieSubtitleBank}). No other
 // language's banks exist in the archive. The game has no localized voice for any language: TMNT.bf
 // has no audio files at all, and the Bink movies share one audio track across languages, with only
-// their subtitles translated per language.
+// their subtitles translated per language. Português Brasil is the port's own: it has no bank, so the game runs on the
+// English slot and src/localization replaces the text.
 struct LanguageSetting {
   const char* key;          // stored in tmnt_language
   const char* label;        // shown in the launcher
@@ -23,12 +24,15 @@ inline constexpr char kLanguageHelp[] =
     "Text language for menus, the HUD and movie subtitles. The game has no spoken dialogue, so this "
     "does not change any voice. Applied when the game starts.";
 
-inline constexpr std::array<LanguageSetting, 5> kLanguages = {{
+inline constexpr char kPortugueseBrazilKey[] = "pt-BR";
+
+inline constexpr std::array<LanguageSetting, 6> kLanguages = {{
     {"en", "English", 1},
     {"fr", "French", 4},
     {"de", "German", 3},
     {"it", "Italian", 6},
     {"es", "Spanish", 5},
+    {kPortugueseBrazilKey, "Portugu\xC3\xAA" "s Brasil", 1},
 }};
 
 // An unknown or missing key (an old settings.toml, a hand-edited value) falls back to English.

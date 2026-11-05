@@ -228,13 +228,13 @@ void TestFriendCodeCopyAndPasteUseTheNativeClipboard() {
   CHECK(Has(page, "Online().AddFriend(code) == online::FriendRequestResult::kSent"));
   const size_t field_at = page.find("add_field_.Draw(");
   const size_t normalized = page.find("online::NormalizeFriendCode(add_code_)");
-  const size_t button = page.find("ImGui::Button(\"Send request\")");
+  const size_t button = page.find("ImGui::Button(Tr(\"Send request\"))");
   CHECK(field_at != std::string::npos && field_at < normalized && normalized < button);
 }
 
 void TestConnectionTestPageShowsTheReport() {
   const std::string page = ReadSource("online_page.cpp");
-  CHECK(Has(page, "ui.Heading(state.test->verdict.c_str());"));
+  CHECK(Has(page, "ui.Heading(TrMessage(state.test->verdict).c_str());"));
   CHECK(Has(page, "online::ConnectionReport::Line& line : state.test->lines"));
   CHECK(Has(page, "Checks that you can reach the online service and that other players can reach you."));
   const std::string test = ReadSource("online/connection_test.cpp");
@@ -301,7 +301,7 @@ void TestOnlineNameFieldMatchesItsHelp() {
   CHECK(Has(page, "char text[online::kMaxOnlineNameChars + 1] = {};"));
   CHECK(Has(page, "ImGuiInputTextFlags_CallbackCharFilter, OnlineNameFilter"));
   CHECK(Has(page, "online::OnlineNameChar(char(data->EventChar))"));
-  CHECK(Has(page, "\"Other players see \" + shown"));
+  CHECK(Has(page, "Tr(\"Other players see \") + shown"));
   CHECK(Has(ReadSource("online/identity.cpp"), "if (OnlineNameChar(c)) out += c;"));
 }
 
@@ -618,7 +618,7 @@ void TestLauncherWiresPlayRefusalToTheOnlinePage() {
   CHECK(Has(launcher, "const bool pressed = play_attempt_.PressedThisCall(ImGui::GetFrameCount());"));
   CHECK(Has(launcher, "if (pressed) online_page_.RequestConnectionTestAttention();\n        return trg::PlayCheck{false, "
                       "kConnectionTestRequired, online_page_index_};"));
-  CHECK(Has(launcher, "ImGui::TextWrapped(\"%s\", kConnectionTestRequired);"));  // the Play page keeps its line
+  CHECK(Has(launcher, "ImGui::TextWrapped(\"%s\", Tr(kConnectionTestRequired));"));  // the Play page keeps its line
   const std::string page = ReadSource("online_page.cpp");
   CHECK(Has(page, "ui.ButtonRow(\"Connection test\", kTestHelp, state.testing ? \"Testing...\" : \"Run test\", "
                   "view.primary_button)"));

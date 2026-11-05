@@ -12,6 +12,7 @@
 
 #include "launcher.h"
 #include "achievement_menu.h"
+#include "localization/ui_text.h"
 #include "overlay_close_button.h"
 #include "overlay_rules.h"
 
@@ -30,7 +31,7 @@ constexpr ImGuiWindowFlags kWindowFlags = ImGuiWindowFlags_NoCollapse | ImGuiWin
 
 void DrawHeader(const rex::ui::AchievementsStyle& style, const AchievementSummary& summary) {
   ImGui::PushStyleColor(ImGuiCol_Text, style.header_text);
-  ImGui::Text("%d / %d unlocked", summary.unlocked, summary.total);
+  ImGui::Text(Tr("%d / %d unlocked"), summary.unlocked, summary.total);
   ImGui::PopStyleColor();
   ImGui::SameLine();
   ImGui::TextColored(style.badge_gamerscore, "%dG / %dG", summary.earned_gamerscore, summary.total_gamerscore);
@@ -41,7 +42,7 @@ void DrawHeader(const rex::ui::AchievementsStyle& style, const AchievementSummar
   ImGui::ProgressBar(fraction, ImVec2(-1.0f, 6.0f), "");
   ImGui::PopStyleColor();
 
-  ImGui::TextDisabled("Unlock progress is saved automatically");
+  ImGui::TextDisabled("%s", Tr("Unlock progress is saved automatically"));
   ImGui::Separator();
   ImGui::Spacing();
 }
@@ -76,9 +77,9 @@ void DrawRow(const rex::ui::AchievementsStyle& style, rex::ui::ImmediateTexture*
   ImGui::SameLine();
   ImGui::TextColored(style.badge_gamerscore, "%dG", static_cast<int>(a.gamerscore));
   ImGui::SameLine();
-  ImGui::TextColored(title_color, "%s", a.label.c_str());
+  ImGui::TextColored(title_color, "%s", Tr(a.label).c_str());
   ImGui::PushStyleColor(ImGuiCol_Text, unlocked ? style.unlocked_desc : style.locked_desc);
-  ImGui::TextWrapped("%s", description.c_str());
+  ImGui::TextWrapped("%s", Tr(description).c_str());
   ImGui::PopStyleColor();
   ImGui::EndGroup();
 
@@ -130,7 +131,7 @@ void AchievementsOverlay::DrawContent(ImGuiIO& io) {
 
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, style.window_padding);
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, style.item_spacing);
-  if (ImGui::Begin("Achievements##overlay", nullptr, kWindowFlags)) {
+  if (ImGui::Begin((std::string(Tr("Achievements")) + "##overlay").c_str(), nullptr, kWindowFlags)) {
     const std::vector<AchievementEntry> achievements = ListAchievements(*achievements_);
     const float header_row_y = ImGui::GetCursorPosY();
     DrawHeader(style, Summarize(achievements));
@@ -153,7 +154,7 @@ void AchievementsOverlay::DrawContent(ImGuiIO& io) {
 
     ImGui::Dummy(ImVec2(0.0f, kHintPadding * 0.5f));
     ImGui::PushFont(nullptr, hint_size);
-    ImGui::TextColored(style.header_text, "B  Back");
+    ImGui::TextColored(style.header_text, "%s", Tr("B  Back"));
     ImGui::PopFont();
   }
   ImGui::End();

@@ -20,6 +20,7 @@
 #include <rex/ui/keybinds.h>
 #include <rex/ui/windowed_app_context.h>
 
+#include "achievement_toast.h"
 #include "achievements_overlay.h"
 #include "achievement_menu.h"
 #include "active_log.h"
@@ -34,6 +35,8 @@
 #include "internal_render_scale.h"
 #include "launcher.h"
 #include "live_fix.h"
+#include "localization/active_language.h"
+#include "localization/ui_text.h"
 #include "local_stats.h"
 #include "log_filter.h"
 #include "log_path.h"
@@ -89,7 +92,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (const std::string problem = tmnt::MissingGpuPluginMessage(rex::cvar::GetFlagByName("gpu_plugin"), shipped_config_);
         !problem.empty()) {
       REXLOG_ERROR("{}", problem);
-      rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, problem);
+      rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error, tmnt::TrMessage(problem));
       return false;
     }
     if (rex::ReXApp::SetupPresentation()) {
@@ -298,6 +301,13 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     tmnt::DiscardSessionLogBeforeHardExit();
     tmnt::PrepareHardExit();
     std::_Exit(0);
+  }
+
+  std::unique_ptr<rex::ui::AchievementNotificationDialog> CreateAchievementNotificationDialog() override {
+    if (!tmnt::localization::PortugueseBrazilSelected() || !imgui_drawer() || !immediate_drawer() || !runtime()) {
+      return ReXApp::CreateAchievementNotificationDialog();
+    }
+    return std::make_unique<tmnt::AchievementToast>(imgui_drawer(), immediate_drawer(), runtime());
   }
 
   // F7 toggles the achievements overlay. The overlay is owned here, not by ReXApp.

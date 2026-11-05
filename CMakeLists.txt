@@ -28,7 +28,7 @@ set(TMNT_TRG_LAUNCHER_DIR "$ENV{TMNT_TRG_LAUNCHER_DIR}" CACHE PATH
 # binary directory; the submodule checkout must stay at the pinned revision.
 set(TMNT_TRG_LAUNCHER_REVISION "b384a28c712c9320eea8f9d50639dec49981b6c1")
 set(TMNT_TRG_LAUNCHER_PATCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/patches/trg-launcher")
-set(TMNT_TRG_LAUNCHER_PATCH_STAMP_VERSION 2)
+set(TMNT_TRG_LAUNCHER_PATCH_STAMP_VERSION 3)
 file(GLOB _trg_patch_names CONFIGURE_DEPENDS RELATIVE "${TMNT_TRG_LAUNCHER_PATCH_DIR}"
     "${TMNT_TRG_LAUNCHER_PATCH_DIR}/*.patch")
 list(SORT _trg_patch_names)
@@ -219,6 +219,7 @@ set(TMNT_SOURCES
     src/main.cpp
     src/achievement_alias.cpp
     src/achievement_menu.cpp
+    src/achievement_toast.cpp
     src/achievements_overlay.cpp
     src/active_log.cpp
     src/crash_report.cpp
@@ -239,6 +240,12 @@ set(TMNT_SOURCES
     src/live_fix.cpp
     src/live_stats.cpp
     src/local_stats.cpp
+    src/localization/font_patch.cpp
+    src/localization/game_text.cpp
+    src/localization/game_text_hook.cpp
+    src/localization/pt_br_game_text.cpp
+    src/localization/pt_br_ui_text.cpp
+    src/localization/ui_text.cpp
     src/fire_menu_hook.cpp
     src/fire_movie_patch.cpp
     src/frame_trace.cpp
@@ -387,7 +394,7 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
-        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp)
+        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
@@ -916,6 +923,11 @@ add_executable(tmnt_fire_movie_patch_tests EXCLUDE_FROM_ALL tests/fire_movie_pat
 target_include_directories(tmnt_fire_movie_patch_tests PRIVATE src)
 target_compile_definitions(tmnt_fire_movie_patch_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_options(tmnt_fire_movie_patch_tests PRIVATE -Wall -Wextra)
+
+add_executable(tmnt_localization_tests EXCLUDE_FROM_ALL tests/localization_tests.cpp)
+target_include_directories(tmnt_localization_tests PRIVATE src)
+target_compile_definitions(tmnt_localization_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_compile_options(tmnt_localization_tests PRIVATE -Wall -Wextra)
 
 add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)
 target_include_directories(tmnt_search_ticket_tests PRIVATE src)

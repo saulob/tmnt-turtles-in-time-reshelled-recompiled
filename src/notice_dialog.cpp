@@ -3,6 +3,7 @@
 #include <utility>
 
 #include "launcher.h"
+#include "localization/ui_text.h"
 
 namespace tmnt {
 namespace {
@@ -51,12 +52,12 @@ void NoticeDialog::DrawContent(ImGuiIO& io) {
                                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::Begin("##tmnt_notice", nullptr, kFlags)) {
     ImGui::PushFont(strong);
-    ImGui::TextColored(kAccent, "%s", title_.c_str());
+    ImGui::TextColored(kAccent, "%s", TrMessage(title_).c_str());
     ImGui::PopFont();
     ImGui::Separator();
     ImGui::Spacing();
     for (const std::string& line : lines_) {
-      ImGui::TextWrapped("%s", line.c_str());
+      ImGui::TextWrapped("%s", TrMessage(line).c_str());
     }
     ImGui::Spacing();
     if (ImGui::Button("OK", ImVec2(em * 6.0f, 0.0f)) && armed_) {
@@ -64,7 +65,7 @@ void NoticeDialog::DrawContent(ImGuiIO& io) {
     }
     ImGui::SetItemDefaultFocus();
     ImGui::SameLine();
-    ImGui::TextColored(kDim, "A  OK     B  Close");
+    ImGui::TextColored(kDim, "%s", Tr("A  OK     B  Close"));
   }
   ImGui::End();
   ImGui::PopStyleVar(2);
