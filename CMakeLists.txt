@@ -265,6 +265,7 @@ set(TMNT_SOURCES
     src/settings.cpp
     src/stfs.cpp
     src/system_info.cpp
+    src/title_bgm_level.cpp
     src/update_config.cpp
     src/updater/github_release.cpp
     src/updater/json.cpp
@@ -388,7 +389,7 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
-        src/title_bgm_level_tmnt_r.cpp)
+        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
@@ -713,7 +714,16 @@ add_executable(tmnt_gamer_card_tests EXCLUDE_FROM_ALL tests/gamer_card_tests.cpp
 target_include_directories(tmnt_gamer_card_tests PRIVATE src)
 target_compile_definitions(tmnt_gamer_card_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-# Title BGM level tests (saved music level parsing, hook source checks),
+# Skip intro and host key tests, not part of the default build: tools/test.ps1 also runs them standalone.
+add_executable(tmnt_skip_intro_tests EXCLUDE_FROM_ALL tests/skip_intro_tests.cpp)
+target_include_directories(tmnt_skip_intro_tests PRIVATE src)
+target_compile_definitions(tmnt_skip_intro_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_executable(tmnt_host_key_tests EXCLUDE_FROM_ALL tests/host_key_tests.cpp)
+target_include_directories(tmnt_host_key_tests PRIVATE src)
+target_include_directories(tmnt_host_key_tests SYSTEM PRIVATE "${TMNT_SDK_DIR}/include" "${_trg_patched_dir}/include")
+target_compile_definitions(tmnt_host_key_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Title BGM level tests (the level heard before the profile loads equals the one it brings), also run by tools/test.ps1,
 # not part of the default build: cmake --build <dir> --target tmnt_title_bgm_level_tests
 add_executable(tmnt_title_bgm_level_tests EXCLUDE_FROM_ALL tests/title_bgm_level_tests.cpp)
 target_include_directories(tmnt_title_bgm_level_tests PRIVATE src)

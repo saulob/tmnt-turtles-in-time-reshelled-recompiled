@@ -117,7 +117,7 @@ void TestPingDisplayRules() {
   CHECK(PingText(MeasuredRtt(online::NetplayLink::kConnected, std::nullopt)) == "Ping: --");
   CHECK(PingText(MeasuredRtt(online::NetplayLink::kConnected, 42)) == "Ping: 42 ms");
   CHECK(PingText(MeasuredRtt(online::NetplayLink::kFighting, 42)) == "Ping: 42 ms");
-  CHECK(std::string_view(kPingDisplayKey) == "F10");
+  CHECK(std::string_view(kPingDisplayKey) == "F3");
   const std::string ping = ReadSource("ping_display.cpp");
   CHECK(Has(ping, "kPingDisplayKey") && !Has(ping, "\"F9\""));
   CHECK(Has(ping, "Online().WorstRtt()"));
@@ -155,7 +155,7 @@ void TestNoDebugOverlayText() {
     CHECK(!Has(text, "**F9**") && !Has(text, "F9 ") && !Has(text, "debug overlay") && !Has(text, "F4 settings") &&
           !Has(text, "F3 debug"));
   }
-  CHECK(Has(ReadFile(std::filesystem::path(TMNT_SOURCE_DIR) / "docs/online.md"), "**F10** shows or hides it"));
+  CHECK(Has(ReadFile(std::filesystem::path(TMNT_SOURCE_DIR) / "docs/online.md"), "**F3** shows or hides it"));
   CHECK(Has(ReadSource("keybinds.h"), "case ImGuiKey_F10:"));
 }
 
@@ -312,7 +312,7 @@ void TestOnlinePageWording() {
         "service; the game itself runs directly between your PCs whenever it can.");
   CHECK(std::string_view(kOnlinePingLabel) == "Ping display");
   CHECK(std::string_view(kOnlinePingHelp) ==
-        "Shows the round trip to the other player in game. F10 switches it while playing.");
+        "Shows the round trip to the other player in game. F3 switches it while playing.");
   const std::string launcher = ReadSource("launcher.cpp");
   CHECK(Has(launcher, "\"Add friends and see who is online. Play them from the game's own online menus.\""));
   const std::string page = ReadSource("online_page.cpp");

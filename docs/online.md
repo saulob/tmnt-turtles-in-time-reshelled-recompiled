@@ -66,7 +66,7 @@ for network access (choose Allow access).
 
 ### Ping
 
-**F10** shows or hides it in game. The value is the worst round trip to the other players in the party, measured on
+**F3** shows or hides it in game. The value is the worst round trip to the other players in the party, measured on
 the peer connections themselves with 13-byte probes (`TPNG`) on the gameplay socket, Direct or relayed. It is never the
 service's HTTP latency; without a connected peer it reads `Ping: --`.
 

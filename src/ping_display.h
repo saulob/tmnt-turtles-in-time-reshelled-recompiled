@@ -23,7 +23,7 @@ inline std::optional<int> MeasuredRtt(online::NetplayLink link, const std::optio
   return link >= online::NetplayLink::kConnected ? rtt_ms : std::nullopt;
 }
 
-inline constexpr char kPingDisplayKey[] = "F10";
+inline constexpr char kPingDisplayKey[] = "F3";
 
 // Adds the in-game Ping panel and its F3 toggle.
 void CreatePingDisplay(rex::ui::ImGuiDrawer* drawer);

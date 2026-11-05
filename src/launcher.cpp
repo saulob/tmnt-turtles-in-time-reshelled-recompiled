@@ -1111,6 +1111,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 
   static void PageGameplay(trg::Ui& ui) {
     ui.Combo("Language", kLanguageHelp, kLanguageSetting, kLanguageDefault, LanguageOptions());
+    ui.Toggle("Skip intro", "Start directly at the title screen", "tmnt_skip_intro", false, "Off", "On");
     ui.Toggle("Frame rate in title",
               "Shows the game's frame rate in the window title: Turtles in Time Re-Shelled Recompiled | FPS: 60.00",
               "tmnt_show_fps", true, "Off", "On");

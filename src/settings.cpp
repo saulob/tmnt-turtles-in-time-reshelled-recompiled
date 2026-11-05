@@ -41,6 +41,7 @@ REXCVAR_DEFINE_BOOL(tmnt_launcher, true, "TMNT",
                     "Show the launcher before the game starts (hold Shift at start to force it)");
 REXCVAR_DEFINE_BOOL(tmnt_skip_launcher, false, "TMNT",
                     "Skip the launcher once (set when the launcher restarts the game)");
+REXCVAR_DEFINE_BOOL(tmnt_skip_intro, false, "TMNT", "Start directly at the title screen");
 REXCVAR_DEFINE_BOOL(tmnt_show_fps, true, "TMNT", "Show the frame rate in the window title");
 REXCVAR_DEFINE_BOOL(tmnt_show_render_resolution, false, "TMNT",
                     "Show the render resolution in the window title");
@@ -97,6 +98,7 @@ std::vector<std::string> GameSettingKeys() {
       "swap_post_effect",
       "tmnt_msaa_compatibility",
       "anisotropic_override",
+      "tmnt_skip_intro",
       "tmnt_show_fps",
       "tmnt_show_render_resolution",
       "tmnt_show_frame_counter",
@@ -544,6 +546,7 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
   diagnostics.launcher_display.vsync = selected_tearing ? "Off" : "On";
 
   diagnostics.launcher_gameplay.language = LanguageFor(settings.Get("tmnt_language", kLanguageDefault)).label;
+  diagnostics.launcher_gameplay.skip_intro = OnOff(settings.GetBool("tmnt_skip_intro", false));
   diagnostics.launcher_gameplay.frame_rate_in_title = OnOff(settings.GetBool("tmnt_show_fps", true));
   diagnostics.launcher_gameplay.render_resolution_in_title =
       OnOff(settings.GetBool("tmnt_show_render_resolution", false));

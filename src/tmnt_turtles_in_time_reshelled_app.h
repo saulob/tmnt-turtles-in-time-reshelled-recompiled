@@ -17,6 +17,7 @@
 #include <rex/system.h>
 #include <rex/system/kernel_state.h>
 #include <rex/ui/flags.h>
+#include <rex/ui/keybinds.h>
 #include <rex/ui/windowed_app_context.h>
 
 #include "achievements_overlay.h"
@@ -47,6 +48,7 @@
 #include "session_log.h"
 #include "settings.h"
 #include "system_info.h"
+#include "title_bgm_level.h"
 #include "trg/game_helpers.h"
 #include "user_data.h"
 #include "window_host.h"
@@ -226,7 +228,13 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     startup_window.controller = tmnt::ControllerSummary();
     tmnt::LogStartupDiagnostics(game_settings_, tmnt::MonitorForSetting(monitor), monitor, game_data_root(),
                                startup_window);
+    tmnt::PublishTitleMusicLevel(user_data_root());
     ReXApp::LaunchModule();
+  }
+
+  // ReXGlue's debug (F3) and settings (F4) overlays are developer tools; F3 is the Ping display here.
+  void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {
+    for (const char* bind : tmnt::kRemovedSdkBinds) rex::ui::UnregisterBind(bind);
   }
 
   void OnPostSetup() override {

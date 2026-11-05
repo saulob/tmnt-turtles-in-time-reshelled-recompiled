@@ -6,7 +6,8 @@
 .DESCRIPTION
   Checks the ReXGlue patch manifest against the patch files, the names and the documentation, that both platform
   series apply to the pinned SDK source, and the audio client teardown of patch 0086 (a threaded regression test and a
-  syntax check of the patched source, compile only); the Windows and Linux packaging scripts, the AppImage inputs (desktop file,
+  syntax check of the patched source, compile only); the title music level, Skip intro and the host keys (standalone test
+  programs); the Windows and Linux packaging scripts, the AppImage inputs (desktop file,
   icons, licenses, FUSE-fallback runtime pins), the glibc baseline logic, the release check, and the repository for
   temporary markers, local paths, game data and player data. Nothing is linked into the game, launched or published.
 
@@ -474,6 +475,8 @@ $TemporaryMarkers = @{
     'src/frame_trace.h' = 3
     'src/live_hooks_tmnt_r.cpp' = 8
     'src/lobby_trace_hook.cpp' = 4
+    'src/skip_intro_tmnt_r.cpp' = 1
+    'src/title_bgm_level_tmnt_r.cpp' = 3
 }
 
 Invoke-Check 'hygiene: no temporary markers or local absolute paths in the project files' {
@@ -617,6 +620,48 @@ Invoke-Check 'Audio teardown regression: tests/audio_client_teardown_tests.cpp, 
     } finally {
         Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# A test program with no link dependencies: compiled, run with a time limit, thrown away.
+function Invoke-FocusedTest([string]$Source, [string[]]$Includes = @()) {
+    if (-not $CppCompiler) { return $CompilerHelp }
+    $name = [IO.Path]::GetFileNameWithoutExtension($Source)
+    $work = Join-Path ([IO.Path]::GetTempPath()) "tmnt_$name"
+    if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
+    New-Item -ItemType Directory $work | Out-Null
+    try {
+        $program = Join-Path $work $(if ($IsLinux) { $name } else { "$name.exe" })
+        $arguments = @('-std=c++23', '-O1', '-w', "-DTMNT_ROOT_DIR=`"$($Root -replace '\\', '/')`"", "-I$(Join-Root 'src')") +
+            @($Includes | ForEach-Object { "-I$_" }) + @((Join-Root $Source), '-o', $program)
+        $compiled = Invoke-Compiler $CppCompiler $arguments (Join-Path $work 'build.rsp')
+        if ($compiled.Code) { return @('compile failed') + @($compiled.Output | Select-Object -First 8) }
+        $log = Join-Path $work 'output.txt'
+        $run = Start-Process -FilePath $program -NoNewWindow -PassThru -RedirectStandardOutput $log
+        [void]$run.Handle
+        if (-not $run.WaitForExit(30000)) {
+            Stop-Process -Id $run.Id -Force -ErrorAction SilentlyContinue
+            return "$name did not finish within 30 s"
+        }
+        $lines = @(Get-Content -LiteralPath $log)
+        if ($run.ExitCode) { return @("$name failed ($($run.ExitCode))") + @($lines | Where-Object { $_ -match 'FAIL' } | Select-Object -First 8) }
+        Write-Host "   $($lines | Select-Object -Last 1)"
+    } finally {
+        Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+Invoke-Check 'Title music level: no volume change at Press START, tests/title_bgm_level_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\title_bgm_level_tests.cpp'
+}
+
+Invoke-Check 'Skip intro: setting, boot path Off and On, later worlds, game image, tests/skip_intro_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\skip_intro_tests.cpp'
+}
+
+Invoke-Check 'Host keys: F3 Ping, ReXGlue F3/F4 overlays removed, Ping text and layout, tests/host_key_tests.cpp, standalone' {
+    $sdkInclude = Join-Root $(if ($IsLinux) { 'tools\rexglue\linux-amd64\include' } else { 'tools\rexglue\win-amd64\include' })
+    if (-not (Test-Path -LiteralPath (Join-Path $sdkInclude 'imgui.h'))) { return "NOT RUN: $sdkInclude has no imgui.h: tools\build.ps1 unpacks the pinned SDK" }
+    Invoke-FocusedTest 'tests\host_key_tests.cpp' @($sdkInclude, (Join-Root 'third_party\trg-launcher\include'))
 }
 
 Invoke-Check 'Patched AudioSystem syntax: audio_system.cpp with the whole patch stack, compile only' {
