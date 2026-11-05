@@ -463,7 +463,17 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/header-art.png"
     VERBATIM
 )
-add_custom_target(tmnt_launcher_header_art ALL DEPENDS "${TMNT_STAGED_HEADER_ART}")
+set(TMNT_STAGED_SPONSOR_HEART "${CMAKE_CURRENT_BINARY_DIR}/assets/launcher/sponsor-heart.png")
+add_custom_command(
+    OUTPUT "${TMNT_STAGED_SPONSOR_HEART}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/assets/launcher"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/sponsor-heart.png"
+        "${TMNT_STAGED_SPONSOR_HEART}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/sponsor-heart.png"
+    VERBATIM
+)
+add_custom_target(tmnt_launcher_header_art ALL DEPENDS "${TMNT_STAGED_HEADER_ART}" "${TMNT_STAGED_SPONSOR_HEART}")
 add_dependencies(tmnt_turtles_in_time_reshelled tmnt_launcher_header_art)
 
 find_package(Threads REQUIRED)

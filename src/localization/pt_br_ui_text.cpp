@@ -412,6 +412,7 @@ Slow as a Turtle	Lento como uma Tartaruga
 Smooths jagged edges after the frame is drawn. Extreme is softer but cleaner.	Suaviza as bordas serrilhadas depois que o quadro é desenhado. Extreme deixa a imagem mais suave, porém mais limpa.
 Space	Espaço
 Spanish	Espanhol
+Sponsor on GitHub	Patrocinar no GitHub
 Start a party first.	Crie um grupo primeiro.
 Start a party, invite up to three friends from the list below, and play together. Friends who accept join the same game.	Crie um grupo, convide até três amigos da lista abaixo e joguem juntos. Quem aceitar entra no mesmo jogo.
 Start directly at the title screen	Começa direto na tela de título
@@ -419,6 +420,7 @@ Start party	Criar grupo
 Start the game with --game_data_root to choose where the game files go.	Inicie o jogo com --game_data_root para escolher onde ficam os arquivos do jogo.
 Start the game with --user_data_root to choose where DLC is stored.	Inicie o jogo com --user_data_root para escolher onde a DLC fica.
 Staying Alive	Sobrevivente
+Support is completely optional and helps support ongoing improvements and future projects.	O apoio é totalmente opcional e ajuda no desenvolvimento de melhorias e novos projetos.
 Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, statically recompiled to run natively on PC with the ReXGlue SDK. Early development: the game is not yet known to be playable. No game code or assets are included: the game runs from your own game files.	Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled para Xbox Live Arcade, recompilado estaticamente para rodar nativamente no PC com o ReXGlue SDK. Desenvolvimento inicial: ainda não se sabe se o jogo é jogável. Nenhum código ou conteúdo do jogo está incluído: o jogo roda a partir dos seus próprios arquivos.
 Testing...	Testando...
 Text language for menus, the HUD and movie subtitles. The game has no spoken dialogue, so this does not change any voice. Applied when the game starts.	Idioma do texto dos menus, do HUD e das legendas. Não muda as vozes. Português Brasil é uma tradução não oficial deste port. Aplicado ao iniciar o jogo.
@@ -527,6 +529,7 @@ Their friend code, for example ABCD-EFGH.	O código de amigo do jogador, por exe
 This build's version could not be read.	Não foi possível ler a versão desta compilação.
 This DLC is not installed.	Esta DLC não está instalada.
 This is not a Turtles in Time Re-Shelled package.	Este não é um pacote de Turtles in Time Re-Shelled.
+This open source PC port is maintained and developed in my free time. If you enjoy the project and would like to support its continued development, you can sponsor my work on GitHub.	Este port para PC de código aberto é mantido e desenvolvido no meu tempo livre. Se você gosta do projeto e quer apoiar seu desenvolvimento contínuo, pode patrocinar meu trabalho pelo GitHub.
 This package is DLC or another kind of package. Install the game from its Xbox Live Arcade package.	Este pacote é uma DLC ou outro tipo de pacote. Instale o jogo a partir do pacote Xbox Live Arcade dele.
 This package uses a layout the installer cannot read.	Este pacote usa um formato que o instalador não consegue ler.
 This port requires the supported Turtles in Time Re-Shelled Xbox Live Arcade release.	Este port exige a versão compatível de Turtles in Time Re-Shelled para Xbox Live Arcade.

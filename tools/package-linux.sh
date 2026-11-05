@@ -69,6 +69,7 @@ AppRun
 tmnt_turtles_in_time_reshelled.png
 $APP_ID.desktop
 usr/bin/assets/launcher/header-art.png
+usr/bin/assets/launcher/sponsor-heart.png
 usr/bin/tmnt_turtles_in_time_reshelled
 usr/bin/tmnt_turtles_in_time_reshelled.toml
 usr/bin/librexgpu-xenos.so
@@ -243,7 +244,7 @@ echo "== Build ($PRESET)"
 BIN="$WORK/out/build/$PRESET"
 [ "$CLEAN" = 1 ] && rm -rf "$BIN"
 (cd "$WORK" && cmake --preset "$PRESET" >/dev/null && cmake --build --preset "$PRESET")
-for f in tmnt_turtles_in_time_reshelled libtmnt_turtles_in_time_reshelled_TMNT_r.so librexruntime.so librexgpu-xenos.so tmnt_turtles_in_time_reshelled.toml assets/launcher/header-art.png; do
+for f in tmnt_turtles_in_time_reshelled libtmnt_turtles_in_time_reshelled_TMNT_r.so librexruntime.so librexgpu-xenos.so tmnt_turtles_in_time_reshelled.toml assets/launcher/header-art.png assets/launcher/sponsor-heart.png; do
   [ -f "$BIN/$f" ] || fail "build output is missing $f"
 done
 bash "$PATCHED" --check "$SDK" --staged "$BIN" || fail "the build folder does not hold the patched ReXGlue libraries"
@@ -256,7 +257,7 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" "$DOC"
 cp "$BIN/tmnt_turtles_in_time_reshelled" "$BIN/libtmnt_turtles_in_time_reshelled_TMNT_r.so" "$BIN/librexruntime.so" "$BIN/librexgpu-xenos.so" "$BIN/tmnt_turtles_in_time_reshelled.toml" \
   "$APPDIR/usr/bin/"
 mkdir -p "$APPDIR/usr/bin/assets/launcher"
-cp "$BIN/assets/launcher/header-art.png" "$APPDIR/usr/bin/assets/launcher/"
+cp "$BIN/assets/launcher/header-art.png" "$BIN/assets/launcher/sponsor-heart.png" "$APPDIR/usr/bin/assets/launcher/"
 # Debug sections carry the build machine's folders.
 strip --strip-unneeded "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled" "$APPDIR/usr/bin/libtmnt_turtles_in_time_reshelled_TMNT_r.so"
 # ReXGlue needs GLIBCXX_3.4.32 (GCC 13); AppRun uses this copy only on systems without it.
@@ -290,7 +291,7 @@ cp "$ICONS/app-icon-256.png" "$APPDIR/.DirIcon"
 chmod 755 "$APPDIR/AppRun" "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled"
 chmod 644 "$APPDIR/"*.desktop "$APPDIR/"*.png "$APPDIR/.DirIcon" "$APPDIR/usr/bin/"*.so \
   "$APPDIR/usr/bin/tmnt_turtles_in_time_reshelled.toml" "$APPDIR/usr/bin/assets/launcher/header-art.png" \
-  "$APPDIR/usr/lib/"* "$DOC/"*
+  "$APPDIR/usr/bin/assets/launcher/sponsor-heart.png" "$APPDIR/usr/lib/"* "$DOC/"*
 find "$THEME" -type f -exec chmod 644 {} +
 bash "$PATCHED" --check "$SDK" --staged "$APPDIR/usr/bin" || fail "the AppDir does not hold the patched ReXGlue libraries"
 

@@ -72,6 +72,7 @@ const ImVec4 kEmerald = ImVec4(0.09f, 0.36f, 0.22f, 1.0f);
 
 constexpr const char* kAuthorUrl = "https://github.com/saulob";
 constexpr const char* kRepositoryUrl = "https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled";
+constexpr const char* kSponsorUrl = "https://github.com/sponsors/saulob";
 
 trg::Theme LauncherTheme() {
   trg::Theme theme = trg::Theme::Midnight().WithAccent(kAccent);
@@ -96,23 +97,30 @@ trg::HeaderPainter LauncherHeader(ImTextureID art, float art_aspect) {
   };
 }
 
-std::unique_ptr<rex::ui::ImmediateTexture> LoadHeaderArt(rex::ui::ImmediateDrawer* drawer) {
+std::unique_ptr<rex::ui::ImmediateTexture> LoadLauncherImage(rex::ui::ImmediateDrawer* drawer, const char* file,
+                                                             bool whiten_transparent = false) {
   if (!drawer) {
     return nullptr;
   }
-  const std::filesystem::path path = HeaderArtPath(rex::filesystem::GetExecutableFolder());
+  const std::filesystem::path path = LauncherImagePath(rex::filesystem::GetExecutableFolder(), file);
   std::ifstream in(path, std::ios::binary);
   if (!in) {
-    REXLOG_WARN("Launcher header art not found: {}", Utf8(path.filename()));
+    REXLOG_WARN("Launcher image not found: {}", file);
     return nullptr;
   }
   const std::vector<uint8_t> encoded((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   int width = 0;
   int height = 0;
-  const std::vector<uint8_t> pixels = rex::ui::DecodeImageRGBA(encoded.data(), encoded.size(), width, height);
+  std::vector<uint8_t> pixels = rex::ui::DecodeImageRGBA(encoded.data(), encoded.size(), width, height);
   if (pixels.empty() || width <= 0 || height <= 0) {
-    REXLOG_WARN("Launcher header art could not be decoded: {}", Utf8(path.filename()));
+    REXLOG_WARN("Launcher image could not be decoded: {}", file);
     return nullptr;
+  }
+  if (whiten_transparent) {
+    // Transparent texels are white too, so linear filtering does not darken the icon edge.
+    for (size_t i = 0; i + 3 < pixels.size(); i += 4) {
+      if (pixels[i + 3] == 0) pixels[i] = pixels[i + 1] = pixels[i + 2] = 255;
+    }
   }
   return drawer->CreateTexture(uint32_t(width), uint32_t(height), rex::ui::ImmediateTextureFilter::kLinear, false,
                                pixels.data());
@@ -210,7 +218,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         graphics_adapters_(ListGraphicsAdapters()) {
     dlc_ = ListInstalledDlc(paths_.user_dir);
     ConfigureOnline(paths_.user_dir);
-    header_art_ = LoadHeaderArt(paths_.immediate_drawer);
+    header_art_ = LoadLauncherImage(paths_.immediate_drawer, "header-art.png");
+    sponsor_icon_ = LoadLauncherImage(paths_.immediate_drawer, "sponsor-heart.png", true);
     trg::SetTranslator(&TranslateLauncherText);
     localization::SetActiveLanguage(settings_.Get(kLanguageSetting, kLanguageDefault));
     launcher_ = std::make_unique<trg::Launcher>(MakeConfig());
@@ -485,6 +494,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     c.branding.background = LauncherHeader(header_art_ ? reinterpret_cast<ImTextureID>(header_art_.get())
                                                        : ImTextureID{},
                                            art_aspect);
+    c.sponsor = {"Sponsor on GitHub", kSponsorUrl,
+                 sponsor_icon_ ? reinterpret_cast<ImTextureID>(sponsor_icon_.get()) : ImTextureID{}};
     c.pages = {
         {"Play", "Check the game files and start playing.", [this](trg::Ui& ui) { PagePlay(ui); },
          [this] { return game_files_ != GameFiles::kReady; }},
@@ -1253,6 +1264,10 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
   void PageAbout(trg::Ui& ui) {
+    ui.SponsorCard(
+        "This open source PC port is maintained and developed in my free time. If you enjoy the project and would "
+        "like to support its continued development, you can sponsor my work on GitHub.",
+        "Support is completely optional and helps support ongoing improvements and future projects.");
     ui.Paragraph(
         "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, statically recompiled to run "
         "natively on PC with the ReXGlue SDK. Early development: the game is not yet known to be playable. No game "
@@ -1304,6 +1319,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   std::vector<MonitorInfo> monitors_;
   std::vector<GraphicsAdapter> graphics_adapters_;
   std::unique_ptr<rex::ui::ImmediateTexture> header_art_;
+  std::unique_ptr<rex::ui::ImmediateTexture> sponsor_icon_;
   std::unique_ptr<trg::Launcher> launcher_;
   ImGuiGamepad gamepad_;
   bool nav_taken_ = false;

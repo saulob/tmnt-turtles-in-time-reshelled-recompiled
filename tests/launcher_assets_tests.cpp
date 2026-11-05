@@ -1,5 +1,5 @@
-// Launcher header art: found next to the executable whatever the working directory, shipped by the build and the
-// release package, and loaded without the game's runtime.
+// Launcher images (header art, sponsor heart): found next to the executable whatever the working directory, shipped by
+// the build and the release package, and loaded without the game's runtime.
 // Run: tmnt_launcher_assets_tests
 
 #include <chrono>
@@ -38,7 +38,7 @@ bool Has(const std::string& text, const char* needle) {
 }
 
 void TestPathResolution() {
-  std::printf("header art path is relative to the executable folder\n");
+  std::printf("launcher image paths are relative to the executable folder\n");
   const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
   const std::filesystem::path root = std::filesystem::temp_directory_path() / ("tmnt-assets-tests-" + std::to_string(now));
   const std::filesystem::path executable_folder = root / "install with space";
@@ -51,29 +51,35 @@ void TestPathResolution() {
   const std::filesystem::path previous = std::filesystem::current_path();
   std::filesystem::current_path(elsewhere, ec);
   CHECK(!ec);
-  const std::filesystem::path art = tmnt::HeaderArtPath(executable_folder);
+  const std::filesystem::path art = tmnt::LauncherImagePath(executable_folder, "header-art.png");
   CHECK(art.is_absolute());
   CHECK(std::filesystem::is_regular_file(art));
   CHECK(!std::filesystem::exists(std::filesystem::path("assets") / "launcher" / "header-art.png"));
+  CHECK(tmnt::LauncherImagePath(executable_folder, "sponsor-heart.png") ==
+        executable_folder / "assets" / "launcher" / "sponsor-heart.png");
   std::filesystem::current_path(previous, ec);
   std::filesystem::remove_all(root, ec);
 }
 
 void TestWiring() {
-  std::printf("the launcher, the build and the release package carry the header art\n");
+  std::printf("the launcher, the build and the release package carry the header art and the sponsor heart\n");
   const std::string source_dir = TMNT_SRC_DIR;
   const std::string launcher = ReadFile(source_dir + "/launcher.cpp");
-  CHECK(Has(launcher, "HeaderArtPath(rex::filesystem::GetExecutableFolder())"));
-  CHECK(Has(launcher, "header_art_ = LoadHeaderArt(paths_.immediate_drawer);"));
+  CHECK(Has(launcher, "LauncherImagePath(rex::filesystem::GetExecutableFolder(), file)"));
+  CHECK(Has(launcher, "header_art_ = LoadLauncherImage(paths_.immediate_drawer, \"header-art.png\");"));
+  CHECK(Has(launcher, "sponsor_icon_ = LoadLauncherImage(paths_.immediate_drawer, \"sponsor-heart.png\", true);"));
   CHECK(!Has(launcher, "\"assets/launcher/header-art.png\""));
 
   const std::string cmake = ReadFile(source_dir + "/../CMakeLists.txt");
   CHECK(Has(cmake, "TMNT_STAGED_HEADER_ART"));
+  CHECK(Has(cmake, "TMNT_STAGED_SPONSOR_HEART"));
   const std::string package = ReadFile(source_dir + "/../tools/package-release.ps1");
-  CHECK(Has(package, "$AssetFiles = @('assets\\launcher\\header-art.png')"));
+  CHECK(Has(package, "$AssetFiles = @('assets\\launcher\\header-art.png', 'assets\\launcher\\sponsor-heart.png')"));
   const std::string linux_package = ReadFile(source_dir + "/../tools/package-linux.sh");
   CHECK(Has(linux_package, "usr/bin/assets/launcher/header-art.png"));
+  CHECK(Has(linux_package, "usr/bin/assets/launcher/sponsor-heart.png"));
   CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/header-art.png"));
+  CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/sponsor-heart.png"));
 }
 
 }  // namespace

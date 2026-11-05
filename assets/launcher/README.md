@@ -39,3 +39,14 @@ The streaks run bottom to top as orange, blue, purple, red.
 The launcher anchors the image to the header's top, right and bottom and crops it on the left, so
 keep the left 55% almost empty for the title. The bottom 35% fades into the page, so anything that
 must stay visible belongs above `y=125`.
+
+# Sponsor heart
+
+`sponsor-heart.svg` is the source of truth for the heart in the Sponsor on GitHub buttons (CC0, see
+`packaging/licenses/THIRD-PARTY-LICENSES.txt`). `sponsor-heart.png` is the runtime asset, a white 64x64 rendering of it
+with a transparent background. Do not edit it by hand; regenerate it after every SVG change, from the repository root
+with rsvg-convert:
+
+```sh
+rsvg-convert -w 64 -h 64 -f png -o assets/launcher/sponsor-heart.png assets/launcher/sponsor-heart.svg
+```

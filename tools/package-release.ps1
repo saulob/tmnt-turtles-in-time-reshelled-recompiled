@@ -39,7 +39,7 @@ $Sdk = Join-Path $SdkRoot 'bin'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding $false
 $RootFiles = @('tmnt_turtles_in_time_reshelled.exe', 'tmnt_turtles_in_time_reshelled_TMNT_r.dll', 'trg-updater.exe', 'rexruntime.dll', 'rexgpu-xenos.dll', 'tmnt_turtles_in_time_reshelled.toml', 'README.txt', 'LICENSE')
 $LicenseFiles = @('ReXGlue-LICENSE.txt', 'THIRD-PARTY-LICENSES.txt')
-$AssetFiles = @('assets\launcher\header-art.png')
+$AssetFiles = @('assets\launcher\header-art.png', 'assets\launcher\sponsor-heart.png')
 # Names that mean game data, a package, saves, settings, caches, logs, symbols, updater leftovers or debugging tools.
 $ForbiddenNames = @('default.xex', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'game-install-temp', 'game-install-backup', 'user_data',
     'user_data.migrating', 'content', 'cache', 'logs', 'settings.toml', 'settings.toml.bak', 'ArcadeInfo.xml', 'nxeart', '584109D2',
@@ -223,7 +223,9 @@ foreach ($leaf in $LicenseFiles) {
 }
 $asset_dir = Join-Path $Stage 'assets\launcher'
 New-Item -ItemType Directory -Force $asset_dir | Out-Null
-Copy-Item -LiteralPath (Join-Path $Root 'assets\launcher\header-art.png') $asset_dir
+foreach ($asset in $AssetFiles) {
+    Copy-Item -LiteralPath (Join-Path $Root $asset) $asset_dir
+}
 $readme = (Get-Content (Join-Path $Packaging 'README.txt') -Raw).Replace('@VERSION@', $Version) -replace "\r?\n", "`r`n"
 [IO.File]::WriteAllText((Join-Path $Stage 'README.txt'), $readme, $Utf8NoBom)
 

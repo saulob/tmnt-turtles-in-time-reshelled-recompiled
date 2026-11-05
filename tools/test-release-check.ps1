@@ -63,7 +63,7 @@ try {
         $stage = Join-Path $StageRoot ($case -replace '\W', '_')
         New-Item -ItemType Directory -Force (Join-Path $stage 'licenses') | Out-Null
         foreach ($leaf in 'tmnt_turtles_in_time_reshelled.exe', 'tmnt_turtles_in_time_reshelled_TMNT_r.dll', 'trg-updater.exe', 'rexruntime.dll', 'rexgpu-xenos.dll', 'tmnt_turtles_in_time_reshelled.toml', 'README.txt', 'LICENSE',
-            'licenses\ReXGlue-LICENSE.txt', 'licenses\THIRD-PARTY-LICENSES.txt', 'assets\launcher\header-art.png') {
+            'licenses\ReXGlue-LICENSE.txt', 'licenses\THIRD-PARTY-LICENSES.txt', 'assets\launcher\header-art.png', 'assets\launcher\sponsor-heart.png') {
             $file = Join-Path $stage $leaf
             New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
             Set-Content -LiteralPath $file -Value 'placeholder'
