@@ -106,8 +106,8 @@ The SHA-256 of each file is also published with the release in its `.sha256` fil
 
 | File | SHA-256 |
 | --- | --- |
-| `TurtlesInTimeReshelled-v0.1.0-windows-x64.zip` | `5216905e7c93acd6b6b7c8ffc5b1b32c3624a8b192771feaa8e288c8f7d19ce6` |
-| `TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.AppImage` | `312a2cbaefa6de9731b2a9629acc3e994b99bf0c7bdbf57da95167e705c6721d` |
+| `TurtlesInTimeReshelled-v0.1.0-windows-x64.zip` | `3b8d511d7818fc5e1759aba7f7a99a97df73cca200d92bf1fc20a33499c2c274` |
+| `TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.AppImage` | `51a2985b5a04b12278e1857ebc8977ac8c30270b4f57d93ea2e14e16255c7ccd` |
 
 ### Legal
 
