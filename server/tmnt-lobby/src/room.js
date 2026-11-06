@@ -1,10 +1,10 @@
 // One match room: the sockets of the (up to four) members of one party, their published endpoints, the transport chosen
 // for each pair and the relay between them. State lives in SQL tables and in each socket's attachment, so a hibernated
-// Durable Object resumes as if it had never stopped; rate budgets and drop counters are memory only.
+// Durable Object resumes as if it had never stopped; relay budgets and drop counters are memory only.
 // The directory hub (hub.js) talks to a room with `apply` and `end`; the room reports back with roomMember, roomLeft and
 // roomEnded, all one-way. The same class runs in the Durable Object (worker.js), the development server and the tests
 // (local/rooms.js).
-import { AbuseCounts, PROTECTION, RateLimiter } from './abuse.js';
+import { AbuseCounts, PROTECTION, RateLimiter, storedBudget } from './abuse.js';
 import { toHex } from './sha256.js';
 import {
   BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, ProtocolError, RELAY, fail, ipGroup, isInt, isLocalAddress, isObject,
@@ -391,6 +391,18 @@ export class MatchRoom {
     fail('limit', 'reconnecting too fast');
   }
 
+  // The link budget follows the player, not the slot or the join token, so leaving and rejoining refills nothing.
+  spendLinkChange(att, member) {
+    if (this.local && isLocalAddress(att.ip)) return;
+    const key = `link_budget_${this.getMeta(`owner_${member.slot}`) ?? member.hash}`;
+    const budget = takeToken(storedBudget(this.getMeta(key)), PROTECTION.linkChange, this.host.now());
+    if (!budget) {
+      this.countAbuse('match_link_limited');
+      fail('limit', 'link changing too fast');
+    }
+    this.setMeta(key, JSON.stringify(budget));
+  }
+
   // A socket closed: the seat is held for the grace period. A socket that was replaced or removed changes nothing.
   closed(conn) {
     const att = conn.attachment();
@@ -536,6 +548,8 @@ export class MatchRoom {
         changed = true;
       }
       for (const m of spec.members) {
+        const owner = m.owner ?? m.hash;
+        if (this.getMeta(`owner_${m.slot}`) !== owner) this.setMeta(`owner_${m.slot}`, owner);
         const existing = this.member(m.slot);
         if (!existing) {
           this.host.sql.run('INSERT INTO members (slot, name, hash) VALUES (?, ?, ?)', m.slot, m.name, m.hash);
@@ -835,6 +849,8 @@ const HANDLERS = {
     if (!this.member(peer)) fail('not_found');
     const known = this.host.sql.get('SELECT state FROM links WHERE slot = ? AND peer = ?', member.slot, peer);
     if (known?.state === msg.state) return {};
+    // A link's first report is free: a reconnect clears them all and the client sends them again.
+    if (known) this.spendLinkChange(att, member);
     this.host.sql.run(`INSERT INTO links (slot, peer, state) VALUES (?, ?, ?)
       ON CONFLICT(slot, peer) DO UPDATE SET state = excluded.state`, member.slot, peer, msg.state);
     this.later(() => {

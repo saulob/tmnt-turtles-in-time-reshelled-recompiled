@@ -327,6 +327,7 @@ const JS = String.raw`(function () {
     friend_request_limited: 'Friend requests refused',
     telemetry_limited: 'Telemetry batches refused for the account',
     room_resume_limited: 'Match room reconnects refused',
+    match_link_limited: 'Match link changes refused',
     relay_abuse_closed: 'Relay senders or relays closed for abuse'
   };
   var REJECTS = { lobby_protocol: 'Sign-in refused: different lobby protocol', online_protocol: 'Party join refused: different game image or online build' };

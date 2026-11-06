@@ -178,8 +178,8 @@ Internal render resolution is the resolution the GPU draws the game at before th
 Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
 Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F3 in game) and the stored Connection test result
 (`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
-Connection test whose result is Overall usable for the current UDP configuration. Friends, invites and the four-player
-party are on the same page; see `docs/online.md`.
+Connection test whose result is Overall usable for the current UDP configuration. Friends and the Join button for a
+party invite are on the same page; the party itself is made in the game, see `docs/online.md`.
 
 ### Page order
 

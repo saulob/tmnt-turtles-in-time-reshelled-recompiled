@@ -22,9 +22,6 @@ constexpr char kFriendCodeHelp[] = "Share this code so another player can add yo
 constexpr char kTestHelp[] =
     "Checks that you can reach the online service and that other players can reach you. Takes a few seconds.";
 constexpr char kUnreachable[] = "Cannot reach the online service right now. Run the Connection test for details.";
-constexpr char kPartyHelp[] =
-    "Start a party, invite up to three friends from the list below, and play together. Friends who accept join the "
-    "same game.";
 constexpr char kNoFriends[] = "No friends yet. Add someone with their friend code.";
 
 int OnlineNameFilter(ImGuiInputTextCallbackData* data) {
@@ -140,7 +137,6 @@ void OnlinePage::Draw(trg::Ui& ui) {
         break;
       case OnlineSection::kFriendRequests: DrawFriendRequests(ui, state); break;
       case OnlineSection::kPartyInvites: DrawPartyInvites(ui, state, usable); break;
-      case OnlineSection::kParty: DrawParty(ui, state, usable); break;
       case OnlineSection::kOnlineName: OnlineNameRow(ui); break;
       case OnlineSection::kFriendCode: DrawFriendCode(ui, state); break;
       case OnlineSection::kConnectionTest: DrawConnectionTest(ui, state); break;
@@ -216,68 +212,6 @@ void OnlinePage::DrawPartyInvites(trg::Ui& ui, const online::Snapshot& state, bo
     ImGui::PopID();
     ui.Spacer(4);
   }
-}
-
-void OnlinePage::DrawParty(trg::Ui& ui, const online::Snapshot& state, bool usable) {
-  ui.Heading(state.party ? TrMessage(online::PartyHeadline(state)).c_str() : "Party");
-  if (!state.party) {
-    ui.Help(kPartyHelp);
-    if (!usable) ui.Help(kConnectionTestRequired);
-    ui.Row("Online party", kPartyHelp);
-    const bool connected = state.connection == online::Connection::kOnline;
-    ImGui::BeginDisabled(!usable || !connected);
-    if (ImGui::Button(Tr("Start party"))) Online().CreateParty();
-    ImGui::EndDisabled();
-    return;
-  }
-  const trg::Theme& t = ui.theme();
-  const float s = ImGui::GetFontSize() / 18.0f;
-  ui.EndRows();
-  for (const online::PartySlotView& slot : online::DescribePartySlots(state)) {
-    ImGui::PushID(slot.slot);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f * s);
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f * s);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * s, 8.0f * s));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(t.panel.x, t.panel.y, t.panel.z, slot.occupied ? 0.96f : 0.5f));
-    const ImVec4 border = slot.problem ? t.warn_dot : slot.you ? t.accent : t.dim;
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(border.x, border.y, border.z, slot.occupied ? 0.7f : 0.3f));
-    ImGui::BeginChild("##slot", ImVec2(-FLT_MIN, 0),
-                      ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY);
-    ImGui::PushFont(ui.fonts().semibold, 0.0f);
-    ImGui::Text(Tr("Player %d"), slot.slot);
-    ImGui::PopFont();
-    if (slot.occupied || slot.invited) {
-      ImGui::SameLine();
-      std::string label = slot.name;
-      if (slot.host) label += Tr("  \xC2\xB7  Host");
-      if (slot.you) label += Tr("  \xC2\xB7  You");
-      ImGui::TextUnformatted(label.c_str());
-    }
-    std::string detail = Tr(slot.status);
-    if (!slot.transport.empty()) detail += " \xC2\xB7 " + Tr(slot.transport);
-    if (slot.ping_ms) detail += " \xC2\xB7 " + std::to_string(*slot.ping_ms) + " ms";
-    ImGui::PushStyleColor(ImGuiCol_Text, slot.problem ? t.warn_dot : t.dim);
-    ImGui::TextUnformatted(detail.c_str());
-    ImGui::PopStyleColor();
-    if (slot.occupied && !slot.you && state.my_slot == 1) {
-      const online::PartyMember* member = state.party->member(slot.slot);
-      if (member && ImGui::SmallButton(Tr("Remove from party"))) Online().KickFromParty(member->player);
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor(2);
-    ImGui::PopStyleVar(3);
-    ImGui::PopID();
-    ui.Spacer(2);
-  }
-  if (ImGui::Button(Tr("Leave party"))) Online().LeaveParty();
-  if (state.my_slot == 1) {
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", Tr("Invite friends from the list below, then start the game."));
-  } else {
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", Tr("The host starts the match in the game."));
-  }
-  ui.Spacer(4);
 }
 
 void OnlinePage::DrawFriendCode(trg::Ui& ui, const online::Snapshot& state) {
@@ -399,13 +333,6 @@ void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
     const online::FriendRowView view = online::DescribeFriend(state, f);
     FriendHeading(ui, f.name, view);
     ImGui::PushID(("f" + f.player).c_str());
-    const bool can_invite = state.party && state.my_slot == 1 && f.online && f.compatible &&
-                            f.state == online::FriendState::kOnline &&
-                            state.party->members.size() + state.party->invited.size() < size_t(online::kMaxParty);
-    if (can_invite) {
-      if (ImGui::Button(Tr("Invite"))) Online().InviteToParty(f.player);
-      ImGui::SameLine();
-    }
     if (ImGui::Button(Tr("Remove"))) Online().RemoveFriend(f.player);
     ImGui::PopID();
   }

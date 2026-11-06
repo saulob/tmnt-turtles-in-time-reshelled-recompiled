@@ -420,6 +420,29 @@ test('the Worker refuses upgrades at the edge before any object exists, counts t
   console.log = quiet;
 });
 
+test('every public upgrade path meets the limiter before any object, whatever the path or the header case', { skip }, async () => {
+  stubCloudflare();
+  const quiet = console.log;
+  console.log = () => {};
+  const rig = await setup();
+  edgeCounts.limited = 0;
+  rig.env.WS_UPGRADE_LIMITER = { limit: async () => ({ success: false }) };
+  const paths = ['/', '/health', '/admin', '/admin/api/summary', '/telemetry/test', '/telemetry/summary', '/metrics/summary',
+    '/match/0123456789abcdef', '/match/0123456789ABCDEF', '/match/zz', '/match/0123456789abcdef/extra', '/nope'];
+  for (const path of paths) {
+    for (const value of ['websocket', 'WebSocket']) {
+      const refused = await rig.worker.fetch(new Request(`https://lobby.example${path}`,
+        { headers: { Upgrade: value, 'CF-Connecting-IP': '203.0.113.7' } }), rig.env);
+      assert.equal(refused.status, 429, `${path} ${value}`);
+      assert.equal(refused.headers.get('Retry-After'), '60', path);
+    }
+  }
+  assert.deepEqual([rig.objects.LOBBY.size, rig.objects.MATCH.size], [0, 0]);
+  assert.equal(edgeCounts.limited, paths.length * 2);
+  edgeCounts.limited = 0;
+  console.log = quiet;
+});
+
 test('a woken object reuses its stored alarm, and a room reports its abuse counters to the directory', { skip }, async () => {
   stubCloudflare();
   const quiet = console.log;

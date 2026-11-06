@@ -164,15 +164,14 @@ void TestOnlinePageSections() {
   const std::vector<OnlineSection> on = OnlinePageSections(true, 0);
   CHECK((on == std::vector<OnlineSection>{OnlineSection::kOnlinePlay, OnlineSection::kOnlineName,
                                           OnlineSection::kFriendCode, OnlineSection::kConnectionTest,
-                                          OnlineSection::kPingDisplay, OnlineSection::kParty,
-                                          OnlineSection::kFriends}));
+                                          OnlineSection::kPingDisplay, OnlineSection::kFriends}));
   const std::vector<OnlineSection> with_requests = OnlinePageSections(true, 2);
-  CHECK(with_requests.size() == 8 && with_requests[1] == OnlineSection::kFriendRequests);
+  CHECK(with_requests.size() == 7 && with_requests[1] == OnlineSection::kFriendRequests);
   const std::vector<OnlineSection> with_invites = OnlinePageSections(true, 0, 1);
-  CHECK(with_invites.size() == 8 && with_invites[1] == OnlineSection::kPartyInvites);
+  CHECK(with_invites.size() == 7 && with_invites[1] == OnlineSection::kPartyInvites);
   const std::vector<OnlineSection> with_both = OnlinePageSections(true, 1, 1);
-  CHECK(with_both.size() == 9 && with_both[1] == OnlineSection::kFriendRequests &&
-        with_both[2] == OnlineSection::kPartyInvites && with_both[7] == OnlineSection::kParty);
+  CHECK(with_both.size() == 8 && with_both[1] == OnlineSection::kFriendRequests &&
+        with_both[2] == OnlineSection::kPartyInvites && with_both[7] == OnlineSection::kFriends);
 }
 
 void TestLauncherHasAnOnlinePageWithoutTechnicalControls() {

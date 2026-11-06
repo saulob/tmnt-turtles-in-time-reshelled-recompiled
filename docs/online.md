@@ -16,9 +16,7 @@ play is claimed only after four real instances have been tested.
 2. Share **Your friend code** (`XXXX-XXXX`, **Copy** puts it on the clipboard). Paste or type a friend's code under
    **Friends** and **Send request**; they **Accept** or **Decline** it on their page.
 3. **Connection test** > **Run test**. PLAY stays blocked until it reports **Overall usable** (see below).
-4. **Invite** each friend from **Friends**. Invited players see the invite on their own Online page and **Join** it;
-   the **Party** section shows Player 1 to Player 4. The host can **Remove** a player or **Leave party**.
-5. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
+4. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
    and the guests **Quick Match** or **Custom Match**, which find only the friends' party.
 
 In the game, the Multiplayer menu offers **Local** and **Online**; Online lists Quick Match, Create Match and Custom Match.
@@ -39,13 +37,6 @@ While Online play is signed in, the controller that chose **ONLINE** (the first 
 allowed, the Online name as gamer name and a stable XUID derived from the friend code (never from the private token).
 With Online play Off nothing changes: no sign-in, no service, no relay, no test and no telemetry, and every local feature
 (local multiplayer, achievements, player names) behaves as before.
-
-### The Party section
-
-Four cards, always visible, empty slots included. Each shows the name, a **Host** tag, **Connecting** or
-**Connected**, **Direct** or **Relay**, the measured **ping**, and **Invited** or **Joining** while a player has not yet
-arrived. Invites end with an explained reason: declined, expired, already joined, already invited, party full, the
-host left, version or protocol mismatch, or no longer valid. Nothing depends on the Xbox Guide.
 
 ### Connection test
 

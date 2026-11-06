@@ -662,6 +662,19 @@ export class Hub {
     fail('limit', 'joining too fast');
   }
 
+  // Full-party refusals come before the join limit, so their telemetry is sampled on its own.
+  recordPartyFull(att, scope, diag) {
+    if (this.guards.rejects.take(`party_full|${att.player}`, this.host.now())) this.record('party_full', { scope }, diag);
+  }
+
+  // Before the sign-in limit: an identity refused here must not take a limiter key.
+  requireRegistrationRoom(att, now) {
+    if (this.local && isLocalAddress(att.ip)) return;
+    this.host.sql.run('DELETE FROM registrations WHERE ms < ?', now - DAY_MS);
+    const recent = this.host.sql.get('SELECT COUNT(*) AS n FROM registrations WHERE ip = ?', this.ipKey(att.ip)).n;
+    if (recent >= LIMITS.registrationsPerIpPerDay) fail('limit', 'too many new players');
+  }
+
   limitInvite(att) {
     this.limitByAccountAndAddress(att, this.guards.inviteAccount, this.guards.inviteAddress, 'invite_limited', 'inviting too fast');
   }
@@ -766,7 +779,8 @@ export class Hub {
   pushRoster(id, gone) {
     const party = this.partyRow(id);
     if (!party) return;
-    const members = this.membersOf(id).map((m) => ({ slot: m.slot, name: this.playerRow(m.player)?.name ?? '', hash: m.join_hash }));
+    const members = this.membersOf(id).map((m) => ({ slot: m.slot, name: this.playerRow(m.player)?.name ?? '', hash: m.join_hash,
+      owner: sha256Hex(`${this.meta('salt')}|seat|${id}|${m.player}`).slice(0, 16) }));
     this.host.room?.(id, 'apply', { match: id, diag: party.diag, rev: party.revision, members, gone });
   }
 
@@ -867,7 +881,7 @@ export class Hub {
     if (!party) fail('not_found');
     const members = this.membersOf(party.id);
     if (members.length >= this.capacityOf(party.id)) {
-      this.record('party_full', { scope: 'accept' }, party.diag);
+      this.recordPartyFull(att, 'accept', party.diag);
       fail('party_full');
     }
     this.limitJoin(att);
@@ -939,19 +953,14 @@ const HANDLERS = {
     const now = this.host.now();
     const row = this.playerRow(hello.player);
     if (row && row.token_hash !== hello.hash) fail('unauthorized');
+    if (!row) this.requireRegistrationRoom(att, now);
     this.limitHello(att, hello.player, now);
     const newSession = hello.presence && now - (row?.session ?? 0) >= PROTECTION.sessionWindowMs;
     let renamed = false;
     if (!row) {
-      const ipKey = this.ipKey(att.ip);
-      if (!(this.local && isLocalAddress(att.ip))) {
-        this.host.sql.run('DELETE FROM registrations WHERE ms < ?', now - DAY_MS);
-        const recent = this.host.sql.get('SELECT COUNT(*) AS n FROM registrations WHERE ip = ?', ipKey).n;
-        if (recent >= LIMITS.registrationsPerIpPerDay) fail('limit', 'too many new players');
-      }
       this.host.sql.run('INSERT INTO players (player, token_hash, name, created, seen) VALUES (?, ?, ?, ?, ?)', hello.player,
         hello.hash, hello.name, now, now);
-      this.host.sql.run('INSERT INTO registrations (ip, ms) VALUES (?, ?)', ipKey, now);
+      this.host.sql.run('INSERT INTO registrations (ip, ms) VALUES (?, ?)', this.ipKey(att.ip), now);
     } else {
       renamed = row.name !== hello.name;
       this.touchPlayer(row, hello.name, now);
@@ -1168,7 +1177,7 @@ const HANDLERS = {
     if (pending.some((i) => i.target === target)) fail('already_invited');
     if (!compatibleGuests(recipient.att, mine.party)) fail('version_mismatch');
     if (this.membersOf(mine.party.id).length >= this.capacityOf(mine.party.id)) {
-      this.record('party_full', { scope: 'invite' }, mine.party.diag);
+      this.recordPartyFull(att, 'invite', mine.party.diag);
       fail('party_full');
     }
     if (pending.length >= LIMITS.pendingInvites) fail('limit', 'too many pending invites');
@@ -1191,7 +1200,7 @@ const HANDLERS = {
     const invite = typeof msg.invite === 'string'
       ? this.host.sql.get('SELECT * FROM party_invites WHERE id = ? AND target = ?', msg.invite, att.player) : null;
     if (!invite) fail('not_found');
-    if (invite.ended === 'party_full') this.record('party_full', { scope: 'accept' }, this.partyRow(invite.party)?.diag ?? '');
+    if (invite.ended === 'party_full') this.recordPartyFull(att, 'accept', this.partyRow(invite.party)?.diag ?? '');
     if (invite.ended === 'host_left' || invite.ended === 'party_full') fail(invite.ended);
     if (invite.ended) fail('not_found');
     if (invite.created + LIMITS.inviteMs <= this.host.now()) {
@@ -1212,7 +1221,7 @@ const HANDLERS = {
     }
     const members = this.membersOf(party.id);
     if (members.length >= this.capacityOf(party.id)) {
-      this.record('party_full', { scope: 'accept' }, party.diag);
+      this.recordPartyFull(att, 'accept', party.diag);
       fail('party_full');
     }
     this.limitJoin(att);

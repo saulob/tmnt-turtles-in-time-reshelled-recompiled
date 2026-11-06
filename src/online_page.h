@@ -16,7 +16,7 @@ namespace tmnt {
 // Sections of the Online page, in order: with Online play off only its switch; friend requests and party invites come
 // first.
 enum class OnlineSection {
-  kOnlinePlay, kFriendRequests, kPartyInvites, kOnlineName, kFriendCode, kConnectionTest, kPingDisplay, kParty, kFriends
+  kOnlinePlay, kFriendRequests, kPartyInvites, kOnlineName, kFriendCode, kConnectionTest, kPingDisplay, kFriends
 };
 inline std::vector<OnlineSection> OnlinePageSections(bool online_on, size_t friend_requests, size_t party_invites = 0) {
   if (!online_on) return {OnlineSection::kOnlinePlay};
@@ -25,7 +25,7 @@ inline std::vector<OnlineSection> OnlinePageSections(bool online_on, size_t frie
   if (party_invites > 0) sections.push_back(OnlineSection::kPartyInvites);
   for (const OnlineSection section : {OnlineSection::kOnlineName, OnlineSection::kFriendCode,
                                       OnlineSection::kConnectionTest, OnlineSection::kPingDisplay,
-                                      OnlineSection::kParty, OnlineSection::kFriends}) {
+                                      OnlineSection::kFriends}) {
     sections.push_back(section);
   }
   return sections;
@@ -51,7 +51,6 @@ class OnlinePage {
  private:
   void DrawFriendRequests(trg::Ui& ui, const online::Snapshot& state);
   void DrawPartyInvites(trg::Ui& ui, const online::Snapshot& state, bool usable);
-  void DrawParty(trg::Ui& ui, const online::Snapshot& state, bool usable);
   void DrawFriendCode(trg::Ui& ui, const online::Snapshot& state);
   void DrawConnectionTest(trg::Ui& ui, const online::Snapshot& state);
   void DrawConnectionTestBody(trg::Ui& ui, const online::Snapshot& state, const ConnectionTestView& view,

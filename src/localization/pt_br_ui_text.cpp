@@ -6,8 +6,6 @@ extern const char kPtBrUiTextTsv[];
 
 const char kPtBrUiTextTsv[] = R"PTBR(     Accept	     Aceitar
      Join	     Entrar
-  ·  Host	  ·  Anfitrião
-  ·  You	  ·  Você
  (not connected)	 (desconectada)
  (primary)	 (principal)
  could not be applied (it is unreadable or contains an invalid value), so no graphics plugin was selected. Extract the whole game folder again.	 não pôde ser aplicado (está ilegível ou contém um valor inválido), então nenhum plugin gráfico foi selecionado. Extraia a pasta inteira do jogo de novo.
@@ -240,9 +238,7 @@ Installed	Instalado
 Installing game files	Instalando arquivos do jogo
 Internal render resolution	Resolução interna de render
 Invincible	Invencível
-Invite	Convidar
 Invite friends	Convidar amigos
-Invite friends from the list below, then start the game.	Convide amigos da lista abaixo e depois inicie o jogo.
 Invite sent to 	Convite enviado para 
 Invited	Convidado
 Italian	Italiano
@@ -255,7 +251,6 @@ Keyboard controls reset to defaults.	Controles do teclado restaurados ao padrão
 Keyboard defaults	Padrões do teclado
 Language	Idioma
 Lean, Green and Mean	Verde, Forte e Malvado
-Leave party	Sair do grupo
 Leave your party before joining another.	Saia do seu grupo antes de entrar em outro.
 Left	Esquerda
 Left bumper	Botão de ombro esquerdo
@@ -310,7 +305,6 @@ Online identity is unavailable.	A identidade online não está disponível.
 Online Match	Partida Online
 Online match invite	Convite para partida online
 Online name	Nome online
-Online party	Grupo online
 Online play	Jogo online
 Online service	Serviço online
 Only the host of the match can invite friends.	Só o anfitrião da partida pode convidar amigos.
@@ -334,7 +328,6 @@ PLAY	JOGAR
 Play	Jogar
 Play applies the changes. Save keeps them without starting.	Jogar aplica as alterações. Salvar guarda sem iniciar.
 Player	Jogador
-Player %d	Jogador %d
 Player 1	Jogador 1
 Player 2	Jogador 2
 Player 3	Jogador 3
@@ -358,7 +351,6 @@ Release notes	Notas da versão
 Removal failed: 	Falha ao remover: 
 Remove	Remover
 Remove 	Remover 
-Remove from party	Remover do grupo
 Removing 	Removendo 
 Removing DLC...	Removendo DLC...
 Render resolution	Resolução de render
@@ -414,9 +406,7 @@ Space	Espaço
 Spanish	Espanhol
 Sponsor on GitHub	Patrocinar no GitHub
 Start a party first.	Crie um grupo primeiro.
-Start a party, invite up to three friends from the list below, and play together. Friends who accept join the same game.	Crie um grupo, convide até três amigos da lista abaixo e joguem juntos. Quem aceitar entra no mesmo jogo.
 Start directly at the title screen	Começa direto na tela de título
-Start party	Criar grupo
 Start the game with --game_data_root to choose where the game files go.	Inicie o jogo com --game_data_root para escolher onde ficam os arquivos do jogo.
 Start the game with --user_data_root to choose where DLC is stored.	Inicie o jogo com --user_data_root para escolher onde a DLC fica.
 Staying Alive	Sobrevivente
@@ -452,7 +442,6 @@ The game window's size in Windowed mode.	O tamanho da janela do jogo no modo Em 
 The game's 	O arquivo 
 The host has already left.	O anfitrião já saiu.
 The host left the party.	O anfitrião saiu do grupo.
-The host starts the match in the game.	O anfitrião inicia a partida no jogo.
 The Inflatable Reptilian Hero	O Herói Réptil Inflável
 The Inflatable Reptilian Hero 	O Herói Réptil Inflável 
 The installed package could not be verified, so it was left in place.	Não foi possível verificar o pacote instalado, então ele foi mantido.

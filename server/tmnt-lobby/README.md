@@ -155,14 +155,14 @@ traffic of one match counts against that match's object only.
 ## Abuse protection
 
 Per-socket budgets restart with every connection, so the limits below are per account or per address, held in memory
-(`src/abuse.js`) and never written to SQL. Addresses are grouped as IPv4, IPv4-mapped IPv6 as its IPv4 address, other IPv6
+(`src/abuse.js`) and never written to SQL, except the `match.link` budget below. Addresses are grouped as IPv4, IPv4-mapped IPv6 as its IPv4 address, other IPv6
 by /64. Loopback is exempt only in the development server. A limited request is answered `limit`, the client retries on its
 own backoff, and nothing is written for it.
 
 | where | what | limit |
 |---|---|---|
 | Worker, before any object | WebSocket upgrades (directory and rooms), Cloudflare rate limit `WS_UPGRADE_LIMITER` (namespace 3003) | 30 per address group per 60 s; refused with 429 and `Retry-After: 60`; open if the binding is missing or fails |
-| directory `hello` | per account, counted only after the token matched | burst 12, then 1 per 15 s |
+| directory `hello` | per account, counted only after the token matched and, for a new player, after the address may still register | burst 12, then 1 per 15 s |
 | `party.create`, `pm.host` that creates the party | per account / per address | burst 6, then 1 per 20 s / burst 20, then 1 per 6 s |
 | `invite.accept`, `pm.join` that joins a party | per account | burst 20, then 1 per 5 s |
 | `invite.send` | per account / per address | burst 20, then 1 per 3 s / burst 60, then 1 per 2 s |
@@ -170,6 +170,7 @@ own backoff, and nothing is written for it.
 | `telemetry.batch` | per account, across sockets | burst 12, then 1 per 5 s |
 | `party.report` | whole service / per account / per address | burst 30, then 1 per 30 s / burst 3, then 1 per 2 min / burst 12, then 1 per 30 s; a refusal spends none of them, an exact repeat is answered without counting |
 | room `match.hello` (reconnect and resume) | per seat, counted only after the join token matched | burst 12, then 1 per 10 s |
+| room `match.link` that changes a link's state | per player of the party, stored in the room: a link flip is the one write that fans out to every member and to the directory, and memory would start over whenever the room hibernated; a link's first report is free | burst 40, then 1 per 5 s |
 | room relay frames | per socket; malformed, wrong `src`, bad token, `dst` outside 1 to 4 or the sender itself, or no `match.hello` | burst 200, then 5 per s, then that socket only is closed `1008` |
 
 A request is validated first; the budget is taken just before the first write, so a failed attempt costs nothing. Leaving,
@@ -178,14 +179,15 @@ cancelling, declining, searching and listing are never limited. A peer in its re
 
 Writes happen only on change: a sign-in rewrites the player row when the name changes or 15 minutes passed since `seen`, an
 unchanged advertisement is refreshed at most every 45 s (the client refreshes every 60 s, an advertisement lives 180 s), and
-a repeated `pm.join`, `match.link`, room report or reconnect seat writes nothing. Both objects remember the alarm they set (or
+a repeated `pm.join`, `match.link`, room report or reconnect seat writes nothing. The telemetry of a refused join to a full party
+is kept once per account per 10 minutes. Both objects remember the alarm they set (or
 read it with `getAlarm()` when they wake) and only set an earlier one; an alarm that fires early reschedules itself.
 
 Aggregate counters (`abuse.*` in `tel_counters`, and `abuse` rows of `metrics_daily_dimensions` for ranges past 35 days, shown in
 the dashboard as "Abuse protection"): `ws_upgrade_accepted`, `ws_upgrade_limited`, `ws_upgrade_ip_cap`, `hello_accepted`,
 `hello_limited`, `hello_reconnect_deduped`, `party_create_accepted`, `party_create_limited`, `party_join_limited`,
 `party_report_limited`, `invite_limited`, `friend_request_limited`, `telemetry_limited`, `room_resume_limited`,
-`relay_abuse_closed`. They are counted in memory and written together at most once per 5 minutes (an alarm flushes what
+`relay_abuse_closed`, `match_link_limited`. They are counted in memory and written together at most once per 5 minutes (an alarm flushes what
 is left); upgrades refused at the edge ride on the next upgrade the Worker forwards to the directory, and rooms report
 theirs to the directory the same way. No address, token, player, party or session is ever part of a counter.
 

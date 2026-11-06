@@ -5,6 +5,7 @@ export const PROTECTION = {
   seenRefreshMs: 15 * 60 * 1000,
   rejectWindowMs: 10 * 60 * 1000,
   advertiseRefreshMs: 45 * 1000,
+  linkChange: { burst: 40, perSecond: 1 / 5 },
   hello: { burst: 12, perSecond: 1 / 15 },
   createAccount: { burst: 6, perSecond: 1 / 20 },
   createAddress: { burst: 20, perSecond: 1 / 6 },
@@ -25,9 +26,14 @@ export const DIAGNOSTICS = new Set([
   'ws_upgrade_accepted', 'ws_upgrade_limited', 'ws_upgrade_ip_cap', 'hello_accepted', 'hello_limited',
   'party_create_accepted', 'party_create_limited', 'party_join_limited', 'invite_limited', 'friend_request_limited',
   'telemetry_limited', 'room_resume_limited', 'relay_abuse_closed', 'hello_reconnect_deduped', 'party_report_limited',
+  'match_link_limited',
 ]);
 
 const MAX_COUNT = 1_000_000;
+const PRUNE_SHARE = 8;
+
+// A takeToken budget kept in SQL, written only with the change it pays for: memory starts over whenever an object hibernates.
+export const storedBudget = (text) => (text ? JSON.parse(text) : null);
 
 export class RateLimiter {
   constructor(spec, maxKeys = PROTECTION.trackedKeys) {
@@ -54,15 +60,15 @@ export class RateLimiter {
     return true;
   }
 
-  // Idle keys are as good as new ones; if every key is busy the oldest go.
+  // Idle keys are as good as new ones. If every key is busy the fullest go, a share at a time, so a flood of new keys
+  // cannot hand a throttled key its budget back.
   prune(now) {
     for (const key of [...this.buckets.keys()]) {
       if (this.tokens(key, now) >= this.spec.burst) this.buckets.delete(key);
     }
-    for (const key of this.buckets.keys()) {
-      if (this.buckets.size < this.maxKeys) break;
-      this.buckets.delete(key);
-    }
+    if (this.buckets.size < this.maxKeys) return;
+    const fullest = [...this.buckets.keys()].map((key) => [key, this.tokens(key, now)]).sort((a, b) => b[1] - a[1]);
+    for (const [key] of fullest.slice(0, Math.ceil(this.maxKeys / PRUNE_SHARE))) this.buckets.delete(key);
   }
 }
 
