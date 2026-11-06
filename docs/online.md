@@ -72,7 +72,9 @@ the world, each console owns its own turtles, and the four consoles form a full 
 that and answers the calls underneath it (`src/player_match_hook.cpp`, `src/player_match_net_hook.cpp`):
 
 - `XUserGetSigninState`, `XUserCheckPrivilege`, `XUserGetSigninInfo`, `XUserGetXUID`, `XUserGetName`,
-  `XNetGetTitleXnAddr`: the title-local LIVE profile of the controller that chose ONLINE.
+  `XNetGetTitleXnAddr`: the title-local LIVE profile of the controller that chose ONLINE. Without it these calls, and the
+  title's profile settings, answer for the one local profile, owned by the controller that pressed START whichever slot
+  it connected in. That needs no connection, so saving works offline.
 - `XSessionCreate` (host) advertises the party's session to its members; `XSessionSearchEx` returns it;
   `XSessionCreate` with a listed session joins it; `XSessionJoinRemote`/`XSessionLeaveRemote` add and remove members;
   `XSessionGetDetails` reports the real member list (up to four, with slot counts and state); `XSessionDelete` leaves.

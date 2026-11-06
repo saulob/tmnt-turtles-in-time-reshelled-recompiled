@@ -164,7 +164,7 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 
 Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
 Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F3 in game) and the stored Connection test result
-(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
+(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, `tmnt_local_profile_user` when a controller presses START, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
 Connection test whose result is Overall usable for the current UDP configuration. Friends and any invite you received are on the
 same page; an invite is accepted in the game, which is also where the party is made, see `docs/online.md`.
 

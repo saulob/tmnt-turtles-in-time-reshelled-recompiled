@@ -863,6 +863,10 @@ Invoke-Check 'Host keys: F3 Ping, ReXGlue F3/F4 overlays removed, Ping text and 
     Invoke-FocusedTest 'tests\host_key_tests.cpp' @($sdkInclude, (Join-Root 'third_party\trg-launcher\include'))
 }
 
+Invoke-Check 'Local profile: the controller that presses START owns it, no sign-in warning, saves, independent of Online, tests/local_profile_owner_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\local_profile_owner_tests.cpp' @() @("-DTMNT_SRC_DIR=`"$((Join-Root 'src') -replace '\\', '/')`"")
+}
+
 Invoke-Check 'Aspect ratio: 16:9 only in the launcher, old and invalid values normalized, docs, tests/aspect_ratio_tests.cpp, standalone' {
     Invoke-FocusedTest 'tests\aspect_ratio_tests.cpp' @() @("-DTMNT_SRC_DIR=`"$((Join-Root 'src') -replace '\\', '/')`"")
 }

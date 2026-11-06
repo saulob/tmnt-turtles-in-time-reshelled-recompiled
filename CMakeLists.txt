@@ -610,6 +610,11 @@ target_compile_definitions(tmnt_graphics_adapter_tests PRIVATE TMNT_SRC_DIR="${C
 add_executable(tmnt_file_dialog_tests EXCLUDE_FROM_ALL tests/file_dialog_tests.cpp "${_trg_patched_dir}/src/file_dialog.cpp")
 target_include_directories(tmnt_file_dialog_tests PRIVATE "${_trg_patched_dir}/include")
 
+# Local profile owner tests, not part of the default build: cmake --build <dir> --target tmnt_local_profile_owner_tests
+add_executable(tmnt_local_profile_owner_tests EXCLUDE_FROM_ALL tests/local_profile_owner_tests.cpp)
+target_include_directories(tmnt_local_profile_owner_tests PRIVATE src)
+target_compile_definitions(tmnt_local_profile_owner_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # Relaunch tests, not part of the default build: cmake --build <dir> --target tmnt_relaunch_tests
 add_executable(tmnt_relaunch_tests EXCLUDE_FROM_ALL tests/relaunch_tests.cpp)
 target_include_directories(tmnt_relaunch_tests PRIVATE src)

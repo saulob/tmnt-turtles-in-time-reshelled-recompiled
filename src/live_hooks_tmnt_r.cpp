@@ -50,6 +50,14 @@ bool HasLocalDisplayName(uint32_t user) {
   return !rex::cvar::GetFlagByName(key).empty();
 }
 
+// LIVE moves with the profile, or two users would read as signed in until a controller chooses ONLINE.
+void ClaimLocalProfile(int32_t controller) {
+  if (!IsLocalController(controller)) return;
+  const std::string user = std::to_string(controller);
+  rex::cvar::SetFlagByName("tmnt_local_profile_user", user);
+  rex::cvar::SetFlagByName("tmnt_online_user", user);
+}
+
 void LogLocalProfileAccepted(int32_t controller) {
   static std::atomic<int> logged{0};
   if (logged.fetch_add(1) < kMaxLoggedOverrides) {
@@ -208,6 +216,9 @@ REX_HOOK_RAW(sub_876B75C0) {
 REX_EXTERN(__imp__sub_875BA998);
 REX_HOOK_RAW(sub_875BA998) {
   const uint32_t var = ctx.r4.u32;
+  if (ClaimsLocalProfile(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))) {
+    ClaimLocalProfile(int32_t(LoadBE32(base, var + kFireEventControllerOffset)));
+  }
   const char* name = LocalOnlineEventName(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset));
   if (name) {
     LiveScope scope(name);

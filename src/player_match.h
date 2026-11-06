@@ -30,6 +30,13 @@ constexpr bool LivePrivilegeUser(uint32_t user, uint32_t online_user, bool live)
   return LiveProfileUser(user, online_user, live) || (live && user == kAnyUser);
 }
 
+// The runtime keeps the one local profile on user 0, but controllers take users in connection order. The controller
+// that pressed START owns the profile: it reads as user 0 and user 0 reads as it, so exactly one user is signed in.
+constexpr uint32_t LocalProfileSlot(uint32_t user, uint32_t owner) {
+  if (user == owner) return 0;
+  return user == 0 ? owner : user;
+}
+
 // XUSER_SIGNIN_INFO: the fields the title reads; the gamer name is cut to 15 characters.
 inline constexpr uint32_t kSigninInfoBytes = 40;
 void WriteSigninInfo(uint8_t* info, uint64_t xuid, std::string_view name);

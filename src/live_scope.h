@@ -69,6 +69,16 @@ inline constexpr uint32_t kFireEventProceedSignal = 147;
 inline constexpr uint32_t kProceedSourceLeaderboard = 5;
 inline constexpr uint32_t kProceedSourceMpLocal = 7;
 inline constexpr uint32_t kFireEventSourceOffset = 8;
+inline constexpr uint32_t kFireEventControllerOffset = 4;
+inline constexpr uint32_t kProceedSourceSinglePlayer = 2;
+inline constexpr uint32_t kProceedSourceLast = 8;
+
+// The two proceeds that raise LOC_WARNING_SIGN_IN: Single Player, and Press START, which is every source without a case.
+// The sign-in change check treats a new owner as a sign-out, so nothing reached with players in game may claim.
+constexpr bool ClaimsLocalProfile(uint32_t event, uint32_t source) {
+  return event == kFireEventProceedSignal &&
+         (source == kProceedSourceSinglePlayer || source == 0 || source > kProceedSourceLast);
+}
 
 // The three events whose check is the leaderboard sign-in or the "scores will not be updated" warning.
 constexpr const char* LocalOnlineEventName(uint32_t event, uint32_t source) {

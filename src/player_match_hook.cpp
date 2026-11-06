@@ -27,6 +27,8 @@
 REXCVAR_DEFINE_INT32(tmnt_online_joined_slots, 0, "TMNT", "Player slots of the online session joined as a guest; 0: none");
 // Set by TMNT_r from the ONLINE row's gate.
 REXCVAR_DEFINE_INT32(tmnt_online_user, 0, "TMNT", "Controller that chose ONLINE and owns the LIVE profile");
+// Set by TMNT_r when a controller presses START.
+REXCVAR_DEFINE_INT32(tmnt_local_profile_user, 0, "TMNT", "Controller that pressed START and owns the local profile");
 
 namespace {
 
@@ -38,6 +40,11 @@ using tmnt::StoreBE64;
 uint32_t CurrentOnlineUser() {
   const uint32_t user = uint32_t(REXCVAR_GET(tmnt_online_user));
   return tmnt::LocalUser(user) ? user : 0;
+}
+
+uint32_t LocalProfileSlot(uint32_t user) {
+  const uint32_t owner = uint32_t(REXCVAR_GET(tmnt_local_profile_user));
+  return tmnt::LocalProfileSlot(user, tmnt::LocalUser(owner) ? owner : 0);
 }
 
 struct LiveProfile {
@@ -92,6 +99,7 @@ void SigninState(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   if (tmnt::LiveProfileUser(user, online_user, CurrentLive().available)) {
     ctx.r3.u64 = tmnt::kSignedInToLive;
   } else {
+    ctx.r3.u64 = LocalProfileSlot(user);
     original(ctx, base);
   }
 }
@@ -104,12 +112,14 @@ void CheckPrivilege(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
     ctx.r3.u64 = 0;
     return;
   }
+  ctx.r3.u64 = LocalProfileSlot(user);
   original(ctx, base);
 }
 
 void SigninInfo(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t user = ctx.r3.u32;
   const uint32_t info = ctx.r5.u32;
+  ctx.r3.u64 = LocalProfileSlot(user);
   original(ctx, base);
   const LiveProfile live = user == CurrentOnlineUser() && info ? CurrentLive() : LiveProfile{};
   if (!live.available) return;
@@ -122,6 +132,7 @@ void GetXuid(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t out = ctx.r4.u32;
   const LiveProfile live = user == CurrentOnlineUser() && out ? CurrentLive() : LiveProfile{};
   if (!live.available) {
+    ctx.r3.u64 = LocalProfileSlot(user);
     original(ctx, base);
     return;
   }
@@ -136,6 +147,7 @@ void GetName(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   const uint32_t size = ctx.r5.u32;
   const LiveProfile live = user == CurrentOnlineUser() && buffer && size ? CurrentLive() : LiveProfile{};
   if (!live.available || live.name.empty()) {
+    ctx.r3.u64 = LocalProfileSlot(user);
     original(ctx, base);
     return;
   }
@@ -143,6 +155,19 @@ void GetName(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   std::memset(GuestHost(base, buffer), 0, capacity);
   std::memcpy(GuestHost(base, buffer), live.name.data(), std::min<size_t>(live.name.size(), capacity - 1));
   ctx.r3.u64 = 0;
+}
+
+// The title's save is its profile settings, and the runtime only accepts those for user 0.
+// (title, user, count, ids, size*, results, overlapped)
+void ReadTitleProfile(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
+  ctx.r4.u64 = LocalProfileSlot(ctx.r4.u32);
+  original(ctx, base);
+}
+
+// (user, count, settings, overlapped)
+void WriteTitleProfile(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
+  ctx.r3.u64 = LocalProfileSlot(ctx.r3.u32);
+  original(ctx, base);
 }
 
 void TitleXnAddr(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
@@ -412,6 +437,8 @@ TMNT_LIVE_HOOK(826EDD60, CheckPrivilege)
 TMNT_LIVE_HOOK(826EE0C8, SigninInfo)
 TMNT_LIVE_HOOK(826EE078, GetXuid)
 TMNT_LIVE_HOOK(826EDD48, GetName)
+TMNT_LIVE_HOOK(82A28FD8, ReadTitleProfile)
+TMNT_LIVE_HOOK(82A29040, WriteTitleProfile)
 TMNT_LIVE_HOOK(823CB4E0, TitleXnAddr)
 TMNT_LIVE_HOOK(823C7F20, MuteListQuery)
 TMNT_LIVE_HOOK(8243C480, SessionCreate)
