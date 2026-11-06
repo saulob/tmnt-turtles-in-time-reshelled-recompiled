@@ -2,23 +2,41 @@
 
 # Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled Recompiled
 
-### The Xbox 360 XBLA release of Turtles in Time Re-Shelled, statically recompiled to native PC code with ReXGlue
+### The Xbox 360 XBLA release of Turtles in Time Re-Shelled, running as a native Windows port, and experimentally on Linux and Steam Deck, through static recompilation, with the TRG launcher, modern PC options and online multiplayer
+
+[![Latest release](https://img.shields.io/github/v/release/saulob/tmnt-turtles-in-time-reshelled-recompiled?style=for-the-badge&label=release&color=99db2e&labelColor=07101f&include_prereleases)](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/saulob/tmnt-turtles-in-time-reshelled-recompiled/total?style=for-the-badge&color=2e7d32&labelColor=07101f)](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20experimental%20%7C%20Steam%20Deck%20experimental-00acc1?style=for-the-badge&labelColor=07101f)
 
 <sub>The original Xbox 360 game code, statically recompiled to native PC code with the <a href="https://github.com/rexglue/rexglue-sdk">ReXGlue SDK</a>. <b>No game files included</b>: bring your own Turtles in Time Re-Shelled Xbox Live Arcade package.</sub>
 
 </div>
 
 This is a native PC port, not an emulator: the game's own PowerPC code is translated into C++ and compiled for your PC.
-It runs on Windows, with an experimental Linux AppImage, and adds a launcher, online play with friends, higher render
-resolutions, a Brazilian Portuguese translation and offline achievements.
 
 <img width="1278" height="766" alt="2026-11-06_15-06_1" src="https://github.com/user-attachments/assets/a51823f7-f766-4248-af85-f6b8419a40d2" />
 
+## Features
+
+- **Native static recompilation**: the game's own code, not an emulator. Native Windows x64 build, plus an experimental Linux / Steam Deck AppImage.
+- **TRG launcher** with a game package installer, display, graphics, gameplay and online settings, and a self-updater that installs nothing until you choose it.
+- **Online multiplayer for up to four players**, through this port's own online service (not Xbox Live): friends by friend code, invites from your lobby, and peers that connect over Direct UDP with a Relay fallback for any pair that cannot.
+- **Offline achievements**, saved on your PC with the game's own names, icons and gamerscore.
+- **Languages**: the game's original English, French, German, Italian and Spanish, plus an unofficial **Português Brasil** translation of the game text and the launcher.
+- **Skip intro** goes straight to the title screen.
+- **Render Resolution** from 1x to 4x (1280×720 to 5120×2880), scaled to your window. The game keeps its original 16:9 picture.
+- **Anti-aliasing and filtering**: MSAA, FXAA and FXAA Extreme, and texture filtering from the game's own up to 16x anisotropic.
+- **Graphics card selection** (Windows): choose which compatible GPU renders the game, useful on PCs with integrated and dedicated graphics.
+- **In-game overlays**: **F2** shows the FPS counter, and **F3** shows Ping while Online play is on.
+- **Window handling**: **F11** switches between Windowed and Borderless Fullscreen, and **Exit Game** closes the program cleanly.
+- **Portable user data**: saves, settings, achievements and caches are in a `user_data` folder beside the program.
+- **Detailed logging and crash report**: a log per session, and after a crash it ends with a `CRASH REPORT` section that stays on your PC.
+
 ## What you need
 
-- **Windows:** Windows 10 or 11, 64-bit, and a DirectX 12 graphics card.
-- **Linux (experimental):** x86_64 with glibc 2.31 or newer and a working Vulkan driver, see [Linux](#linux-appimage-experimental).
-- **You must own the game.** Your own Turtles in Time Re-Shelled Xbox Live Arcade package, this exact game version:
+- Windows 10 or 11, 64-bit, and a DirectX 12 graphics card, **or** 64-bit Linux / a Steam Deck with Vulkan (experimental)
+- On Windows, the latest [Microsoft Visual C++ 2015-2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe). Most PCs have it already.
+- **Your own Turtles in Time Re-Shelled Xbox Live Arcade package** (about 270 MB, plus about 300 MB of free disk space next to the program for the game files), this exact game version:
 
 | | |
 | --- | --- |
@@ -34,31 +52,54 @@ The launcher checks the Title ID and content type when you pick the package, and
 extracting it. Any other version is refused, because the port is built for this exact game code. Details are in
 [docs/package-analysis.md](docs/package-analysis.md).
 
-## Installing on Windows
+## Installing
 
 1. Download **TurtlesInTimeReshelled-v…-windows-x64.zip** from the
-   [releases page](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases).
-2. Extract it anywhere you can write to, not `Program Files`.
-3. Run `tmnt_turtles_in_time_reshelled.exe`. The launcher opens.
-4. On the **Play** page, **Install from package...** takes your package (one file with a long hexadecimal name and no
-   extension; on an Xbox 360 drive it is in `Content\0000000000000000\584109D2\000D0000\`). It copies the game files
-   (about 270 MB) into the `game` folder next to the program and shows **Ready to play**.
+   [latest release](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest) and extract it
+   anywhere you can write to, not `Program Files`.
+2. Run **tmnt_turtles_in_time_reshelled.exe**. The launcher opens.
+3. On the **Play** page, click **Install from package...** and pick your package. It is one file with a long
+   hexadecimal name and no extension. On an Xbox 360 drive it is in `Content\0000000000000000\584109D2\000D0000\`.
+4. Wait until **Ready to play** appears. The game files (about 270 MB) are copied into the `game` folder next to the
+   program. The package file itself is not copied there.
 5. Press **PLAY**.
 
-**Reinstall from package...** repairs the game files and keeps settings and saves.
+**No game files are included** in the release.
 
-**Windows SmartScreen** may warn the first time, because the program is not digitally signed. If you downloaded it from
-the releases page above, choose **More info**, then **Run anyway**.
+**Reinstall from package...** repairs the game files and keeps your settings and saves.
 
-## Linux AppImage (experimental)
+### Linux and Steam Deck
 
-Download **TurtlesInTimeReshelledRecompiled-v…-x86_64.AppImage**, make it executable (`chmod +x`) and run it from a folder
-you can write to. This is a native Linux build, not Proton or Wine. The launcher and its features work as on Windows, and
-`game`, `logs` and `user_data` are created next to the AppImage file, so they survive moving or updating it. Rendering
-goes through Vulkan.
+**Experimental.** This is a native Linux build (ReXGlue's patched Linux runtime with its Vulkan GPU plugin), not Proton
+or Wine, and rendering goes through Vulkan. **It has not yet been validated on real Linux hardware or on a Steam Deck**,
+so rendering, audio, controllers and online play on Linux are unconfirmed. It needs 64-bit x86 Linux with glibc 2.31 or
+newer, a Vulkan driver and an X11 or Wayland desktop.
 
-The Linux build has not yet been validated on real hardware, on Linux or on Steam Deck. Requirements, the Steam
-setup, the FUSE fallback and the known differences are in [docs/linux.md](docs/linux.md).
+1. Download **TurtlesInTimeReshelledRecompiled-v…-x86_64.AppImage** from the
+   [latest release](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/releases/latest) and put it in a
+   folder you can write to.
+2. Mark it executable: right-click > **Properties** > **Permissions** > **Is executable**, or `chmod +x`.
+3. Run it, then install your package from the **Play** page as above. The game files go in a `game` folder next to the
+   AppImage.
+
+On a Steam Deck, this is the intended flow, and it has not been tried on a Steam Deck yet:
+
+1. Switch to **Desktop Mode**.
+2. Download the AppImage, and copy your Xbox 360 package to the Deck (USB stick, SD card or network).
+3. Mark the AppImage executable.
+4. Run it and install your own Xbox 360 package from the **Play** page.
+5. In Steam, choose **Games** > **Add a Non-Steam Game to My Library** and pick the AppImage.
+6. Return to **Game Mode** and launch it from your library.
+
+`game`, `logs` and `user_data` are created next to the AppImage file, so they survive moving or updating it. Where FUSE
+cannot mount the AppImage, it unpacks itself and runs from there. The launcher updates the AppImage only while it keeps
+its release file name. Requirements, the Steam setup, the FUSE fallback and known limits are in
+[docs/linux.md](docs/linux.md).
+
+### Windows SmartScreen
+
+Windows may warn the first time you run the program, because the release is not digitally signed. If you downloaded it
+from this repository's releases page, choose **More info**, then **Run anyway**.
 
 ## The launcher
 
@@ -90,9 +131,10 @@ Xbox controllers work without setup, and the keyboard works too (the Controls pa
 
 ## Online multiplayer
 
-Play with up to three friends through the game's own Multiplayer menus. Turn on **Online play** on the launcher's Online
-page, run the **Connection test**, and add friends by friend code. In the game, Multiplayer > Online offers Quick Match,
-Create Match and Custom Match, and **X Invite Friends** in your lobby invites a friend.
+Play with up to four players in total (you and up to three friends) through the game's own Multiplayer menus. Online
+play is this port's own online service and is not Xbox Live. Turn on **Online play** on the launcher's Online page, run
+the **Connection test**, and add friends by friend code. In the game, Multiplayer > Online offers Quick Match, Create
+Match and Custom Match, and **X Invite Friends** in your lobby invites a friend.
 
 Peers connect directly over UDP when they can (**Direct**) and through the online service's relay for any pair that
 cannot (**Relay**). The online service only sees what it needs to bring players together; see
@@ -102,13 +144,6 @@ cannot (**Relay**). The online service only sees what it needs to bring players 
 
 The game's own English, French, German, Italian and Spanish, plus the port's unofficial
 [Português Brasil](docs/localization-pt-br.md) translation of the game text and the launcher. Choose on the Gameplay page.
-
-## Skip intro, render resolution and achievements
-
-- **Skip intro** goes straight to the title screen.
-- **Render resolution** draws the game at 1x to 4x (1280×720 to 5120×2880) and scales it to the window. The game keeps its
-  original 16:9 picture.
-- **Achievements** work offline and are saved on this PC, with the game's own names, icons and gamerscore.
 
 ## Screenshots
 
@@ -138,6 +173,7 @@ caches are kept. On Linux this replaces the AppImage file, which must keep its r
 
 - The picture is 16:9.
 - Leaderboards, Xbox Live Party and Gamer Cards are removed from the menus: this port has no Xbox Live service.
+- Linux and Steam Deck are experimental and have not yet been validated on real hardware.
 - Linux: two Direct3D 12 rendering fixes (a cyan flicker on the turtles, stale geometry) have no Vulkan version yet.
 - If a player closes the window during an online match, the others can wait up to 30 s before the match goes on.
 
@@ -174,6 +210,16 @@ In an existing clone, run `git submodule update --init --recursive`.
 
 How the launcher, settings and installer work is described in [docs/launcher.md](docs/launcher.md), and the user data
 layout in [docs/user-data.md](docs/user-data.md).
+
+## Sponsoring
+
+Turtles in Time Re-Shelled Recompiled is maintained and developed in my free time. If you enjoy the project or find it useful, consider supporting its continued development.
+
+<div align="center">
+
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-Sponsor-EA4AAA?style=for-the-badge&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/saulob)
+
+</div>
 
 ## Credits
 
