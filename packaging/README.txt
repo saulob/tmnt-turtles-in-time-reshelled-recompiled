@@ -30,7 +30,9 @@ REQUIREMENTS
 - Your own Turtles in Time Re-Shelled Xbox Live Arcade package (about 270 MB), plus
   about 300 MB of free disk space next to the program for the game files
 
-Linux has its own download, an experimental AppImage. See the project page.
+Linux has its own download, an experimental AppImage. It has not yet been
+validated on real hardware or on Steam Deck. Its instructions are on the
+project page.
 
 
 INSTALL
@@ -78,7 +80,8 @@ PLAYING
 
 The launcher's Gameplay page has the Language (including the port's unofficial
 Portugues Brasil translation) and Skip intro. The Graphics page has the Render
-Resolution, from 1x to 4x, anti-aliasing and texture filtering.
+Resolution, from 1x to 4x, anti-aliasing and texture filtering. The picture is
+16:9.
 
 
 ONLINE
@@ -93,7 +96,10 @@ WHERE THINGS ARE
 ----------------
 - Game files:     the "game" folder next to tmnt_turtles_in_time_reshelled.exe
 - Logs:           the "logs" folder next to tmnt_turtles_in_time_reshelled.exe
-                  (the launcher's About page has an Open logs folder button)
+                  (the launcher's About page has an Open logs folder button).
+                  Detailed logging, also on the About page, is on by default.
+                  Turned off, the log keeps only what identifies the session
+                  and what went wrong.
 - Settings, saves, achievements and shader cache:
                   the "user_data" folder next to tmnt_turtles_in_time_reshelled.exe
 
