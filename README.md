@@ -12,6 +12,8 @@ This is a native PC port, not an emulator: the game's own PowerPC code is transl
 It runs on Windows, with an experimental Linux AppImage, and adds a launcher, online play with friends, higher render
 resolutions, a Brazilian Portuguese translation and offline achievements.
 
+<img width="1278" height="766" alt="2026-11-06_15-06_1" src="https://github.com/user-attachments/assets/a51823f7-f766-4248-af85-f6b8419a40d2" />
+
 ## What you need
 
 - **Windows:** Windows 10 or 11, 64-bit, and a DirectX 12 graphics card.
@@ -107,6 +109,10 @@ The game's own English, French, German, Italian and Spanish, plus the port's uno
 - **Render resolution** draws the game at 1x to 4x (1280×720 to 5120×2880) and scales it to the window. The game keeps its
   original 16:9 picture.
 - **Achievements** work offline and are saved on this PC, with the game's own names, icons and gamerscore.
+
+## Screenshots
+
+<img width="1279" height="762" alt="2026-11-06_15-08" src="https://github.com/user-attachments/assets/40f9cf3e-e8b5-4cb4-954a-9404a35d91fa" />
 
 ## Your data
 
