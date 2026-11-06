@@ -1,5 +1,6 @@
 // The controller that presses START owns the one local profile, whichever slot it connected in, so the title's
-// "You are not signed in" warning cannot appear and that controller saves to the existing profile. Runs without a game.
+// "You are not signed in" warning cannot appear and that controller saves to the existing profile. Achievements have
+// one title-scoped store that no slot reaches; tools/test.ps1 passes the SDK that proof reads. Runs without a game.
 // Run: tmnt_local_profile_owner_tests
 
 #include <algorithm>
@@ -12,10 +13,15 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include "live_scope.h"
 #include "player_match.h"
+
+#ifdef TMNT_SDK_SOURCE_DIR
+#include <rex/system/achievement_manager.h>
+#endif
 
 using namespace tmnt;
 using namespace tmnt::live;
@@ -190,6 +196,69 @@ void TestNoDependencyOnTheOnlineService() {
   }
 }
 
+#ifdef TMNT_SDK_SOURCE_DIR
+namespace rs = rex::system;
+
+// The store's identity is the achievement id alone: no user, XUID or slot can be passed to it.
+static_assert(std::is_same_v<decltype(&rs::AchievementManager::UnlockAchievement),
+                             rs::AchievementUnlockResult (rs::AchievementManager::*)(uint32_t, rs::AchievementNotification)>);
+static_assert(std::is_same_v<decltype(&rs::AchievementManager::IsUnlocked), bool (rs::AchievementManager::*)(uint32_t) const>);
+static_assert(std::is_same_v<decltype(&rs::AchievementManager::SetUnlockSavePath),
+                             void (rs::AchievementManager::*)(std::filesystem::path)>);
+
+size_t Count(std::string_view text, std::string_view needle) {
+  size_t count = 0;
+  for (size_t at = text.find(needle); at != std::string_view::npos; at = text.find(needle, at + needle.size())) ++count;
+  return count;
+}
+
+void TestAchievementsHaveOneIdentity() {
+  std::printf("achievements: one title-scoped store that no controller slot or profile owner can reach\n");
+  const std::filesystem::path sdk(TMNT_SDK_SOURCE_DIR);
+
+  const std::string xgi = ReadFile(sdk / "src" / "kernel" / "xam" / "apps" / "xgi_app.cpp");
+  const std::string write = Between(xgi, "case 0x000B0008:", "case 0x000B0010:");
+  CHECK(Has(write, "kEntryIdOffset = 4;"));
+  CHECK(Has(write, "load_and_swap<uint32_t>(base + i * kEntryStride + kEntryIdOffset)"));
+  CHECK(Count(write, "load_and_swap<uint32_t>(base +") == 1);  // the entry's user index, at offset 0, is never read
+  CHECK(Has(write, "kernel_state_->UnlockAchievement(id);"));
+
+  const std::string kernel = ReadFile(sdk / "src" / "system" / "kernel_state.cpp");
+  const std::string unlock = Between(kernel, "void KernelState::UnlockAchievement(", "bool KernelState::IsAchievementUnlocked(");
+  CHECK(Has(unlock, "achievement_manager_.UnlockAchievement(id, AchievementNotification::kShow);"));
+  CHECK(Has(ReadFile(sdk / "include" / "rex" / "system" / "kernel_state.h"), "AchievementManager achievement_manager_;"));
+
+  const std::string load = Between(kernel, "void KernelState::LoadAchievementsData() {", "uint32_t KernelState::process_type()");
+  CHECK(Has(load, "const auto user_root = emulator_->user_data_root();"));
+  CHECK(Has(load, "SetUnlockSavePath(user_root / \"achievements\" /"));
+  CHECK(Has(load, "fmt::format(\"{:08X}.toml\", title_id())"));
+  CHECK(Count(kernel, "SetUnlockSavePath(") == 1);
+  CHECK(Count(kernel, "LoadAchievementsData();") == 1);
+  char file[32];
+  std::snprintf(file, sizeof(file), "%08X.toml", kTmntTitleId);
+  CHECK(std::string_view(file) == "584109D2.toml");
+
+  const std::string manager = ReadFile(sdk / "src" / "system" / "achievement_manager.cpp");
+  for (const std::string& body :
+       {Between(manager, "AchievementUnlockResult AchievementManager::UnlockAchievement(", "bool AchievementManager::ShowAchievementNotification("),
+        Between(manager, "void AchievementManager::LoadUnlockState() {", "}  // namespace rex::system")}) {
+    CHECK(!body.empty());
+    for (const char* identity : {"user", "xuid", "profile", "slot", "owner"}) CHECK(!Has(body, identity));
+  }
+
+  for (const char* file_with_remap : {"player_match_hook.cpp", "live_hooks_tmnt_r.cpp"}) {
+    CHECK(!Has(ReadSource(file_with_remap), "chievement"));
+  }
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(TMNT_SRC_DIR)) {
+    if (!entry.is_regular_file()) continue;
+    const std::string source = ReadFile(entry.path());
+    for (const char* store_write : {"UnlockAchievement(", "SetUnlockSavePath(", "LoadUnlockState(", "SaveUnlockState("}) {
+      CHECK(!Has(source, store_write));
+    }
+  }
+}
+#endif
+
 class Image {
  public:
   Image(const std::filesystem::path& path, uint32_t image_base) : bytes_(ReadFile(path)), base_(image_base) {}
@@ -239,6 +308,11 @@ int main() {
   TestHooksAnswerFromTheProfileSlot();
   TestTheClaimComesFirst();
   TestNoDependencyOnTheOnlineService();
+#ifdef TMNT_SDK_SOURCE_DIR
+  TestAchievementsHaveOneIdentity();
+#else
+  std::printf("achievements: SDK source not available, skipped\n");
+#endif
   TestTheShippedGame();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures ? 1 : 0;
