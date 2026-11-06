@@ -32,7 +32,6 @@
 #include "gpu_plugin_check.h"
 #include "guest_functions.h"
 #include "input_summary.h"
-#include "internal_render_scale.h"
 #include "launcher.h"
 #include "live_fix.h"
 #include "localization/active_language.h"
@@ -163,7 +162,6 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       tmnt::ApplyPlayerNames();
       tmnt::ApplyLanguage();
       tmnt::ApplyAspectRatio();
-      tmnt::ApplyInternalRenderPath();
       return defaults;
     }
     if (!imgui_drawer()) {
@@ -239,10 +237,6 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   }
 
   void OnPostSetup() override {
-    REXLOG_INFO("{}", tmnt::DescribeInternalRenderResolution(
-                          std::max(1, std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str())),
-                          std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()),
-                          tmnt::GuestWidth(tmnt::ParseAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio")))));
     if (runtime() && runtime()->kernel_state() && runtime()->input_system()) {
       tmnt::InstallAchievementMenu({
           .open = [this] { app_context().CallInUIThreadDeferred([this] { OpenAchievements(); }); },

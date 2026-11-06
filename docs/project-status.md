@@ -53,7 +53,7 @@ need attention at first boot.
   folder ([linux.md](linux.md)). The Windows build is not affected.
 - **First boot not attempted.** The module load path, the custom I/O device, `Data/TMNT.bf` access and the shader
   handling are all unverified.
-- **Aspect Ratio.** Only the generic video mode and letterbox are applied; non-16:9 output is unverified.
+- **Aspect Ratio.** v0.1.0 uses the original 16:9 presentation. Additional native ratios are deferred.
 - **Render base.** The 1280×720 base used by the Render resolution labels and diagnostics comes from the template.
 - **FPS counter.** Counts every `VdSwap`; whether the game repeats presents is unknown.
 - **Achievements.** Unlocks and their persistence are ReXGlue's: the title XDBF supplies the 12 names, descriptions, icons and 200

@@ -34,7 +34,6 @@
 #include "game_files.h"
 #include "graphics_adapters.h"
 #include "imgui_gamepad.h"
-#include "internal_render_scale.h"
 #include "keybinds.h"
 #include "language.h"
 #include "launcher_achievements.h"
@@ -196,7 +195,9 @@ std::vector<trg::Option> RenderResolutionOptions(AspectRatio aspect) {
 std::vector<trg::Option> AspectRatioOptions() {
   std::vector<trg::Option> options;
   for (const AspectRatioInfo& info : kAspectRatios) {
-    options.push_back({info.key, info.label});
+    if (info.supported) {
+      options.push_back({info.key, info.label});
+    }
   }
   return options;
 }
@@ -970,9 +971,10 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     WindowSizeCombo();
     ui.Row("Monitor", "The display the game opens on.");
     MonitorCombo();
-    if (ui.Combo("Aspect Ratio",
-                 "Sets the game's target rendering format and the Window size choices.",
-                 "tmnt_aspect_ratio", "16:9", AspectRatioOptions())) {
+    if (const std::vector<trg::Option> aspect_ratios = AspectRatioOptions();
+        aspect_ratios.size() > 1 && ui.Combo("Aspect Ratio",
+                                             "Sets the game's target rendering format and the Window size choices.",
+                                             "tmnt_aspect_ratio", "16:9", aspect_ratios)) {
       SelectWindowSizeForAspect();
     }
     ui.Row("VSync", "On prevents tearing. Off allows it, for the lowest latency and G-Sync/FreeSync.");
@@ -998,7 +1000,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
   AspectRatio SelectedAspectRatio() const {
-    return ParseAspectRatio(settings_.Get("tmnt_aspect_ratio", "16:9"));
+    return EffectiveAspectRatio(settings_.Get("tmnt_aspect_ratio", "16:9"));
   }
 
   static bool WindowSizeFits(int width, int height, const MonitorInfo* monitor) {
@@ -1109,11 +1111,6 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
              "Draws the game at a multiple of its own picture, then scales it to the window. Higher is sharper and "
              "costs more GPU time. Window size is separate.",
              "resolution_scale", "1", RenderResolutionOptions(SelectedAspectRatio()));
-    ui.Combo("Internal render resolution",
-             "Renders the game internally at a lower resolution, then scales it to the selected render resolution. "
-             "Lower values improve GPU performance but reduce image sharpness.",
-             "tmnt_internal_render_scale", "100",
-             {{"100", "100% Native"}, {"75", "75% Performance"}, {"50", "50% Low-end"}});
     ui.Choice("Anti-aliasing", "Smooths jagged edges after the frame is drawn. Extreme is softer but cleaner.",
               "swap_post_effect", "none", {{"none", "Off"}, {"fxaa", "FXAA"}, {"fxaa_extreme", "FXAA Extreme"}});
     ui.Toggle("Multisampling",
@@ -1291,7 +1288,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
     ui.ResetAllRow();
     ui.Heading("Diagnostics");
-    if (ui.Toggle("Detailed logging", "Keeps logs for normal sessions. Crash diagnostics are always preserved.",
+    if (ui.Toggle("Detailed logging",
+                  "On keeps the full log, for reporting a problem. Off keeps a shorter log with startup, online "
+                  "status, warnings and errors. Crash reports are always kept.",
                   "detailed_logging", true)) {
       rex::cvar::SetFlagByName("detailed_logging", settings_.Get("detailed_logging", "true"));
       tmnt::ApplyDetailedLogging();

@@ -35,14 +35,11 @@ const char kPtBrUiTextTsv[] = R"PTBR(     Accept	     Aceitar
 (none)	(nenhuma)
 , but your network's NAT type could not be confirmed (only one STUN server answered).	, mas não foi possível confirmar o tipo de NAT da sua rede (só um servidor STUN respondeu).
 . Another program may already be using it, or network security may be blocking it.	. Outro programa pode estar usando-a, ou a segurança da rede pode estar bloqueando-a.
-100% Native	100% Nativo
 16:9 Original	16:9 Original
 21:9 Ultrawide	21:9 Ultrawide
 2× MSAA	MSAA 2×
 32:9 Super Ultrawide	32:9 Super Ultrawide
 4× MSAA (Compatibility)	MSAA 4× (Compatibilidade)
-50% Low-end	50% Econômico
-75% Performance	75% Desempenho
 : timed out	: tempo esgotado
 A  Choose     B  Later	A  Escolher     B  Depois
 A  Invite     B  Back	A  Convidar     B  Voltar
@@ -166,7 +163,7 @@ Defeated the Final Boss without dying. 	Derrotou o Chefe Final sem morrer.
 Destroy more than 5 enemies using a destructible object.	Destrua mais de 5 inimigos com um objeto destrutível.
 Destroyed more than 5 enemies using a destructible object.	Destruiu mais de 5 inimigos com um objeto destrutível.
 Destroyed more than 5 enemies using a destructible object. \r\n	Destruiu mais de 5 inimigos com um objeto destrutível.
-Detailed logging	Registro detalhado
+Detailed logging	Log detalhado
 Diagnostics	Diagnósticos
 Different version of the game	Versão diferente do jogo
 Direct	Direto
@@ -236,7 +233,6 @@ Install optional downloadable content from your own Xbox 360 packages.\nNo DLC f
 Install the game to see its achievements.	Instale o jogo para ver as conquistas dele.
 Installed	Instalado
 Installing game files	Instalando arquivos do jogo
-Internal render resolution	Resolução interna de render
 Invincible	Invencível
 Invite friends	Convidar amigos
 Invite sent to 	Convite enviado para 
@@ -244,7 +240,7 @@ Invited	Convidado
 Italian	Italiano
 Its folder is not a plain folder in the DLC storage, so nothing was removed.	A pasta dele não é uma pasta comum no armazenamento de DLC, então nada foi removido.
 Joining	Entrando
-Keeps logs for normal sessions. Crash diagnostics are always preserved.	Guarda registros das sessões normais. Os diagnósticos de falhas são sempre preservados.
+On keeps the full log, for reporting a problem. Off keeps a shorter log with startup, online status, warnings and errors. Crash reports are always kept.	Ligado guarda o log completo, para relatar um problema. Desligado guarda um log mais curto, com inicialização, estado online, avisos e erros. Os relatórios de falha são sempre guardados.
 Keyboard	Teclado
 Keyboard controls	Controles do teclado
 Keyboard controls reset to defaults.	Controles do teclado restaurados ao padrão.
@@ -266,7 +262,7 @@ Limited: direct connections may be blocked by your network	Limitado: as conexõe
 Limited: some players may not be able to connect to you	Limitado: alguns jogadores podem não conseguir se conectar com você
 Limited: the multiplayer UDP port could not be opened	Limitado: não foi possível abrir a porta UDP do multijogador
 Local player names	Nomes dos jogadores locais
-Logs folder	Pasta de registros
+Logs folder	Pasta de logs
 Maximum 15 characters.	Máximo de 15 caracteres.
 May be blocked by your network or firewall	Pode estar bloqueado pela sua rede ou firewall
 Menu / Start	Menu / Start
@@ -311,8 +307,8 @@ Only the host of the match can invite friends.	Só o anfitrião da partida pode 
 Only web addresses can be downloaded.	Só é possível baixar endereços web.
 Open data folder	Abrir pasta de dados
 Open game folder	Abrir pasta do jogo
-Open logs folder	Abrir pasta de registros
-Open the folder containing session and crash logs	Abre a pasta com os registros de sessão e de falhas
+Open logs folder	Abrir pasta de logs
+Open the folder containing session and crash logs	Abre a pasta com os logs de sessão e de falhas
 Optional downloadable content	Conteúdo opcional para download
 Original	Original
 Other players see 	Os outros jogadores veem 
@@ -356,7 +352,6 @@ Removing DLC...	Removendo DLC...
 Render resolution	Resolução de render
 Render resolution in title	Resolução de render no título
 Render resolution, anti-aliasing and texture filtering.	Resolução de renderização, anti-aliasing e filtragem de textura.
-Renders the game internally at a lower resolution, then scales it to the selected render resolution. Lower values improve GPU performance but reduce image sharpness.	Renderiza o jogo internamente em uma resolução menor e depois o ajusta à resolução de render escolhida. Valores menores melhoram o desempenho da GPU, mas reduzem a nitidez da imagem.
 Reset	Restaurar
 Reset all settings	Restaurar todas as configurações
 Reset settings	Restaurar configurações

@@ -6,14 +6,14 @@
 
 namespace tmnt {
 
-// Minimal mode keeps warnings, errors and the first-line startup diagnostics; it drops the ordinary
-// runtime chatter.
-bool ShouldLogInMinimalMode(spdlog::level::level_enum level, std::string_view category,
-                            std::string_view message);
+// Minimal mode keeps warnings, errors and the lines in log_policy.h; it drops the ordinary runtime chatter.
+bool ShouldLogInMinimalMode(spdlog::level::level_enum level, std::string_view message);
 
-// The `detailed_logging` setting in effect now: true unless it is explicitly off. A missing or
-// malformed value means Detailed logging.
+// The `detailed_logging` setting in effect now: true unless it is explicitly off.
 bool DetailedLoggingEnabled();
+
+// `tmnt_discard_normal_logs`: whether a normal exit deletes the log of a session without Detailed logging.
+bool DiscardNormalLogs();
 
 // Adds the Minimal filter to the file sink, or removes it, to match the setting. Call it again
 // after the launcher applies the player's choice; the runtime is not started while it changes.

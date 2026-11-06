@@ -1,5 +1,6 @@
-// Aspect Ratio: formats, the game-side widths and canvas factor, the setting key and its fallback, the
-// retired present_letterbox line, and the launcher, settings and app wiring. Run: tmnt_aspect_ratio_tests
+// Aspect Ratio: formats, the game-side widths and canvas factor, the setting key and its fallback, 16:9 as the only
+// format the game can run at, the retired present_letterbox line, and the launcher, settings and app wiring.
+// Run: tmnt_aspect_ratio_tests
 
 #include <cmath>
 #include <cstdio>
@@ -60,6 +61,39 @@ void TestParseFallback() {
   CHECK(tmnt::ParseAspectRatio("auto") == tmnt::AspectRatio::k16x9);
   CHECK(tmnt::ParseAspectRatio("21:9 ") == tmnt::AspectRatio::k16x9);
   CHECK(tmnt::ParseAspectRatio("2.33") == tmnt::AspectRatio::k16x9);
+}
+
+void TestOnlySixteenByNine() {
+  std::printf("16:9 is the only format the game can run at\n");
+  int supported = 0;
+  for (const tmnt::AspectRatioInfo& info : tmnt::kAspectRatios) {
+    if (info.supported) {
+      ++supported;
+      CHECK(info.aspect == tmnt::AspectRatio::k16x9);
+      CHECK(std::string(info.label) == "16:9 Original");
+    }
+  }
+  CHECK(supported == 1);
+
+  const char* values[] = {"16:9",    "16:10", "21:9", "32:9",     "4:3",      "5:4",     "",
+                          "garbage", "auto",  "21:9 ", "1680x720", "16:9x",   "2.33",    "0"};
+  for (const char* value : values) {
+    const tmnt::AspectRatio effective = tmnt::EffectiveAspectRatio(value);
+    CHECK(effective == tmnt::AspectRatio::k16x9);
+    CHECK(tmnt::GuestWidth(effective) == 1280);
+    CHECK(tmnt::kGuestHeight == 720);
+    CHECK(tmnt::VideoModeWidth(effective) == 853);
+    CHECK(tmnt::kVideoModeHeight == 480);
+    CHECK(std::string(tmnt::InfoFor(effective).label) == "16:9 Original");
+    CHECK(std::string(tmnt::InfoFor(effective).key) == "16:9");
+  }
+
+  // The launcher's Window size list follows the effective format.
+  for (const tmnt::WindowSize& size : tmnt::kWindowSizes) {
+    if (size.aspect == tmnt::EffectiveAspectRatio("21:9")) {
+      CHECK(std::fabs(double(size.width) / double(size.height) - 16.0 / 9.0) < 0.002);
+    }
+  }
 }
 
 void TestWindowSizes() {
@@ -129,7 +163,10 @@ void TestWiring() {
   CHECK(!Has(settings, "    \"present_letterbox\",\n") && !Has(settings, "    \"present_letterbox\",\r\n"));
   CHECK(Has(settings, "RemoveRetiredPlayerSettings(path);"));
   CHECK(Has(settings, "ApplyAspectRatio();"));
-  CHECK(Has(settings, "ParseAspectRatio(rex::cvar::GetFlagByName(\"tmnt_aspect_ratio\"))"));
+  CHECK(Has(settings, "EffectiveAspectRatio(rex::cvar::GetFlagByName(\"tmnt_aspect_ratio\"))"));
+  CHECK(Has(settings, "EffectiveAspectRatio(settings.Get(\"tmnt_aspect_ratio\""));
+  CHECK(Has(settings, "SetFlagByName(\"tmnt_aspect_ratio\", InfoFor(aspect).key)"));
+  CHECK(Has(settings, "SetFlagByName(\"video_mode_height\""));
   CHECK(Has(settings, "SetFlagByName(\"present_letterbox\", \"true\")"));
   CHECK(Has(settings, "SetFlagByName(\"video_mode_width\""));
   CHECK(!Has(settings, "DEBUG_SAULO"));
@@ -139,11 +176,39 @@ void TestWiring() {
 
   const std::string launcher = ReadSource("launcher.cpp");
   CHECK(Has(launcher, "ui.Combo(\"Aspect Ratio\""));
-  CHECK(Has(launcher, "\"tmnt_aspect_ratio\", \"16:9\", AspectRatioOptions()"));
+  CHECK(Has(launcher, "aspect_ratios.size() > 1 && ui.Combo(\"Aspect Ratio\""));
+  CHECK(Has(launcher, "if (info.supported)"));
+  CHECK(Has(launcher, "EffectiveAspectRatio(settings_.Get(\"tmnt_aspect_ratio\""));
   CHECK(Has(launcher, "RenderResolutionOptions(SelectedAspectRatio())"));
   CHECK(!Has(launcher, "Letterbox 16:9"));
   CHECK(!Has(launcher, "\"aspect\""));
   CHECK(!Has(launcher, "\"present_letterbox\""));
+
+  for (const char* file : {"settings.cpp", "launcher.cpp", "window_host.cpp", "window_title.h",
+                           "tmnt_turtles_in_time_reshelled_app.h", "diagnostics.cpp"}) {
+    CHECK(!Has(ReadSource(file), "ParseAspectRatio("));
+  }
+  // No guest-side ultrawide hook on this branch.
+  for (const char* file : {"aspect_render.cpp", "edram_bands.h", "aspect_guest_layout.h"}) {
+    CHECK(ReadSource(file).empty());
+  }
+  CHECK(!Has(ReadSource("../CMakeLists.txt"), "aspect_render"));
+  const std::string config = ReadSource("../config/tmnt_turtles_in_time_reshelled.toml");
+  CHECK(Has(config, "video_mode_width = 853"));
+  CHECK(Has(config, "video_mode_height = 480"));
+}
+
+void TestDocumentation() {
+  std::printf("the docs advertise 16:9 only\n");
+  for (const char* file : {"../README.md", "../docs/launcher.md", "../docs/display.md", "../docs/project-status.md"}) {
+    const std::string text = ReadSource(file);
+    CHECK(!text.empty());
+    for (const char* ratio : {"16:10", "21:9", "32:9", "Ultrawide"}) {
+      CHECK(!Has(text, ratio));
+    }
+  }
+  CHECK(!Has(ReadSource("../README.md"), "aspect ratio"));
+  CHECK(Has(ReadSource("../docs/launcher.md"), "`tmnt_aspect_ratio`"));
 }
 
 }  // namespace
@@ -151,10 +216,12 @@ void TestWiring() {
 int main() {
   TestFormats();
   TestParseFallback();
+  TestOnlySixteenByNine();
   TestWindowSizes();
   TestGameWidths();
   TestRetiredLineMigration();
   TestWiring();
+  TestDocumentation();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

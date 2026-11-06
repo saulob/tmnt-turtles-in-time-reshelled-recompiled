@@ -171,7 +171,7 @@ void TestGuestAndRuntimeState() {
   snprintf(report.runtime_display, sizeof(report.runtime_display), "%s", "2560x1440 | window=1280x720");
   snprintf(report.runtime_timing, sizeof(report.runtime_timing), "%s",
            "guest 60Hz | host VBlank (VSync On)");
-  snprintf(report.runtime_renderer, sizeof(report.runtime_renderer), "%s", "render=100% 1280x720 | msaa=2x native");
+  snprintf(report.runtime_renderer, sizeof(report.runtime_renderer), "%s", "render=1280x720 | msaa=2x native");
   const std::string text = Format(report);
   CHECK(Has(text, "Guest function: sub_825520F8"));
   CHECK(Has(text, "Guest address: 0x825520F8"));
@@ -179,7 +179,7 @@ void TestGuestAndRuntimeState() {
   CHECK(Has(text, "gpu=NVIDIA GeForce RTX 4070"));
   CHECK(Has(text, "display=2560x1440 | window=1280x720"));
   CHECK(Has(text, "timing=guest 60Hz | host VBlank (VSync On)"));
-  CHECK(Has(text, "renderer=render=100% 1280x720 | msaa=2x native"));
+  CHECK(Has(text, "renderer=render=1280x720 | msaa=2x native"));
 }
 
 void TestPpcAndGuestExtra() {
@@ -311,7 +311,7 @@ int RunChildMode(const std::wstring& mode, const std::string& log) {
   tmnt::InstallCrashReporting(log.c_str());
   tmnt::InstallCrashReporting(log.c_str());
   tmnt::SetCrashRuntimeState("Test GPU", "1920x1080 | window=1280x720",
-                            "guest 60Hz | host VBlank (VSync On)", "render=100% 1280x720 | msaa=2x native");
+                            "guest 60Hz | host VBlank (VSync On)", "render=1280x720 | msaa=2x native");
   if (mode == L"corruption") {
     RaiseException(0xC0000374u, 0, 0, nullptr);
   } else if (mode == L"access-violation") {
@@ -357,7 +357,7 @@ void TestRealCrashAppendsToActiveLog() {
   CHECK(Has(text, "Last runtime state:"));
   CHECK(Has(text, "gpu=Test GPU"));
   CHECK(Has(text, "timing=guest 60Hz | host VBlank (VSync On)"));
-  CHECK(Has(text, "renderer=render=100% 1280x720 | msaa=2x native"));
+  CHECK(Has(text, "renderer=render=1280x720 | msaa=2x native"));
   CHECK(!Has(text, "parameter["));
   CHECK(ReadText(older) == "previous run\n");
   CHECK(!AnyFile(dir, "crash-", ".txt"));

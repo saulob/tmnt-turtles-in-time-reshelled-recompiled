@@ -38,7 +38,7 @@ The launcher window and the game window are separate.
 | --- | --- |
 | Window size, Monitor, VSync, Graphics card | Play. If any differs from the launcher's window, the game restarts once in a new window. |
 | Display mode | Play. In the launcher's window when the window already matches, otherwise in the new window. |
-| Aspect Ratio, graphics, frame counter, keyboard | Play, in the same window |
+| Graphics, frame counter, keyboard | Play, in the same window |
 
 ### Window position
 
@@ -53,12 +53,11 @@ Why a restart: ReXGlue 0.10.0 has no API to resize or move an open window (its `
 - Display mode is switched in place only when the window already matches the game's size, monitor and VSync. Otherwise it is applied by the relaunched copy, so the Windowed size F11 restores is always the game's.
 - The launcher's 1280×720 target is capped to the usable desktop, so on a display where it does not fit (for example 2560×1440 at 225%, where it becomes 1024×576) the launcher is smaller.
 - Sizes that cannot fit the current display at its scaling are hidden from the Window size list, except the current one.
-- **Aspect Ratio** (Display page, after Monitor) is the game's target rendering format, in one dropdown: 16:9 Original (default), 16:10, 21:9 Ultrawide, 32:9 Super Ultrawide, 4:3 and 5:4. It applies when Play starts the game. The Window size list shows the sizes of the chosen format; changing the format moves Window size to that format's default unless the current size already belongs to it. The value is saved as `tmnt_aspect_ratio` in `settings.toml`; a file without it means 16:9 Original.
-- A `present_letterbox` line from an older `settings.toml` is removed when the game starts. The presenter always letterboxes the chosen format, so there is no Stretch mode.
+- A `present_letterbox` line from an older `settings.toml` is removed when the game starts. The presenter always letterboxes the 16:9 picture, so there is no Stretch mode.
 
 ### Aspect Ratio and the guest picture
 
-The Aspect Ratio control is inherited from the Hard Corps launcher. Here it sets only the generic part: the guest video mode (`video_mode_width` at 480 lines, for example 853×480 at 16:9) and the presenter letterbox. The native-aspect hooks that made the Hard Corps engine render a wider canvas are game-specific and were not carried over, so how Turtles in Time Re-Shelled responds to a non-16:9 video mode is not verified. 16:9 Original is the default and the only format expected to look right.
+v0.1.0 uses the original 16:9 presentation: a 1280×720 guest base and an 853×480 guest video mode. The launcher has no Aspect Ratio control. Any other `tmnt_aspect_ratio` value in `settings.toml`, and any hand-edited `video_mode_width`, is replaced by 16:9 when the game starts; the file itself is left as it is, and the Window size list shows 16:9 sizes. Additional native ratios are deferred.
 
 The Render resolution labels assume a 1280×720 render base at 16:9, as in the template. The real Turtles render size has not been measured yet.
 
@@ -96,10 +95,8 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Window size | `window_width`, `window_height` |
 | | Monitor | `monitor` |
 | | VSync | `d3d12_allow_variable_refresh_rate_and_tearing` (inverted) |
-| | Aspect Ratio | `tmnt_aspect_ratio` |
 | Graphics | Graphics card (Windows) | `tmnt_graphics_adapter` |
 | | Render resolution | `resolution_scale` |
-| | Internal render resolution | `tmnt_internal_render_scale` |
 | | Anti-aliasing | `swap_post_effect` |
 | | Multisampling | `tmnt_msaa_compatibility` |
 | | Texture filtering | `anisotropic_override` |
@@ -123,7 +120,6 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | --- | --- | --- |
 | Graphics card (Windows) | `tmnt_graphics_adapter`, sets `d3d12_adapter` | the DXGI adapter index; the first detected adapter when unset or not present (`0`) |
 | Render resolution | `resolution_scale` (integer 1–8, the launcher offers 1–4) | `1` Original, `2`, `3`, `4` (`1`) |
-| Internal render resolution | `tmnt_internal_render_scale` (percent of the render resolution) | `100` 100% Native, `75` 75% Performance, `50` 50% Low-end (`100`) |
 | Anti-aliasing | `swap_post_effect` | `none` Off, `fxaa`, `fxaa_extreme` (`none`) |
 | Multisampling | `tmnt_msaa_compatibility` | `false` 2x MSAA, `true` 4x MSAA (Compatibility) (`false`) |
 | Texture filtering | `anisotropic_override` | `-1` Game (no override), `0` Off, `2` 2x, `3` 4x, `4` 8x, `5` 16x (`3`, 4x) |
@@ -137,18 +133,9 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
   - The graphics device is created before the launcher shows, so a change restarts the game once on Play, like a window change.
   - The log shows the choice (`Graphics card: <name> (adapter N)`) and, from ReXGlue, the GPU actually used (`DXGI adapter: <name>`).
   - Linux has no such row: `vulkan_device` indexes the instance ReXGlue creates, which the launcher cannot reproduce reliably, and Vulkan keeps its automatic discrete-GPU preference.
-- **Render resolution** labels show the presented output at each scale for the chosen Aspect Ratio: at 16:9, Original 1280×720, 2x 2560×1440, 3x 3840×2160, 4x 5120×2880. They do not depend on Window size. 2x is a natural match for 1440p displays. The recommendation is informational only, and the default stays Original. Higher scales cost more GPU time.
+- **Render resolution** labels show the presented output at each scale: Original 1280×720, 2x 2560×1440, 3x 3840×2160, 4x 5120×2880. They do not depend on Window size. 2x is a natural match for 1440p displays. The recommendation is informational only, and the default stays Original. Higher scales cost more GPU time.
 - The game takes the render resolution when its GPU starts, after Play, so a change applies to the game that Play starts. The GPU driver can lower a scale it cannot support; the game logs a warning when it does.
 - Render resolution is not a relaunch trigger. It never changes the window.
-
-Internal render resolution is the resolution the GPU draws the game at before the picture is scaled to the selected Render resolution. Render resolution keeps selecting the target; this setting only reduces the work behind it, and says nothing about the window.
-
-- **100% Native** is the current behavior, unchanged: the game is drawn at the Render resolution. A missing or unknown value is 100%.
-- **75% Performance** is the recommended choice for a GPU that is too slow at the Render resolution. **50% Low-end** is meant for low-end hardware. Lower values are less sharp. No frame rate gain is claimed; measure it on the GPU in question.
-- The internal size is the Render resolution times the percentage, in the chosen Aspect Ratio's render base, so the ratio is kept: at 16:9, 1280×720 at 75% is 960×540, at 50% 640×360; 2x is 1920×1080 and 1280×720; 3x is 2880×1620 and 1920×1080; 4x is 3840×2160 and 2560×1440; at 21:9 the 1680×720 base gives 1260×540 at 75% and 840×360 at 50%. The game logs one line with it at start, for example `Internal render resolution: 75% 960x540 -> 1280x720`.
-- On Windows a value below 100% also makes the D3D12 render target path the host one (`render_target_path_d3d12 = rtv`) when that setting is empty, which replaces the rasterizer-ordered path Intel GPUs use by default; the game logs `Internal render resolution: using D3D12 host render targets`. 100% leaves the path selection alone, and a `render_target_path_d3d12` set by hand is never overridden.
-- Like Render resolution, the game takes it when its GPU starts, after Play; it is not a relaunch trigger and never changes the window, the guest video mode, the aspect ratio or VSync.
-- It is a separate setting from `resolution_scale`; Texture filtering, Anti-aliasing and Multisampling are independent of it. The runtime patches that implement it (and the cases where it draws at the full Render resolution instead) are in [rexglue-runtime-patch.md](rexglue-runtime-patch.md#why-0036-0037-and-0038).
 
 - Every default is the value the game already used.
 - VSync controls tearing only. The D3D12 presenter always presents with sync interval 0; frame pacing comes from the guest `vsync` cvar, which the launcher does not touch.
@@ -200,7 +187,7 @@ Below it, one row per Xbox pad action: A, B, X, Y, the bumpers, the triggers, th
 
 ### About
 
-The About page ends with a **Diagnostics** section. The launcher and the game share one `tmnt_turtles_in_time_reshelled_NNN.log` for the whole application session, including the relaunch that creates the game window. When the game is about to run, the log receives a compact `Runtime configuration` block: the Launcher Display, Gameplay and Graphics choices as the player made them, followed by the effective runtime OS, CPU, GPU, display, game identity, timing, renderer and input state. Selected values stay selected: `Graphics card` keeps the chosen detected GPU while `Runtime GPU` reports the adapter that actually resolved, and the selected window size stays distinct from the fitted window and drawable size. The block contains no user, repository or installation paths. **Detailed logging** is on by default: the full runtime log is kept after every session. Turned off, the run still writes a shorter log while it runs — warnings, errors and the startup lines that identify the port, platform, GPU, render settings and runtime configuration — but a clean exit discards that session's log, so normal sessions do not accumulate files. With Detailed logging off, closing the window removes the log like any other normal exit, unless it holds a crash report or was handed to a relaunched process: the process ends without shutting down its logging, because game threads may still write to it, so the file sink is closed and the file deleted at once. If Windows cannot delete it, a `.discard` marker is left and the next start removes the log. The choice in effect at exit decides whether the log is kept. If the game crashes, the log is kept and contains that context plus one `CRASH REPORT` block with uptime, exception details, native frames and any resolvable guest function; no minidump or second diagnostic file is written. Logging and crash reporting are never disabled. **Open logs folder** opens the folder that holds these logs. If a crash occurs, send the newest `tmnt_turtles_in_time_reshelled_*.log`; for a non-crash problem, turn Detailed logging on, reproduce it, and send the newest log.
+The About page ends with a **Diagnostics** section. The launcher and the game share one `tmnt_turtles_in_time_reshelled_NNN.log` for the whole application session, including the relaunch that creates the game window. When the game is about to run, the log receives a compact `Runtime configuration` block: the Launcher Display, Gameplay and Graphics choices as the player made them, followed by the effective runtime OS, CPU, GPU, display, game identity, timing, renderer and input state. Selected values stay selected: `Graphics card` keeps the chosen detected GPU while `Runtime GPU` reports the adapter that actually resolved, and the selected window size stays distinct from the fitted window and drawable size. The block contains no user, repository or installation paths. **Detailed logging** is on by default, and a saved choice is kept: the log keeps everything the game and ReXGlue write. Turned off, the log keeps the startup and runtime configuration lines, the online connection and session state, transport selection, warnings and errors, and it still stays after a normal exit. Numbered logs are not pruned, in either mode. Setting `tmnt_discard_normal_logs = true` in `settings.toml` deletes the log of a session without Detailed logging after a normal exit, unless it holds a crash report or was handed to a relaunched process. Closing the window then deletes it too: the process ends without shutting down its logging, because game threads may still write to it, so the file sink is closed and the file deleted at once. If Windows cannot delete it, a `.discard` marker is left and the next start removes the log. If the game crashes, the log is kept and contains that context plus one `CRASH REPORT` block with uptime, exception details, native frames and any resolvable guest function; no minidump or second diagnostic file is written. Logging and crash reporting are never disabled. **Open logs folder** opens the folder that holds these logs. If a crash occurs, send the newest `tmnt_turtles_in_time_reshelled_*.log`; for a non-crash problem, turn Detailed logging on, reproduce it, and send the newest log.
 
 ## Updates
 

@@ -18,15 +18,17 @@ struct AspectRatioInfo {
   double ratio;
   int default_width;
   int default_height;
+  // Gameplay renders corrupted at a guest width other than 16:9's.
+  bool supported;
 };
 
 inline constexpr AspectRatioInfo kAspectRatios[] = {
-    {AspectRatio::k16x9, "16:9", "16:9 Original", 16.0 / 9.0, 1280, 720},
-    {AspectRatio::k16x10, "16:10", "16:10", 16.0 / 10.0, 1280, 800},
-    {AspectRatio::k21x9, "21:9", "21:9 Ultrawide", 21.0 / 9.0, 1680, 720},
-    {AspectRatio::k32x9, "32:9", "32:9 Super Ultrawide", 32.0 / 9.0, 1920, 540},
-    {AspectRatio::k4x3, "4:3", "4:3", 4.0 / 3.0, 1024, 768},
-    {AspectRatio::k5x4, "5:4", "5:4", 5.0 / 4.0, 1280, 1024},
+    {AspectRatio::k16x9, "16:9", "16:9 Original", 16.0 / 9.0, 1280, 720, true},
+    {AspectRatio::k16x10, "16:10", "16:10", 16.0 / 10.0, 1280, 800, false},
+    {AspectRatio::k21x9, "21:9", "21:9 Ultrawide", 21.0 / 9.0, 1680, 720, false},
+    {AspectRatio::k32x9, "32:9", "32:9 Super Ultrawide", 32.0 / 9.0, 1920, 540, false},
+    {AspectRatio::k4x3, "4:3", "4:3", 4.0 / 3.0, 1024, 768, false},
+    {AspectRatio::k5x4, "5:4", "5:4", 5.0 / 4.0, 1280, 1024, false},
 };
 
 struct WindowSize {
@@ -71,6 +73,12 @@ inline AspectRatio ParseAspectRatio(std::string_view key) {
     }
   }
   return AspectRatio::k16x9;
+}
+
+// The only way the game reads tmnt_aspect_ratio, so no saved or hand-edited value can reach the guest video mode.
+inline AspectRatio EffectiveAspectRatio(std::string_view key) {
+  const AspectRatio aspect = ParseAspectRatio(key);
+  return InfoFor(aspect).supported ? aspect : AspectRatio::k16x9;
 }
 
 inline int GuestWidth(AspectRatio aspect) {

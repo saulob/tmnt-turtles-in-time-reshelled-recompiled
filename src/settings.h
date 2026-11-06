@@ -50,7 +50,8 @@ void LoadPlayerSettings(const std::filesystem::path& path);
 // has registered its cvars and before emulation starts.
 void ApplyMultisampling();
 
-// Sets the guest video mode and the presenter letterbox for tmnt_aspect_ratio. Call with ApplyMultisampling.
+// Sets the guest video mode and the presenter letterbox for the effective aspect ratio, whatever a setting asked
+// for, and normalizes tmnt_aspect_ratio to it. Call with ApplyMultisampling.
 void ApplyAspectRatio();
 
 // Sets the SDK's local player names from the launcher's Player names. Call with ApplyMultisampling.
@@ -58,10 +59,6 @@ void ApplyPlayerNames();
 
 // Sets the SDK's user_language from the launcher's Language. Call with ApplyMultisampling.
 void ApplyLanguage();
-
-// Windows: makes the D3D12 render target path the host one when Internal render resolution is below 100%. Call
-// once the launcher choices are applied and before the command processor is created.
-void ApplyInternalRenderPath();
 
 // Sets d3d12_adapter from the launcher's Graphics card choice. Call once the player settings are loaded and
 // before the graphics device is created; Automatic leaves the SDK's own preference alone.

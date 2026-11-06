@@ -73,7 +73,6 @@ struct LauncherGameplayIdentity {
 struct LauncherGraphicsIdentity {
   std::string graphics_card;
   std::string render_resolution;
-  std::string internal_render_resolution;
   std::string anti_aliasing;
   std::string multisampling;
   std::string texture_filtering;
@@ -84,13 +83,10 @@ struct GameplayIdentity {
 };
 
 struct GraphicsIdentity {
-  int render_percent = 100;
   int render_width = 0;
   int render_height = 0;
   int guest_width = 0;
   int guest_height = 0;
-  int host_quarters = 0;
-  int resolve_scale = 0;
   std::string msaa;
   std::string anti_aliasing;
   std::string texture_filtering;

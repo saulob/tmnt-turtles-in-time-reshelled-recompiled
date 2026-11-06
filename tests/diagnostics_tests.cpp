@@ -48,7 +48,6 @@ tmnt::StartupDiagnostics Sample() {
   diagnostics.launcher_gameplay.frame_counter = "Hidden";
   diagnostics.launcher_graphics.graphics_card = "Automatic";
   diagnostics.launcher_graphics.render_resolution = "2x (2560x1440)";
-  diagnostics.launcher_graphics.internal_render_resolution = "100% Native";
   diagnostics.launcher_graphics.anti_aliasing = "Off";
   diagnostics.launcher_graphics.multisampling = "2x MSAA";
   diagnostics.launcher_graphics.texture_filtering = "4x";
@@ -79,13 +78,10 @@ tmnt::StartupDiagnostics Sample() {
   diagnostics.game.fingerprint = "crc32:FC04059D";
   diagnostics.game.status = "verified";
   diagnostics.gameplay.present = "guest 60Hz | host VBlank (VSync On)";
-  diagnostics.graphics.render_percent = 100;
   diagnostics.graphics.render_width = 1280;
   diagnostics.graphics.render_height = 720;
   diagnostics.graphics.guest_width = 1280;
   diagnostics.graphics.guest_height = 720;
-  diagnostics.graphics.host_quarters = 4;
-  diagnostics.graphics.resolve_scale = 1;
   diagnostics.graphics.msaa = "2x native";
   diagnostics.graphics.anti_aliasing = "Off";
   diagnostics.graphics.texture_filtering = "4x";
@@ -121,7 +117,7 @@ void TestStartupBlock() {
   CHECK(Has(text, "Launcher Gameplay: Language=English | Skip intro=Off | Frame rate in title=On | "
                   "Render resolution in title=Off | Frame counter=Hidden"));
   CHECK(Has(text, "Launcher Graphics: Graphics card=Automatic | Render resolution=2x (2560x1440) | "
-                  "Internal render resolution=100% Native | Anti-aliasing=Off | Multisampling=2x MSAA | "
+                  "Anti-aliasing=Off | Multisampling=2x MSAA | "
                   "Texture filtering=4x"));
   CHECK(Has(text, "Runtime OS: Windows 11 64-bit (build 22631)"));
   CHECK(Has(text, "Runtime CPU: Test CPU | logical processors=16"));
@@ -133,7 +129,7 @@ void TestStartupBlock() {
                   "fingerprint=crc32:FC04059D | status=verified"));
   CHECK(Has(text, "Runtime game sha256: ABCDEF"));
   CHECK(Has(text, "Runtime timing: present=guest 60Hz | host VBlank (VSync On)"));
-  CHECK(Has(text, "Runtime renderer: render=100% 1280x720 | guest=1280x720 | host_targets=4/4 | resolve=1x | "
+  CHECK(Has(text, "Runtime renderer: render=1280x720 | guest=1280x720 | "
                   "msaa=2x native | anti-aliasing=Off | texture filtering=4x | target=default"));
   CHECK(Has(text, "Runtime input: keyboard_mode=On | controller=Xbox One S Controller"));
 }

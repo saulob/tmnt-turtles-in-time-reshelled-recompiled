@@ -88,7 +88,7 @@ void TestPersistence() {
   const std::filesystem::path file = std::filesystem::temp_directory_path() / "tmnt_graphics_adapter_test.toml";
   std::filesystem::remove(file);
   {
-    std::ofstream(file) << "# Turtles in Time Re-Shelled player settings\nresolution_scale = 2\ntmnt_internal_render_scale = 75\n";
+    std::ofstream(file) << "# Turtles in Time Re-Shelled player settings\nresolution_scale = 2\ntmnt_show_fps = false\n";
   }
   {
     trg::TextFileSettings settings(file.string());
@@ -100,7 +100,7 @@ void TestPersistence() {
   {
     trg::TextFileSettings settings(file.string());
     CHECK(settings.Get("tmnt_graphics_adapter") == "\"1\"");
-    CHECK(settings.GetInt("tmnt_internal_render_scale", 100) == 75);
+    CHECK(!settings.GetBool("tmnt_show_fps", true));
     settings.Set("tmnt_graphics_adapter", "\"auto\"");
     CHECK(settings.Save());
   }

@@ -155,11 +155,6 @@ void TestPatchWiring() {
   const std::string scissor = ReadFile(dir + "0050-draw-extent-scissor-signed-compare.patch");
   CHECK(Has(scissor, "+        if (scissor_bottom >= int32_t(xenos::kTexture2DCubeMaxWidthHeight)) {"));
   CHECK(Has(scissor, "+          if (scissor_right >= int32_t(xenos::kTexture2DCubeMaxWidthHeight)) {"));
-
-  // The empty-extent guards of 0036 (the Geometry Wars version).
-  const std::string scale = ReadFile(dir + "0036-internal-render-scale.patch");
-  CHECK(Has(scale, "axis_extent_int ? (axis_1_int * axis_scale_quarters + 3) >> 2 : axis_0_host"));
-  CHECK(Has(scale, "scissor.extent[i] = scissor.extent[i] ? end - start : 0;"));
 }
 
 void TestShutdownOrder() {

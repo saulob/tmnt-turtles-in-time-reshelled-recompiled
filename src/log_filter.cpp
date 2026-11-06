@@ -11,8 +11,13 @@
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/rotating_file_sink.h>
 
+#include "log_policy.h"
+
 REXCVAR_DEFINE_BOOL(detailed_logging, true, "TMNT",
-                    "Keep logs for normal sessions (crash logs are always preserved)")
+                    "Write diagnostics to the log; off keeps startup, status, warnings and errors")
+    .allowed({"true", "false"});
+REXCVAR_DEFINE_BOOL(tmnt_discard_normal_logs, false, "TMNT",
+                    "With Detailed logging off, delete a session's log after a normal exit (crash logs are kept)")
     .allowed({"true", "false"});
 
 namespace tmnt {
@@ -20,32 +25,6 @@ namespace tmnt {
 spdlog::sink_ptr UnwrapLogSink(const spdlog::sink_ptr& sink);
 
 namespace {
-
-// Informational lines kept in Minimal mode: the first-line facts a failure report needs.
-constexpr std::string_view kEssentialInfo[] = {
-    "Turtles in Time Re-Shelled port ",
-    "Build:",
-    "Language:",
-    "Launcher Display:",
-    "Launcher Gameplay:",
-    "Launcher Graphics:",
-    "Runtime ",
-    "User data:",
-    "Player settings:",
-    "Game files:",
-    "Graphics card:",
-    "Internal render resolution:",
-    "DXGI adapter:",
-    "Vulkan device:",
-    "Vulkan instance API version",
-    "SDL video driver:",
-    "Windows crash reporting enabled for current log.",
-    "Execution complete: clean exit",
-    "Window closing",
-    "Title terminated",
-    "Launcher closed",
-    "Restarted in a new window",
-};
 
 // Forwards the messages Minimal mode keeps to the next sink. `spdlog` locks the wrapper and the
 // target separately, so it stays safe once the game's threads log.
@@ -57,9 +36,8 @@ class MinimalLogSink final : public spdlog::sinks::base_sink<std::mutex> {
 
  protected:
   void sink_it_(const spdlog::details::log_msg& msg) override {
-    const std::string_view category(msg.logger_name.data(), msg.logger_name.size());
     const std::string_view message(msg.payload.data(), msg.payload.size());
-    if (ShouldLogInMinimalMode(msg.level, category, message)) {
+    if (ShouldLogInMinimalMode(msg.level, message)) {
       target_->log(msg);
     }
   }
@@ -205,27 +183,19 @@ spdlog::sink_ptr UnwrapLogSink(const spdlog::sink_ptr& sink) {
   return sink;
 }
 
-bool ShouldLogInMinimalMode(spdlog::level::level_enum level, std::string_view category,
-                            std::string_view message) {
-  if (level >= spdlog::level::warn) {
-    return true;
-  }
-  if (level < spdlog::level::info) {
-    return false;
-  }
-  if (category == "gpu" && message.starts_with("DXGI adapter:")) {
-    return true;
-  }
-  for (const std::string_view prefix : kEssentialInfo) {
-    if (message.starts_with(prefix)) {
-      return true;
-    }
-  }
-  return false;
+bool ShouldLogInMinimalMode(spdlog::level::level_enum level, std::string_view message) {
+  const LogSeverity severity = level >= spdlog::level::warn   ? LogSeverity::kWarningOrAbove
+                               : level >= spdlog::level::info ? LogSeverity::kInfo
+                                                              : LogSeverity::kBelowInfo;
+  return KeepWithoutDetailedLogging(severity, message);
 }
 
 bool DetailedLoggingEnabled() {
   return rex::cvar::GetFlagByName("detailed_logging") != "false";
+}
+
+bool DiscardNormalLogs() {
+  return rex::cvar::GetFlagByName("tmnt_discard_normal_logs") == "true";
 }
 
 void ApplyDetailedLogging() {

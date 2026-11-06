@@ -14,7 +14,7 @@ fullscreen = false
 monitor = 1
 window_width = 853
 window_height = 480
-# Guest video mode for 16:9 Original. The launcher's Aspect Ratio sets it for the other formats when the game starts.
+# Guest video mode for 16:9 Original, which the game sets again when it starts.
 # Independent of the window size; ReXGlue would take it from the window size otherwise.
 video_mode_width = 853
 video_mode_height = 480

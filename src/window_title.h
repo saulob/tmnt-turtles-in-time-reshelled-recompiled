@@ -9,7 +9,7 @@
 
 namespace tmnt {
 
-// The launcher's Render resolution: 3360x1440 at 2x in 21:9. The internal render scale is not part of it.
+// The launcher's Render resolution: 2560x1440 at 2x.
 inline std::string RenderResolutionText(int resolution_scale, AspectRatio aspect) {
   return std::to_string(GuestWidth(aspect) * resolution_scale) + "x" +
          std::to_string(kGuestHeight * resolution_scale);

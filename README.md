@@ -40,8 +40,8 @@ with a long hexadecimal name and no extension; on an Xbox 360 drive it is in
 `Content\0000000000000000\584109D2\000D0000\`), copies the game files (about 270 MB) into the `game` folder next to the
 program and shows **Ready to play**. **Reinstall from package...** repairs the game files and keeps settings and saves.
 
-Pages: Play, Display (display mode, window size, monitor, aspect ratio, VSync), Graphics (graphics card, render
-resolution, internal render resolution, anti-aliasing, multisampling, texture filtering), Gameplay (language: English, French, German, Italian, Spanish or the port's unofficial
+Pages: Play, Display (display mode, window size, monitor, VSync), Graphics (graphics card, render
+resolution, anti-aliasing, multisampling, texture filtering), Gameplay (language: English, French, German, Italian, Spanish or the port's unofficial
 [Português Brasil](docs/localization-pt-br.md); frame
 rate and render resolution in the title, frame counter, player names), Achievements, Controls (keyboard on/off and
 bindings) and

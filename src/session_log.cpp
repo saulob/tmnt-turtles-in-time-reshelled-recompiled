@@ -131,7 +131,7 @@ void ClearInheritedSession() {
 
 
 std::filesystem::path DiscardableSessionLog() {
-  if (g_handed_off.load(std::memory_order_acquire) || DetailedLoggingEnabled()) {
+  if (g_handed_off.load(std::memory_order_acquire) || DetailedLoggingEnabled() || !DiscardNormalLogs()) {
     return {};
   }
   const std::filesystem::path file = ActiveLogFile();

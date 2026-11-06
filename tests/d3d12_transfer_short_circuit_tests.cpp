@@ -93,7 +93,7 @@ void TestPatchContent() {
   const size_t function = Find(patch, "void D3D12RenderTargetCache::PerformTransfersAndResolveClears(");
   const size_t path_assert = Find(patch, "assert_true(GetPath() == Path::kHostRenderTargets);");
   const size_t guard = Find(patch, "!(render_target_resolve_clear_values && resolve_clear_rectangle)");
-  const size_t clear_rect = Find(patch, "clear_rect.left = LONG(GuestToHostX(");
+  const size_t clear_rect = Find(patch, "clear_rect.left = ");
   CHECK(function != std::string::npos);
   CHECK(path_assert != std::string::npos);
   CHECK(guard != std::string::npos);

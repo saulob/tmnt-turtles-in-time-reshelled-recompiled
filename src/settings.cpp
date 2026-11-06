@@ -25,7 +25,6 @@
 #include "game_files.h"
 #include "graphics_adapters.h"
 #include "input_summary.h"
-#include "internal_render_scale.h"
 #include "keybinds.h"
 #include "language.h"
 #include "localization/active_language.h"
@@ -52,7 +51,7 @@ REXCVAR_DEFINE_BOOL(tmnt_msaa_compatibility, false, "TMNT",
                     "Draw the game's 2x MSAA render targets with 4x MSAA, for GPUs or drivers whose "
                     "native 2x MSAA misrenders (sets native_2x_msaa)");
 REXCVAR_DEFINE_STRING(tmnt_aspect_ratio, "16:9", "TMNT",
-                      "Aspect ratio chosen in the launcher: 16:9, 16:10, 21:9, 32:9, 4:3 or 5:4");
+                      "Aspect ratio: only 16:9 is available, any other value is read as 16:9");
 REXCVAR_DEFINE_STRING(tmnt_language, "en", "TMNT",
                       "Text language: en, fr, de, it, es or pt-BR (sets user_language at start)");
 REXCVAR_DEFINE_STRING(tmnt_graphics_adapter, "auto", "TMNT",
@@ -95,7 +94,6 @@ std::vector<std::string> GameSettingKeys() {
       kOnlinePingSetting,
       kConnectionTestSetting,
       "resolution_scale",
-      "tmnt_internal_render_scale",
       "swap_post_effect",
       "tmnt_msaa_compatibility",
       "anisotropic_override",
@@ -230,17 +228,6 @@ std::string TextureFilteringName(std::string_view value) {
     return "16x";
   }
   return std::string(value);
-}
-
-std::string InternalRenderLabel(int percent) {
-  switch (NormalizeInternalRenderScale(percent)) {
-    case kInternalRenderScalePerformance:
-      return "75% Performance";
-    case kInternalRenderScaleLowEnd:
-      return "50% Low-end";
-    default:
-      return "100% Native";
-  }
 }
 
 std::string GameStateName(GameFiles state) {
@@ -458,14 +445,14 @@ void GameSettings::Apply() const {
     rex::cvar::SetFlagByName(key, value);
   }
   ApplyAspectRatio();
-  ApplyInternalRenderPath();
   ApplyMultisampling();
   ApplyPlayerNames();
   ApplyLanguage();
 }
 
 void ApplyAspectRatio() {
-  const AspectRatio aspect = ParseAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio"));
+  const AspectRatio aspect = EffectiveAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio"));
+  rex::cvar::SetFlagByName("tmnt_aspect_ratio", InfoFor(aspect).key);
   rex::cvar::SetFlagByName("video_mode_width", std::to_string(VideoModeWidth(aspect)));
   rex::cvar::SetFlagByName("video_mode_height", std::to_string(kVideoModeHeight));
   rex::cvar::SetFlagByName("present_letterbox", "true");
@@ -488,17 +475,6 @@ void ApplyLanguage() {
   rex::cvar::SetFlagByName("user_language", std::to_string(language.xbox_language));
   localization::SetActiveLanguage(language.key);
   REXLOG_INFO("Language: {} (user_language {})", language.label, language.xbox_language);
-}
-
-void ApplyInternalRenderPath() {
-#if defined(_WIN32)
-  const std::optional<std::string_view> path = RequiredRenderTargetPath(
-      std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()),
-      rex::cvar::GetFlagByName("render_target_path_d3d12"));
-  if (path && rex::cvar::SetFlagByName("render_target_path_d3d12", *path)) {
-    REXLOG_INFO("Internal render resolution: using D3D12 host render targets");
-  }
-#endif
 }
 
 void ApplyGraphicsAdapter() {
@@ -524,11 +500,8 @@ void ApplyGraphicsAdapter() {
 
 void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& display, int monitor,
                            const std::filesystem::path& game_dir, const StartupWindowInfo& window) {
-  const AspectRatio aspect = ParseAspectRatio(settings.Get("tmnt_aspect_ratio", "16:9"));
+  const AspectRatio aspect = EffectiveAspectRatio(settings.Get("tmnt_aspect_ratio", "16:9"));
   const int scale = std::max(1, std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str()));
-  const int percent = NormalizeInternalRenderScale(
-      std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()));
-  const InternalRenderSplit split = SplitInternalRenderScale(scale, percent);
   const std::string selected_card = SelectedGraphicsCardLabel(settings);
   const bool selected_fullscreen = settings.GetBool("fullscreen", false);
   const bool selected_tearing = settings.GetBool(kTearingSetting, true);
@@ -559,8 +532,6 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
   diagnostics.launcher_graphics.render_resolution =
       (scale == 1 ? std::string("Original") : std::to_string(scale) + "x") + " (" +
       std::to_string(GuestWidth(aspect) * scale) + "x" + std::to_string(kGuestHeight * scale) + ")";
-  diagnostics.launcher_graphics.internal_render_resolution =
-      InternalRenderLabel(std::atoi(rex::cvar::GetFlagByName("tmnt_internal_render_scale").c_str()));
   diagnostics.launcher_graphics.anti_aliasing =
       ChoiceLabel({{"none", "Off"}, {"fxaa", "FXAA"}, {"fxaa_extreme", "FXAA Extreme"}},
                   settings.Get("swap_post_effect", "none"), "Off");
@@ -613,13 +584,10 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
 
   diagnostics.gameplay.present = PresentationText(runtime_tearing);
 
-  diagnostics.graphics.render_percent = percent;
-  diagnostics.graphics.render_width = InternalRenderWidth(scale, percent, GuestWidth(aspect));
-  diagnostics.graphics.render_height = InternalRenderHeight(scale, percent);
+  diagnostics.graphics.render_width = GuestWidth(aspect) * scale;
+  diagnostics.graphics.render_height = kGuestHeight * scale;
   diagnostics.graphics.guest_width = GuestWidth(aspect);
   diagnostics.graphics.guest_height = kGuestHeight;
-  diagnostics.graphics.host_quarters = split.host_quarters;
-  diagnostics.graphics.resolve_scale = split.resolve_scale;
   diagnostics.graphics.msaa = settings.GetBool("tmnt_msaa_compatibility", false) ? "4x compatibility" : "2x native";
   diagnostics.graphics.anti_aliasing = diagnostics.launcher_graphics.anti_aliasing;
   diagnostics.graphics.texture_filtering = diagnostics.launcher_graphics.texture_filtering;
@@ -638,7 +606,7 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
                         std::to_string(window.output_height))
                            .c_str(),
                        diagnostics.gameplay.present.c_str(),
-                       ("render=" + std::to_string(percent) + "% " + std::to_string(diagnostics.graphics.render_width) +
+                       ("render=" + std::to_string(diagnostics.graphics.render_width) +
                         "x" + std::to_string(diagnostics.graphics.render_height) + " | msaa=" +
                         diagnostics.graphics.msaa)
                            .c_str());

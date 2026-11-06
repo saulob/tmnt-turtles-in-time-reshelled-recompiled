@@ -544,12 +544,11 @@ add_executable(tmnt_aspect_ratio_tests EXCLUDE_FROM_ALL tests/aspect_ratio_tests
 target_include_directories(tmnt_aspect_ratio_tests PRIVATE src)
 target_compile_definitions(tmnt_aspect_ratio_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-# Internal render resolution tests, not part of the default build:
-# cmake --build <dir> --target tmnt_internal_render_scale_tests
-add_executable(tmnt_internal_render_scale_tests EXCLUDE_FROM_ALL tests/internal_render_scale_tests.cpp)
-target_include_directories(tmnt_internal_render_scale_tests PRIVATE src)
-target_link_libraries(tmnt_internal_render_scale_tests PRIVATE trg::launcher)
-target_compile_definitions(tmnt_internal_render_scale_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+# Removed-feature checks, not part of the default build:
+# cmake --build <dir> --target tmnt_internal_render_removed_tests
+add_executable(tmnt_internal_render_removed_tests EXCLUDE_FROM_ALL tests/internal_render_removed_tests.cpp)
+target_include_directories(tmnt_internal_render_removed_tests PRIVATE src)
+target_compile_definitions(tmnt_internal_render_removed_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Lock-free guest clock tests, not part of the default build:
 # cmake --build <dir> --target tmnt_guest_clock_tests
@@ -738,6 +737,13 @@ target_include_directories(tmnt_host_key_tests PRIVATE src)
 target_include_directories(tmnt_host_key_tests SYSTEM PRIVATE "${TMNT_SDK_DIR}/include" "${_trg_patched_dir}/include")
 target_compile_definitions(tmnt_host_key_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
+# Detailed logging classification and saved choice, not part of the default build:
+# cmake --build <dir> --target tmnt_log_policy_tests
+add_executable(tmnt_log_policy_tests EXCLUDE_FROM_ALL tests/log_policy_tests.cpp)
+target_include_directories(tmnt_log_policy_tests PRIVATE src)
+target_link_libraries(tmnt_log_policy_tests PRIVATE trg::launcher)
+target_compile_definitions(tmnt_log_policy_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Title BGM level tests (the level heard before the profile loads equals the one it brings), also run by tools/test.ps1,
 # not part of the default build: cmake --build <dir> --target tmnt_title_bgm_level_tests
 add_executable(tmnt_title_bgm_level_tests EXCLUDE_FROM_ALL tests/title_bgm_level_tests.cpp)
@@ -798,7 +804,7 @@ if(WIN32)
 endif()
 
 # The tests that compile game code are built like the game.
-foreach(_test installer keyboard frame_counter multisampling internal_render_scale guest_clock d3d12_transfer_short_circuit d3d12_sampler_memo d3d12_async_submission graphics_adapter window_host window_placement launcher_quit lifecycle user_data update)
+foreach(_test installer keyboard frame_counter multisampling guest_clock d3d12_transfer_short_circuit d3d12_sampler_memo d3d12_async_submission graphics_adapter window_host window_placement launcher_quit lifecycle user_data update)
     tmnt_enable_thinlto(tmnt_${_test}_tests)
 endforeach()
 

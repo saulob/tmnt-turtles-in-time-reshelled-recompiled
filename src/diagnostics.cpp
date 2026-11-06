@@ -35,12 +35,8 @@ std::string DisplayText(const DisplayIdentity& display) {
 
 std::string GraphicsText(const GraphicsIdentity& graphics) {
   std::string text =
-      "render=" + std::to_string(graphics.render_percent) + "% " + std::to_string(graphics.render_width) + "x" +
-      std::to_string(graphics.render_height) + " | guest=" + std::to_string(graphics.guest_width) + "x" +
-      std::to_string(graphics.guest_height) + " | host_targets=" + std::to_string(graphics.host_quarters) + "/4";
-  if (graphics.resolve_scale > 0) {
-    text += " | resolve=" + std::to_string(graphics.resolve_scale) + "x";
-  }
+      "render=" + std::to_string(graphics.render_width) + "x" + std::to_string(graphics.render_height) +
+      " | guest=" + std::to_string(graphics.guest_width) + "x" + std::to_string(graphics.guest_height);
   if (!graphics.msaa.empty()) {
     text += " | msaa=" + graphics.msaa;
   }
@@ -82,7 +78,6 @@ std::vector<std::string> FormatStartupDiagnostics(const StartupDiagnostics& diag
                   " | Frame counter=" + diagnostics.launcher_gameplay.frame_counter);
   lines.push_back("Launcher Graphics: Graphics card=" + diagnostics.launcher_graphics.graphics_card +
                   " | Render resolution=" + diagnostics.launcher_graphics.render_resolution +
-                  " | Internal render resolution=" + diagnostics.launcher_graphics.internal_render_resolution +
                   " | Anti-aliasing=" + diagnostics.launcher_graphics.anti_aliasing +
                   " | Multisampling=" + diagnostics.launcher_graphics.multisampling +
                   " | Texture filtering=" + diagnostics.launcher_graphics.texture_filtering);

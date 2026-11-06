@@ -72,7 +72,9 @@ void WriteText(const std::filesystem::path& file, const std::string& text) {
   out << text;
 }
 
+// The discard paths below are the optional tmnt_discard_normal_logs behavior; TestNormalLogKept covers the default.
 void SetDetailedLogging(bool enabled) {
+  rex::cvar::SetFlagByName("tmnt_discard_normal_logs", "true");
   rex::cvar::SetFlagByName("detailed_logging", enabled ? "true" : "false");
   tmnt::ApplyDetailedLogging();
 }
@@ -85,47 +87,47 @@ void TestClassification() {
   using spdlog::level::trace;
   using spdlog::level::warn;
 
-  CHECK(!tmnt::ShouldLogInMinimalMode(info, "core", "Launcher shown"));
-  CHECK(!tmnt::ShouldLogInMinimalMode(info, "core", "Scheduling: high priority"));
-  CHECK(!tmnt::ShouldLogInMinimalMode(info, "core", "Initializing shader storage for title 584109D2..."));
-  CHECK(!tmnt::ShouldLogInMinimalMode(info, "gpu", "GPU wait for idle = 00000000"));
-  CHECK(!tmnt::ShouldLogInMinimalMode(info, "krnl", "Function table initialized for module: code=..."));
-  CHECK(!tmnt::ShouldLogInMinimalMode(debug, "core", "RexApp starting"));
-  CHECK(!tmnt::ShouldLogInMinimalMode(trace, "core", "per-instruction detail"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Launcher shown"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Scheduling: high priority"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "online worker connected"));
+  CHECK(!tmnt::ShouldLogInMinimalMode(info, "Initializing shader storage for title 584109D2..."));
+  CHECK(!tmnt::ShouldLogInMinimalMode(info, "GPU wait for idle = 00000000"));
+  CHECK(!tmnt::ShouldLogInMinimalMode(info, "Function table initialized for module: code=..."));
+  CHECK(!tmnt::ShouldLogInMinimalMode(debug, "RexApp starting"));
+  CHECK(!tmnt::ShouldLogInMinimalMode(trace, "per-instruction detail"));
 
-  CHECK(tmnt::ShouldLogInMinimalMode(warn, "core", "Window opened on another display"));
-  CHECK(tmnt::ShouldLogInMinimalMode(err, "gpu", "Failed to create a Direct3D 12 device"));
-  CHECK(tmnt::ShouldLogInMinimalMode(spdlog::level::critical, "core", "fatal"));
+  CHECK(tmnt::ShouldLogInMinimalMode(warn, "Window opened on another display"));
+  CHECK(tmnt::ShouldLogInMinimalMode(err, "Failed to create a Direct3D 12 device"));
+  CHECK(tmnt::ShouldLogInMinimalMode(spdlog::level::critical, "fatal"));
 
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Turtles in Time Re-Shelled port 0.6.1"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Build: RelWithDebInfo x86-64 | ReXGlue SDK 0.10.0"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "User data: portable path selected"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Player settings: settings.toml"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Game files: valid (default.xex, size 4808704, CRC32 FC04059D; "
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Turtles in Time Re-Shelled port 0.6.1"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Build: RelWithDebInfo x86-64 | ReXGlue SDK 0.10.0"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "User data: portable path selected"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Player settings: settings.toml"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Game files: valid (default.xex, size 4808704, CRC32 FC04059D; "
                                                    "TMNT_r.xex, size 2002944, CRC32 2D0061F9)"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Launcher Display: Display mode=Windowed"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Launcher Gameplay: Frame rate in title=On"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Launcher Graphics: Graphics card=Automatic"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime configuration:"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime OS: Windows 11"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime CPU: Test CPU"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime GPU: selected=Automatic | resolved=Test GPU"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime display: 1920x1080"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime game: title_id=584109D2"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime game sha256: ABCDEF"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime timing: present=guest 60Hz"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime renderer: render=100% 1280x720"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Runtime input: keyboard_mode=On"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Graphics card: Test GPU (adapter 0)"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Internal render resolution: 75% 960x540 -> 1280x720"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "gpu", "DXGI adapter: Test GPU (vendor 0x1002, device 0x1234)"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Vulkan device: Test GPU (type DiscreteGpu)"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "SDL video driver: windows"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Windows crash reporting enabled for current log."));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Execution complete: clean exit, uptime 00:00:12"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Window closing, shutting down..."));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Launcher closed"));
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "core", "Restarted in a new window; hard-exiting this process."));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Launcher Display: Display mode=Windowed"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Launcher Gameplay: Frame rate in title=On"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Launcher Graphics: Graphics card=Automatic"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime configuration:"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime OS: Windows 11"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime CPU: Test CPU"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime GPU: selected=Automatic | resolved=Test GPU"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime display: 1920x1080"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime game: title_id=584109D2"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime game sha256: ABCDEF"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime timing: present=guest 60Hz"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime renderer: render=1280x720"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Runtime input: keyboard_mode=On"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Graphics card: Test GPU (adapter 0)"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "DXGI adapter: Test GPU (vendor 0x1002, device 0x1234)"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Vulkan device: Test GPU (type DiscreteGpu)"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "SDL video driver: windows"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Windows crash reporting enabled for current log."));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Execution complete: clean exit, uptime 00:00:12"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Window closing, shutting down..."));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Launcher closed"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Restarted in a new window; hard-exiting this process."));
 }
 
 void TestSettingValue(const std::filesystem::path& dir) {
@@ -135,6 +137,9 @@ void TestSettingValue(const std::filesystem::path& dir) {
   rex::cvar::ResetToDefault("detailed_logging");
   CHECK(rex::cvar::GetFlagByName("detailed_logging") == "true");
   CHECK(tmnt::DetailedLoggingEnabled());
+  rex::cvar::ResetToDefault("tmnt_discard_normal_logs");
+  CHECK(rex::cvar::GetFlagByName("tmnt_discard_normal_logs") == "false");
+  CHECK(!tmnt::DiscardNormalLogs());
 
   WriteText(file, "detailed_logging = false\n");
   rex::cvar::LoadConfig(file);
@@ -245,7 +250,7 @@ void TestSessionLifecycle(const std::filesystem::path& dir) {
   REXLOG_WARN("a warning survives");
   REXLOG_ERROR("an error survives");
   REXLOG_INFO("Graphics card: Test GPU (adapter 0)");
-  REXLOG_INFO("Internal render resolution: 75% 960x540 -> 1280x720");
+  REXLOG_INFO("Language: English (user_language 1)");
 
   SetDetailedLogging(true);
   CHECK(!tmnt::MinimalLogFilterInstalled());
@@ -272,7 +277,7 @@ void TestSessionLifecycle(const std::filesystem::path& dir) {
   CHECK(Has(log, "an error survives"));
   CHECK(Has(log, "Windows crash reporting enabled for current log."));
   CHECK(Has(log, "Graphics card: Test GPU"));
-  CHECK(Has(log, "Internal render resolution:"));
+  CHECK(Has(log, "Language: English"));
   CHECK(rotating && rotating->get_max_size() == max_size && rotating->get_max_files() == max_files);
 
   // Detailed on at exit: the same unified log is kept.
@@ -290,6 +295,26 @@ void TestSessionLifecycle(const std::filesystem::path& dir) {
   CHECK(std::filesystem::exists(decoy));
   CHECK(!tmnt::MinimalLogFilterInstalled());
   CHECK(tmnt::ActiveLogFile().empty());
+}
+
+// Detailed logging off with the default tmnt_discard_normal_logs: the filtered log stays after a normal exit and a
+// window close.
+void TestNormalLogKept(const std::filesystem::path& dir) {
+  std::printf("a normal exit keeps the log\n");
+  const std::filesystem::path file = dir / "tmnt_turtles_in_time_reshelled_850.log";
+  WriteText(file, "normal session\n");
+  rex::cvar::SetFlagFromCommandLine("log_file", file.string());
+  rex::cvar::ResetToDefault("tmnt_discard_normal_logs");
+  CHECK(!tmnt::DiscardNormalLogs());
+  rex::cvar::SetFlagByName("detailed_logging", "false");
+  CHECK(!tmnt::DetailedLoggingEnabled());
+  CHECK(tmnt::ActiveLogFile() == file);
+  tmnt::DiscardSessionLogBeforeHardExit();
+  CHECK(std::filesystem::exists(file));
+  tmnt::FinalizeSessionLog();
+  CHECK(std::filesystem::exists(file));
+  rex::cvar::SetFlagByName("log_file", "");
+  std::filesystem::remove(file);
 }
 
 void TestHardExitDiscard(const std::filesystem::path& dir) {
@@ -737,8 +762,10 @@ void TestWiring() {
   std::printf("setting, About page and lifecycle wiring\n");
   const std::string filter = ReadSource("log_filter.cpp");
   CHECK(Has(filter, "REXCVAR_DEFINE_BOOL(detailed_logging, true"));
-  CHECK(Has(filter, "Windows crash reporting enabled for current log."));
-  CHECK(Has(filter, "Turtles in Time Re-Shelled port "));
+  CHECK(Has(filter, "REXCVAR_DEFINE_BOOL(tmnt_discard_normal_logs, false"));
+  const std::string policy = ReadSource("log_policy.h");
+  CHECK(Has(policy, "Windows crash reporting enabled for current log."));
+  CHECK(Has(policy, "Turtles in Time Re-Shelled port "));
 
   const std::string settings = ReadSource("settings.cpp");
   CHECK(Has(settings, "      \"detailed_logging\",\n") || Has(settings, "      \"detailed_logging\",\r\n"));
@@ -749,7 +776,7 @@ void TestWiring() {
   const std::string launcher = ReadSource("launcher.cpp");
   CHECK(Has(launcher, "ui.Heading(\"Diagnostics\")"));
   CHECK(Has(launcher, "ui.Toggle(\"Detailed logging\""));
-  CHECK(Has(launcher, "Keeps logs for normal sessions. Crash diagnostics are always preserved."));
+  CHECK(Has(launcher, "Crash reports are always kept."));
   CHECK(Has(launcher, "\"detailed_logging\", true"));
   CHECK(!Has(launcher, "ImGui::Checkbox(\"##detailed_logging\""));
 
@@ -785,7 +812,7 @@ void TestWiring() {
   CHECK(Has(app, "tmnt::FormatCleanExit("));
   CHECK(Has(app, "Restarted in a new window; hard-exiting this process."));
   CHECK(Has(launcher, "Launcher closed"));
-  CHECK(Has(filter, "Execution complete: clean exit"));
+  CHECK(Has(policy, "Execution complete: clean exit"));
   CHECK(Has(app, "SetFlagFromCommandLine(\"log_file\""));
   CHECK(Has(app, "tmnt::LoadPlayerSettings("));
   CHECK(!Has(app, "rex::InitLogging("));
@@ -829,6 +856,7 @@ int main() {
   TestSettingValue(dir);
   TestCrashReportIndependent();
   TestSessionLifecycle(dir);
+  TestNormalLogKept(dir);
   TestHardExitDiscard(dir);
   TestMissingAndRepeatedFinalization();
 #if defined(_WIN32)

@@ -63,8 +63,8 @@ void TestSetting() {
   CHECK(Has(settings, "    \"tmnt_msaa_compatibility\",\n") ||
         Has(settings, "    \"tmnt_msaa_compatibility\",\r\n"));
   CHECK(!Has(settings, "    \"native_2x_msaa\","));
-  CHECK(Has(settings, "  ApplyInternalRenderPath();\n  ApplyMultisampling();") ||
-        Has(settings, "  ApplyInternalRenderPath();\r\n  ApplyMultisampling();"));
+  CHECK(Has(settings, "  ApplyAspectRatio();\n  ApplyMultisampling();") ||
+        Has(settings, "  ApplyAspectRatio();\r\n  ApplyMultisampling();"));
   CHECK(Has(settings, "rex::cvar::SetFlagByName(\"native_2x_msaa\""));
 
   const std::string launcher = ReadSource("launcher.cpp");

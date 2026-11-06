@@ -78,7 +78,7 @@ std::optional<std::string> ShownRenderResolution() {
     return std::nullopt;
   }
   const int scale = std::max(1, std::atoi(rex::cvar::GetFlagByName("resolution_scale").c_str()));
-  return tmnt::RenderResolutionText(scale, tmnt::ParseAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio")));
+  return tmnt::RenderResolutionText(scale, tmnt::EffectiveAspectRatio(rex::cvar::GetFlagByName("tmnt_aspect_ratio")));
 }
 
 // Composes all title parts together, so one update never drops another.

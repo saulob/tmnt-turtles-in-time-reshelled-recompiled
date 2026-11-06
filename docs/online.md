@@ -166,9 +166,9 @@ the service side, retention and its private admin dashboard. Nothing is deployed
 
 ## Diagnostics
 
-Log lines marked `DEBUG_SAULO` are focused test-phase diagnostics (identity, invite flow, slot mapping, XSession
-members, STUN, Direct establishment, relay readiness, fallback, packet routing counters, overlapped completion and the
-Net-Z socket mapping). They never include tokens and do not log every packet.
+A normal log keeps the online connection state, sign-in, party and room changes, transport selection for each peer,
+relay fallback, peers leaving and session joins and refusals. They never include tokens and do not log every packet.
+Detailed logging adds the rest of what the game and ReXGlue write.
 
 ## Testing on one PC
 

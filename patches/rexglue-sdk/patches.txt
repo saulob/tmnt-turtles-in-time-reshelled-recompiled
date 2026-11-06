@@ -42,9 +42,6 @@
 0033-stop-title-threads.patch                              windows,linux  rexruntime               reference  shared
 0034-spirv-texture-exp-adjust.linux.patch                  linux          rexgpu-xenos             reference  vulkan-specific
 0035-cache-vulkan-swapchain-paint-pipeline.linux.patch     linux          rexruntime               reference  vulkan-specific
-0036-internal-render-scale.patch                           windows,linux  rexgpu-xenos             reference  shared
-0037-d3d12-internal-render-scale.windows.patch             windows        rexgpu-xenos             reference  pair:0038
-0038-vulkan-internal-render-scale.linux.patch              linux          rexgpu-xenos             reference  pair:0037
 0039-lock-free-guest-clock.patch                           windows,linux  rexruntime               reference  shared
 0040-d3d12-transfer-short-circuit.windows.patch            windows        rexgpu-xenos             reference  vulkan-candidate
 0041-d3d12-sampler-memo.windows.patch                      windows        rexgpu-xenos             reference  d3d12-specific

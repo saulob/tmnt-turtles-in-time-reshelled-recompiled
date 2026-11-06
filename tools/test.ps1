@@ -308,7 +308,7 @@ Invoke-Check 'settings: every launcher setting key in the source is documented, 
         $documented = $docs.Contains($key) -or ($key -match '^tmnt_player_[1-4]_name$' -and $docs.Contains('tmnt_player_1_name'))
         if (-not $documented) { $problems.Add("the setting $key is not documented") }
     }
-    foreach ($m in [regex]::Matches($docs, '`(tmnt_(?:aspect_ratio|graphics_adapter|internal_render_scale|language|launcher_[a-z]+|msaa_compatibility|show_[a-z_]+|skip_launcher))`')) {
+    foreach ($m in [regex]::Matches($docs, '`(tmnt_(?:aspect_ratio|graphics_adapter|language|launcher_[a-z]+|msaa_compatibility|show_[a-z_]+|skip_launcher))`')) {
         if (-not $source.Contains('"' + $m.Groups[1].Value + '"')) { $problems.Add("the documented setting $($m.Groups[1].Value) is not in the source") }
     }
     $problems
@@ -614,7 +614,7 @@ Invoke-Check 'Audio teardown regression: tests/audio_client_teardown_tests.cpp, 
 }
 
 # A test program with no link dependencies: compiled, run with a time limit, thrown away.
-function Invoke-FocusedTest([string]$Source, [string[]]$Includes = @()) {
+function Invoke-FocusedTest([string]$Source, [string[]]$Includes = @(), [string[]]$Extra = @()) {
     if (-not $CppCompiler) { return $CompilerHelp }
     $name = [IO.Path]::GetFileNameWithoutExtension($Source)
     $work = Join-Path ([IO.Path]::GetTempPath()) "tmnt_$name"
@@ -623,7 +623,7 @@ function Invoke-FocusedTest([string]$Source, [string[]]$Includes = @()) {
     try {
         $program = Join-Path $work $(if ($IsLinux) { $name } else { "$name.exe" })
         $arguments = @('-std=c++23', '-O1', '-w', "-DTMNT_ROOT_DIR=`"$($Root -replace '\\', '/')`"", "-I$(Join-Root 'src')") +
-            @($Includes | ForEach-Object { "-I$_" }) + @((Join-Root $Source), '-o', $program)
+            @($Includes | ForEach-Object { "-I$_" }) + $Extra + @((Join-Root $Source), '-o', $program)
         $compiled = Invoke-Compiler $CppCompiler $arguments (Join-Path $work 'build.rsp')
         if ($compiled.Code) { return @('compile failed') + @($compiled.Output | Select-Object -First 8) }
         $log = Join-Path $work 'output.txt'
@@ -653,6 +653,21 @@ Invoke-Check 'Host keys: F3 Ping, ReXGlue F3/F4 overlays removed, Ping text and 
     $sdkInclude = Join-Root $(if ($IsLinux) { 'tools\rexglue\linux-amd64\include' } else { 'tools\rexglue\win-amd64\include' })
     if (-not (Test-Path -LiteralPath (Join-Path $sdkInclude 'imgui.h'))) { return "NOT RUN: $sdkInclude has no imgui.h: tools\build.ps1 unpacks the pinned SDK" }
     Invoke-FocusedTest 'tests\host_key_tests.cpp' @($sdkInclude, (Join-Root 'third_party\trg-launcher\include'))
+}
+
+Invoke-Check 'Aspect ratio: 16:9 only in the launcher, old and invalid values normalized, docs, tests/aspect_ratio_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\aspect_ratio_tests.cpp' @() @("-DTMNT_SRC_DIR=`"$((Join-Root 'src') -replace '\\', '/')`"")
+}
+
+Invoke-Check 'Internal render resolution removed: launcher, setting, source, config, docs, patches 0036-0038, Render resolution 1x-4x, tests/internal_render_removed_tests.cpp, standalone' {
+    Invoke-FocusedTest 'tests\internal_render_removed_tests.cpp'
+}
+
+Invoke-Check 'Detailed logging: normal log and Detailed-only lines, failures kept, default On, saved choice, pt-BR, tests/log_policy_tests.cpp, standalone' {
+    $trg = Join-Root 'third_party\trg-launcher'
+    $libraries = if ($IsLinux) { @() } else { @('-luser32', '-lshell32', '-lole32', '-lcomdlg32') }
+    Invoke-FocusedTest 'tests\log_policy_tests.cpp' @((Join-Path $trg 'include')) (@(
+        (Join-Path $trg 'src\settings.cpp'), (Join-Path $trg 'src\platform.cpp')) + $libraries)
 }
 
 Invoke-Check 'Menu cleanup: Leaderboards, Xbox Live Party and Gamer Card removed, rows and footers intact, tests/fire_movie_patch_tests.cpp, standalone' {

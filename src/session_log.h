@@ -6,12 +6,12 @@
 
 namespace tmnt {
 
-// Registers the clean-exit finalizer once. With Detailed logging off, a normal process exit then
-// discards this session's log; with it on, the log is kept. Call after logging is initialized.
+// Registers the clean-exit finalizer once. A normal process exit then discards this session's log when
+// tmnt_discard_normal_logs is on and Detailed logging is off. Call after logging is initialized.
 void InstallSessionLogCleanup();
 
-// Discards this session's log when Detailed logging is off. Idempotent and never deletes a log that
-// already contains a CRASH REPORT. Call only on the normal exit through atexit, when no thread can still log.
+// Discards this session's log under the same condition. Idempotent and never deletes a log that already
+// contains a CRASH REPORT. Call only on the normal exit through atexit, when no thread can still log.
 void FinalizeSessionLog();
 
 // Flushes before a hard exit. Loggers stay alive: a thread still running may log until the process ends.
