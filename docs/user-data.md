@@ -20,10 +20,10 @@ Leaderboard scores are kept at `584109D2\live\stats.toml` under `user_data`; onl
 
 ## Offline Xbox Live data
 
-This port is local and offline. It has no Xbox Live service, Microsoft account, remote leaderboard, friends, matchmaking
-or online multiplayer. Leaderboard requests are answered from the local stats file, and player display names come from the
-launcher settings without changing the profile, XUID or save identity. The game's original warning about scores not being
-updated to Xbox Live leaderboards describes a service this port does not provide.
+This port has no Xbox Live service or Microsoft account, and no remote leaderboard. Online play with friends goes through the
+project's own service ([online.md](online.md)), not Xbox Live. Leaderboard requests are answered from the local stats file, and
+player display names come from the launcher settings without changing the profile, XUID or save identity. The game's original
+warning about scores not being updated to Xbox Live leaderboards describes a service this port does not provide.
 
 The layout inside `user_data` is ReXGlue's own, unchanged: only its root moved. Copying the whole program folder to
 another PC carries saves, achievements, DLC and settings with it. `user_data` is created the first time it is
@@ -80,8 +80,8 @@ The log carries one `User data:` line for each start.
 
 ## Updating
 
-Extract a newer ZIP over the old folder, or move `user_data` (and `game`) into the new folder. Deleting the old program
-folder deletes `user_data` with it.
+The launcher updates itself and keeps `game`, `user_data`, `logs` and caches. By hand, extract a newer ZIP over the old folder,
+or move `user_data` (and `game`) into the new folder. Deleting the old program folder deletes `user_data` with it.
 
 ## Packaging
 

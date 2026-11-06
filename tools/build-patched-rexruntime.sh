@@ -7,6 +7,7 @@
 #   tools/build-patched-rexruntime.sh SDK_DIR [WORK_DIR]    build and install (network needed the first time)
 #   tools/build-patched-rexruntime.sh --check SDK_DIR [--config CONFIG] [--staged DIR]   verify only
 #   tools/build-patched-rexruntime.sh --list                print the patches applied here, in order, and the fingerprint
+#   tools/build-patched-rexruntime.sh --install-generator SDK_DIR [WORK_DIR]   build rexglue from the patched source
 #   tools/build-patched-rexruntime.sh --stress SDK_DIR BUILD_DIR   run the allocator stress test (see below)
 #   tools/build-patched-rexruntime.sh --loader-test SDK_DIR BUILD_DIR   run the RenderDoc detection test (see below)
 #
@@ -250,6 +251,26 @@ if [ "${1:-}" = --stress ]; then
   mkdir -p "$stage"
   cp "$3/tmnt_physical_heap_stress" "$2/lib/librexruntime.so" "$stage/"
   (cd "$stage" && ./tmnt_physical_heap_stress | grep -E '^(view|PASS|FAIL)')
+  exit 0
+fi
+
+# The build runs codegen, so the generator must be the patched one, like Windows; the stock tool also needs a newer glibc.
+if [ "${1:-}" = --install-generator ]; then
+  [ -n "${2:-}" ] || fail "usage: $0 --install-generator SDK_DIR [WORK_DIR]"
+  SDK="$2"
+  SRC="${3:-$ROOT/out/rexglue-sdk-src}"
+  STAMP="$SDK/bin/rexglue.inputs"
+  check_stamp "$SDK" || fail "$SDK does not hold the patched ReXGlue runtime and GPU plugin"
+  if [ "$(cat "$STAMP" 2>/dev/null)" = "$(inputs_sha)" ]; then
+    exit 0
+  fi
+  [ -d "$SRC/.git" ] || fail "$SRC is missing: delete $SDK/$STAMP_NAME to build the patched runtime again"
+  BUILD="$SRC/out/build/linux-amd64"
+  cmake -S "$SRC" -B "$BUILD" "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath,'\$ORIGIN/../lib'" >/dev/null
+  cmake --build "$BUILD" --config Release --target rexglue --parallel
+  cp "$SRC/out/linux-amd64/Release/rexglue" "$SDK/bin/rexglue"
+  [ "$("$SDK/bin/rexglue" --version | tr -d '[:space:]')" = "$SDK_VERSION" ] || fail "the built rexglue is not ReXGlue $SDK_VERSION"
+  inputs_sha > "$STAMP"
   exit 0
 fi
 

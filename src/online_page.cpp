@@ -201,10 +201,7 @@ void OnlinePage::DrawPartyInvites(trg::Ui& ui, const online::Snapshot& state, bo
     ImGui::PopStyleColor();
     if (!usable) ImGui::TextColored(t.warn_dot, "%s", Tr(kConnectionTestRequired));
     ImGui::Dummy(ImVec2(0, 2.0f * s));
-    ImGui::BeginDisabled(!usable || state.party.has_value());
-    if (AcceptButton(ui, Tr("     Join"))) Online().AcceptPartyInvite(invite.id);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
+    ImGui::TextUnformatted(Tr("Start the game to accept this invite."));
     if (ImGui::Button(Tr("Decline"))) Online().DeclinePartyInvite(invite.id);
     ImGui::EndChild();
     ImGui::PopStyleColor(2);

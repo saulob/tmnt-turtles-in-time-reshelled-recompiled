@@ -44,6 +44,7 @@
 #include "ping_display.h"
 #include "platform.h"
 #include "player_names.h"
+#include "language.h"
 #include "port_version.h"
 #include "session_log.h"
 #include "settings.h"
@@ -97,7 +98,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (rex::ReXApp::SetupPresentation()) {
       return true;
     }
-    REXLOG_WARN("Graphics unavailable; opening the launcher without graphics");
+    REXLOG_WARN("Graphics unavailable");
     tmnt::RunLauncherWithoutGraphics(DescribeGameFiles());
     return false;
   }
@@ -112,6 +113,8 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       REXLOG_INFO("{}", message.text);
     }
     tmnt::LoadPlayerSettings(tmnt::PlayerSettingsPath(user_data_root()));
+    // Startup failures are reported before ApplyLanguage runs.
+    tmnt::localization::SetActiveLanguage(tmnt::LanguageFor(rex::cvar::GetFlagByName(tmnt::kLanguageSetting)).key);
     tmnt::ApplyDetailedLogging();
     tmnt::InstallSessionLogCleanup();
     tmnt::RemoveDiscardedSessionLogs();

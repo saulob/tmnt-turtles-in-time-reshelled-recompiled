@@ -122,8 +122,8 @@ void TestSettingsAndLauncherWiring() {
   const size_t frame_rate = launcher.find("\"Frame rate in title\"");
   CHECK(gameplay != std::string::npos && gameplay < language_combo && language_combo < frame_rate);
 
-  const std::string log_filter = ReadSource("log_filter.cpp");
-  CHECK(Has(log_filter, "\"Language:\","));
+  const std::string log_policy = ReadSource("log_policy.h");
+  CHECK(Has(log_policy, "\"Language:\","));
 
   const std::string diagnostics_cpp = ReadSource("diagnostics.cpp");
   CHECK(Has(diagnostics_cpp, "\"Launcher Gameplay: Language=\" + diagnostics.launcher_gameplay.language"));

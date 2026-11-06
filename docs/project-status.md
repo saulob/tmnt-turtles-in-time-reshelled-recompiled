@@ -1,15 +1,15 @@
 # Project status
 
-**Early development.** The project structure, launcher, installer and codegen are in place. The game has not been
-built or run yet, so nothing below claims that it boots or is playable.
+Version 0.1.0 is the first release: the game is playable on Windows, with an experimental Linux AppImage
+([linux.md](linux.md)).
 
 ## Template
 
 The project was bootstrapped from Hard Corps: Uprising Recompiled (v0.7.1): the same CMake layout, ReXGlue SDK 0.10.0
 baseline and runtime patches, TRG Launcher 1.1.0 with its patches, installer, settings, logging, crash reports,
 updater, packaging and tests. Everything game-specific in that project (guest hooks, addresses, fingerprints, DLC
-characters, cheats, skip intro, the high frame rate stack, offline leaderboards, native aspect ratio hooks) was left
-out. The source namespace is `tmnt` and the project cvars use the `tmnt_` prefix.
+characters, cheats, the high frame rate stack, offline leaderboards, native aspect ratio hooks) was left out, and this
+game's own hooks were written instead. The source namespace is `tmnt` and the project cvars use the `tmnt_` prefix.
 
 ## Code generation
 
@@ -26,7 +26,7 @@ function, branch thunks and a byte-copy loop. The first full run takes about 30 
 
 The module becomes the shared library `tmnt_turtles_in_time_reshelled_TMNT_r` (from `generated/dll_targets.cmake`),
 placed next to the program. At run time ReXGlue matches the guest path the game passes to `XexLoadImage`, normalized
-(device prefix removed, lower case), against `tmnt_r.xex`. The exact path the game uses has not been observed yet.
+(device prefix removed, lower case), against `tmnt_r.xex`.
 
 `tools/find-missing-functions.py` reads the section layout from a decrypted image of `default.xex`
 (`game/analysis/default.image.bin`). `default.xex` uses LZX compression, and no tool in this repository produces that
@@ -44,18 +44,14 @@ Every import of both modules links to a ReXGlue 0.10.0 export. These are stubs i
 | Voice | `XamVoiceSubmitPacket` |
 | Strings | `RtlUpcaseUnicodeChar` |
 
-`IoCreateDevice` itself is implemented. The game registering its own device driver is the import pattern most likely to
-need attention at first boot.
+`IoCreateDevice` itself is implemented.
 
-## Known blockers and unknowns
+## Notes
 
 - **Linux module loading.** ReXGlue 0.10.0 `dlopen`s the module library by its bare name, without `lib`, `.so` or a
-  folder ([linux.md](linux.md)). The Windows build is not affected.
-- **First boot not attempted.** The module load path, the custom I/O device, `Data/TMNT.bf` access and the shader
-  handling are all unverified.
+  folder; patch 0082 makes it find `lib<name>.so` ([linux.md](linux.md)).
 - **Aspect Ratio.** v0.1.0 uses the original 16:9 presentation. Additional native ratios are deferred.
 - **Render base.** The 1280×720 base used by the Render resolution labels and diagnostics comes from the template.
-- **FPS counter.** Counts every `VdSwap`; whether the game repeats presents is unknown.
 - **Achievements.** Unlocks and their persistence are ReXGlue's: the title XDBF supplies the 12 names, descriptions, icons and 200
   gamerscore, and `achievements\584109D2.toml` holds the unlock state. The game's `XamShowAchievementsUI` wrapper is bridged to the
   project's local overlay, which also handles controller input while it is open.
@@ -69,10 +65,3 @@ need attention at first boot.
   proceed events run. Game loading and session code keep the original local/offline answer.
 - **Runtime patches.** Patch behaviour measured in Hard Corps has not been re-measured here
   ([rexglue-runtime-patch.md](rexglue-runtime-patch.md)).
-
-## Graphics strategy
-
-The baseline is the template's: ReXGlue's Xenos GPU plugin (D3D12 on Windows, Vulkan on Linux) with the project's
-runtime patches. It is the compatibility and reference renderer. A native renderer path (ReXGlue with Plume and
-XenosRecomp) is not part of this project yet; it can be evaluated once the Xenos path renders the game, against the
-same captures.

@@ -60,7 +60,7 @@ void ApplyPlayerNames();
 // Sets the SDK's user_language from the launcher's Language. Call with ApplyMultisampling.
 void ApplyLanguage();
 
-// Sets d3d12_adapter from the launcher's Graphics card choice. Call once the player settings are loaded and
+// Sets d3d12_adapter (Windows) or vulkan_device (Linux) from the launcher's Graphics card choice. Call once the player settings are loaded and
 // before the graphics device is created; Automatic leaves the SDK's own preference alone.
 void ApplyGraphicsAdapter();
 

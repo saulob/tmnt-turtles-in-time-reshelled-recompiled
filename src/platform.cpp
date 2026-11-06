@@ -23,10 +23,12 @@
 
 #include <rex/filesystem.h>
 #include <rex/logging.h>
+#include <rex/system.h>
 
 #include "active_log.h"
 #include "crash_report.h"
 #include "dpi.h"
+#include "localization/ui_text.h"
 #include "port_version.h"
 #include "relaunch_command.h"
 #include "session_log.h"
@@ -198,17 +200,19 @@ const char* GraphicsBackendName() {
 }
 
 void InstallCrashReports() {
-#if defined(_WIN32)
   const std::filesystem::path file = ActiveLogFile();
   if (file.empty()) {
-    REXLOG_WARN("Windows crash reporting disabled: the current log file could not be resolved");
+    REXLOG_WARN("Crash reporting disabled: the current log file could not be resolved");
     return;
   }
   std::error_code ec;
   const std::filesystem::path absolute = std::filesystem::absolute(file, ec);
   SetCrashGameVersion(PortVersion().c_str());
   InstallCrashReporting(Utf8(ec ? file : absolute).c_str());
+#if defined(_WIN32)
   REXLOG_INFO("Windows crash reporting enabled for current log.");
+#else
+  REXLOG_INFO("Linux crash reporting enabled for current log.");
 #endif
 }
 
@@ -306,7 +310,11 @@ void SetApplicationId() {}
 
 void ReportGraphicsFailure() {}
 
-void RunLauncherWithoutGraphics(const GraphicsFallbackInfo&) {}
+void RunLauncherWithoutGraphics(const GraphicsFallbackInfo&) {
+  rex::ShowSimpleMessageBox(rex::SimpleMessageBoxType::Error,
+                            TrMessage("The game needs a working DirectX 12 graphics driver. Update your graphics driver, "
+                                      "then see the logs folder for details."));
+}
 
 std::vector<Rect> WorkAreas() {
   std::vector<Rect> areas;
@@ -543,8 +551,8 @@ constexpr int kFallbackRowStep = 34;
 constexpr int kFallbackLabelWidth = 120;
 constexpr Color kFallbackBackground{0x1e, 0x1e, 0x24};
 constexpr Color kFallbackHeader{0x2b, 0x2b, 0x36};
-constexpr Color kAccent{0xff, 0x8a, 0x1f};
-constexpr Color kAccentHover{0xff, 0xa8, 0x55};
+constexpr Color kAccent{0x5c, 0xe0, 0x70};
+constexpr Color kAccentHover{0x85, 0xea, 0x94};
 constexpr Color kButton{0x3a, 0x3a, 0x48};
 constexpr Color kButtonHover{0x4e, 0x4e, 0x60};
 constexpr Color kDimText{0x9a, 0x9a, 0xa6};

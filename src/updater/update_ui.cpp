@@ -145,8 +145,8 @@ UpdateUiAction DrawUpdateBanner(const UpdateSnapshot& snapshot, const trg::Theme
         action = UpdateUiAction::kDownload;
       }
     } else {
-      WrappedText(snapshot.install_unsupported_reason.empty() ? Tr("Automatic installation is not available.")
-                                                              : snapshot.install_unsupported_reason,
+      WrappedText(snapshot.install_unsupported_reason.empty() ? std::string(Tr("Automatic installation is not available."))
+                                                              : TrMessage(snapshot.install_unsupported_reason),
                   body_size, regular, theme.dim, wrap_width);
     }
   } else if (snapshot.state == UpdateState::kDownloading) {

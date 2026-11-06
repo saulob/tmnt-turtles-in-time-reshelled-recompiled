@@ -148,7 +148,8 @@ backend. A "not needed" is a statement about the platform, not about the API it 
 | Per-draw loops (0055) | 0055 | not applicable: D3D12 command processor only; a Vulkan equivalent needs profiling on Linux |
 | Unchanged constant writes skipped (0053) | 0053 | not applicable: D3D12 command processor only |
 | Transfer pass skipped for a draw with no transfers (0040) | 0040 | deferred: Vulkan candidate, needs profiling on Linux |
-| Sampler parameter memo (0041), vertex buffer residency per draw (0079) | 0041, 0079 | not applicable: D3D12 command processor structures |
+| Sampler parameter memo (0041) | 0041 | not applicable: D3D12 command processor structures |
+| Vertex buffer residency per draw (0079) | 0079 | deferred: Vulkan candidate, the Vulkan command processor still skips the upload of a vertex buffer rewritten at the same address |
 | Cyan turtle flicker fix, AA838 Stage A (0080) | 0080 (D3D12 DXBC translator) | deferred: Vulkan candidate; the flicker may still show on Linux |
 | Legal stride-0 vertex fetches (0081) | 0081 (common translator) | 0081 (common translator) |
 | Recompiled module library found by `dlopen` (0082) | not applicable: `LoadLibrary` completes the name | 0082 |

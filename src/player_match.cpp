@@ -142,7 +142,7 @@ void MakeNetKey(uint64_t entropy, uint8_t* id, uint8_t* key) {
 
 void WriteSessionDetails(uint8_t* out, uint8_t* members_out, uint32_t members_address, const SessionDetails& details) {
   std::memset(out, 0, kDetailsBytes);
-  const uint32_t used = uint32_t(details.members.size());
+  const uint32_t used = std::min(uint32_t(details.members.size()), uint32_t(online::kMaxParty));
   const uint32_t filled_private = std::min(used, details.max_private);
   const uint32_t filled_public = used - filled_private;
   Put32(out + 16, details.max_public);
@@ -155,7 +155,7 @@ void WriteSessionDetails(uint8_t* out, uint8_t* members_out, uint32_t members_ad
   const std::vector<uint8_t> id = SessionIdBytes(details.session);
   std::memcpy(out + 56, id.data(), id.size());
   std::memset(members_out, 0, kMemberBytes * online::kMaxParty);
-  for (uint32_t i = 0; i < used && i < uint32_t(online::kMaxParty); ++i) {
+  for (uint32_t i = 0; i < used; ++i) {
     uint8_t* member = members_out + i * kMemberBytes;
     StoreBE64(member, 0, details.members[i].xuid);
     Put32(member + 8, details.members[i].user_index);

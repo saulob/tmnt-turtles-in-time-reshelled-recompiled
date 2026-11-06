@@ -98,8 +98,8 @@ REX_HOOK_RAW(sub_876AE008) {
   LogLocalProfileAccepted(controller);
 }
 
-// SessionManager_CheckIfCanPlayOnline(this, controller, retry): the ONLINE row's gate. The controller that pressed it owns
-// the LIVE profile the gate is about to read; the gate itself answers from the real sign-in state.
+// The ONLINE row's gate (this, controller, retry). The controller that pressed it owns the LIVE profile the gate is
+// about to read; the gate itself answers from the real sign-in state.
 REX_EXTERN(__imp__sub_875D4DF0);
 REX_HOOK_RAW(sub_875D4DF0) {
   const int32_t controller = ctx.r4.s32;

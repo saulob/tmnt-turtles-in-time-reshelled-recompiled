@@ -75,7 +75,7 @@ void TestWiring() {
   CHECK(Has(cmake, "TMNT_STAGED_SPONSOR_HEART"));
   const std::string package = ReadFile(source_dir + "/../tools/package-release.ps1");
   CHECK(Has(package, "$AssetFiles = @('assets\\launcher\\header-art.png', 'assets\\launcher\\sponsor-heart.png')"));
-  const std::string linux_package = ReadFile(source_dir + "/../tools/package-linux.sh");
+  const std::string linux_package = ReadFile(source_dir + "/../tools/linux-policy.sh");
   CHECK(Has(linux_package, "usr/bin/assets/launcher/header-art.png"));
   CHECK(Has(linux_package, "usr/bin/assets/launcher/sponsor-heart.png"));
   CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/header-art.png"));

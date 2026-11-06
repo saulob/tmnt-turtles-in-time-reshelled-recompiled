@@ -8,7 +8,7 @@ enum class LogSeverity { kBelowInfo, kInfo, kWarningOrAbove };
 
 // Informational lines kept with Detailed logging off: what identifies a session and what happened to it.
 inline constexpr std::string_view kNormalLogPrefixes[] = {
-    "Turtles in Time Re-Shelled port ",
+    "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port ",
     "Build:",
     "Language:",
     "Launcher Display:",
@@ -51,6 +51,7 @@ inline constexpr std::string_view kNormalLogPrefixes[] = {
     "accepted invite dropped",
     "game left ",
     "Windows crash reporting enabled for current log.",
+    "Linux crash reporting enabled for current log.",
     "Execution complete: clean exit",
     "Window closing",
     "Title terminated",

@@ -100,7 +100,7 @@ void TestClassification() {
   CHECK(tmnt::ShouldLogInMinimalMode(err, "Failed to create a Direct3D 12 device"));
   CHECK(tmnt::ShouldLogInMinimalMode(spdlog::level::critical, "fatal"));
 
-  CHECK(tmnt::ShouldLogInMinimalMode(info, "Turtles in Time Re-Shelled port 0.6.1"));
+  CHECK(tmnt::ShouldLogInMinimalMode(info, "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1"));
   CHECK(tmnt::ShouldLogInMinimalMode(info, "Build: RelWithDebInfo x86-64 | ReXGlue SDK 0.10.0"));
   CHECK(tmnt::ShouldLogInMinimalMode(info, "User data: portable path selected"));
   CHECK(tmnt::ShouldLogInMinimalMode(info, "Player settings: settings.toml"));
@@ -218,7 +218,7 @@ void TestSessionLifecycle(const std::filesystem::path& dir) {
   config.log_dir = dir.string();
   config.default_level = spdlog::level::info;
   rex::InitLogging(config);
-  REXLOG_INFO("Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
+  REXLOG_INFO("Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
   rex::FlushLogging();
 
   const std::filesystem::path active = tmnt::ActiveLogFile();
@@ -526,7 +526,7 @@ int RunChildMode(const std::wstring& mode, const std::filesystem::path& dir) {
   const bool transition = mode.starts_with(L"transition-");
   if (!transition) {
     SetDetailedLogging(false);
-    REXLOG_INFO("Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
+    REXLOG_INFO("Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
     REXLOG_WARN("pre-crash warning");
     REXLOG_INFO("Graphics card: Test GPU (adapter 0)");
   }
@@ -587,7 +587,7 @@ int RunChildMode(const std::wstring& mode, const std::filesystem::path& dir) {
   if (mode == L"transition-off-on") {
     SetDetailedLogging(false);
     REXLOG_INFO("launcher minimal segment");
-    REXLOG_INFO("Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
+    REXLOG_INFO("Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
     SetDetailedLogging(true);
     REXLOG_INFO("game detailed segment");
     return 0;
@@ -603,7 +603,7 @@ int RunChildMode(const std::wstring& mode, const std::filesystem::path& dir) {
   }
   if (mode == L"transition-off-on-off") {
     SetDetailedLogging(false);
-    REXLOG_INFO("Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
+    REXLOG_INFO("Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1 (x86-64, Direct3D 12, ReXGlue SDK 0.10.0)");
     SetDetailedLogging(true);
     REXLOG_INFO("game detailed segment");
     SetDetailedLogging(false);
@@ -679,7 +679,7 @@ void TestChildProcesses(const std::filesystem::path& root) {
   CHECK(CountLogs(crash) == 1);
   CHECK(!AnyFile(crash, "crash-", ".log"));
   const std::string text = log.empty() ? std::string() : ReadText(log);
-  CHECK(Has(text, "Turtles in Time Re-Shelled port 0.6.1"));
+  CHECK(Has(text, "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1"));
   CHECK(Has(text, "Graphics card: Test GPU"));
   CHECK(Has(text, "pre-crash warning"));
   CHECK(Has(text, "CRASH REPORT"));
@@ -698,7 +698,7 @@ void TestChildProcesses(const std::filesystem::path& root) {
   const std::filesystem::path off_on_log = OnlyLog(off_on);
   CHECK(!off_on_log.empty());
   const std::string off_on_text = off_on_log.empty() ? std::string() : ReadText(off_on_log);
-  CHECK(Has(off_on_text, "Turtles in Time Re-Shelled port 0.6.1"));
+  CHECK(Has(off_on_text, "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.6.1"));
   CHECK(Has(off_on_text, "game detailed segment"));
   CHECK(!Has(off_on_text, "launcher minimal segment"));
 
@@ -765,6 +765,7 @@ void TestWiring() {
   CHECK(Has(filter, "REXCVAR_DEFINE_BOOL(tmnt_discard_normal_logs, false"));
   const std::string policy = ReadSource("log_policy.h");
   CHECK(Has(policy, "Windows crash reporting enabled for current log."));
+  CHECK(Has(policy, "Linux crash reporting enabled for current log."));
   CHECK(Has(policy, "Turtles in Time Re-Shelled port "));
 
   const std::string settings = ReadSource("settings.cpp");

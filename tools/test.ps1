@@ -8,13 +8,18 @@
   series apply to the pinned SDK source, and the audio client teardown of patch 0086 (a threaded regression test and a
   syntax check of the patched source, compile only); the title music level, Skip intro and the host keys (standalone test
   programs); the Windows and Linux packaging scripts, the AppImage inputs (desktop file,
-  icons, licenses, FUSE-fallback runtime pins), the glibc baseline logic, the release check, and the repository for
-  temporary markers, local paths, game data and player data. Nothing is linked into the game, launched or published.
+  icons, licenses, FUSE-fallback runtime pins), the glibc baseline logic, the release check, the player-facing features
+  on both platforms, the updater's asset names against the packaging scripts, and the repository for temporary markers,
+  local paths, stale claims, credentials, game data and player data. Nothing is linked into the game, launched or
+  published.
+
+  The fixture AppDir of tools/test-appimage-release.sh needs Linux: it runs in the Ubuntu 20.04 WSL distribution named by
+  TMNT_LINUX_DISTRO, or the first one that has clang-20. TMNT_APPIMAGE_TOOLS (a Linux path) adds the fixture AppImage.
 
   -SdkRepo (or REXGLUE_SDK_REPO) is a clone of the official ReXGlue repository with its submodules; by default it is
   out\rexglue-sdk-src, which tools\build-patched-rexruntime.ps1 creates. Without one the checks that need the SDK source
   are NOT RUN. -CppTests <build folder> additionally builds the tmnt_runtime_tests target there (a configured build) and
-  runs every test program; without it that check is NOT RUN.
+  runs every test program except those in $WindowedTests, which open a window; without it that check is NOT RUN.
 
   -Release is the final gate: the temporary DEBUG_SAULO diagnostics listed in $TemporaryMarkers fail it. Without it they
   are reported and only the exact listed files, up to the listed counts, are accepted.
@@ -263,6 +268,44 @@ Invoke-Check 'version: one project version, used by the executable, the AppImage
     if ($release -notmatch 'CMakeLists\.txt') { $problems.Add('package-release.ps1 does not read the project version from CMakeLists.txt') }
     if ($cmake -notmatch 'TMNT_VERSION_MAJOR=\$\{PROJECT_VERSION_MAJOR\}') { $problems.Add('the executable does not receive the project version') }
     if ($version -notmatch '^\d+\.\d+\.\d+$') { $problems.Add("version $version is not MAJOR.MINOR.PATCH") }
+    if ((Read-Text 'packaging\README.txt') -notmatch '@VERSION@') { $problems.Add('packaging/README.txt does not take the version from @VERSION@') }
+    foreach ($script in 'tools\package-release.ps1', 'tools\package-linux.sh', 'tools\stamp-release-hashes.ps1') {
+        if ((Read-Text $script) -match "(?m)^[^#]*-v$([regex]::Escape($version))-") { $problems.Add("$script hardcodes $version") }
+    }
+    $problems
+}
+
+Invoke-Check 'updater: asset names, repository and folders match the packaging scripts' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $config = Read-Text 'src\update_config.cpp'
+    $windows = [regex]::Match((Read-Text 'tools\package-release.ps1'), '(?m)^\$Name = "(.+)-v\$Version-(.+)"').Groups
+    $linux = [regex]::Match((Read-Text 'tools\package-linux.sh'), '(?m)^NAME="(.+)-v\$VERSION-(.+)"').Groups
+    foreach ($asset in @(
+            @($windows[1].Value, "-$($windows[2].Value).zip"), @($windows[1].Value, "-$($windows[2].Value).sha256"),
+            @($linux[1].Value, "-$($linux[2].Value).AppImage"), @($linux[1].Value, "-$($linux[2].Value).sha256"))) {
+        $needle = "`"$($asset[0])-v`" + version.CoreString() + `"$($asset[1])`""
+        if (-not $config.Contains($needle)) { $problems.Add("update_config.cpp does not look for $($asset[0])-v<version>$($asset[1])") }
+    }
+    $repository = 'saulob/tmnt-turtles-in-time-reshelled-recompiled'
+    foreach ($url in "https://api.github.com/repos/$repository/releases/latest", "https://github.com/$repository/releases/download/") {
+        if (-not $config.Contains($url)) { $problems.Add("update_config.cpp does not use $url") }
+    }
+    if (-not (& git -C $Root remote get-url origin).Contains($repository)) { $problems.Add("origin is not $repository") }
+    if ((Read-Text 'src\update_config.cpp') -notmatch 'TMNT_UPDATE_TEST"\);\s*\r?\n\s*return value && \*value == "1"') { $problems.Add('updater test overrides are not behind TMNT_UPDATE_TEST=1') }
+    $problems
+}
+
+Invoke-Check 'game executables: the Linux packaging pins the same two executables as Windows' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $build = Read-Text 'tools\build.ps1'
+    $linux = Read-Text 'tools\package-linux.sh'
+    foreach ($pin in @(@('default.xex', 'DEFAULT_XEX_SHA256'), @('TMNT_r.xex', 'TMNT_R_XEX_SHA256'))) {
+        $windows = [regex]::Match($build, "'$([regex]::Escape($pin[0]))'\s*=\s*'([0-9A-Fa-f]{64})'").Groups[1].Value
+        $pinned = [regex]::Match($linux, "(?m)^$($pin[1])=([0-9a-f]{64})\s*$").Groups[1].Value
+        if (-not $windows -or $windows.ToLowerInvariant() -ne $pinned) { $problems.Add("package-linux.sh pins another $($pin[0]) than tools/build.ps1") }
+        if ($linux -notmatch "check_xex $([regex]::Escape($pin[0]))") { $problems.Add("package-linux.sh does not check $($pin[0])") }
+    }
+    if ($linux -notmatch 'game/extracted/TMNT_r\.xex"? "\$WORK/game/extracted/"') { $problems.Add('package-linux.sh does not sync both executables, which the Linux codegen step reads') }
     $problems
 }
 
@@ -347,7 +390,7 @@ Invoke-Check 'linux: presets, toolchain and RPATH' {
     }
     $cmake = Read-Text 'CMakeLists.txt'
     if ($cmake -notmatch 'RPATH is \$ORIGIN') { $problems.Add('CMakeLists.txt does not document the $ORIGIN RPATH of the Linux program') }
-    $linux = Read-Text 'tools\package-linux.sh'
+    $linux = (Read-Text 'tools\package-linux.sh') + (Read-Text 'tools\linux-policy.sh')
     if ($linux.IndexOf('RPATH/RUNPATH is', [StringComparison]::Ordinal) -lt 0 -or $linux.IndexOf("'`$ORIGIN'", [StringComparison]::Ordinal) -lt 0) { $problems.Add('package-linux.sh does not require an $ORIGIN RPATH/RUNPATH') }
     $problems
 }
@@ -390,12 +433,12 @@ Invoke-Check 'linux: AppImage inputs (desktop file, icons, AppRun, licenses)' {
 
 Invoke-Check 'linux: AppImage packaging script rules (layout, forbidden files, glibc, FUSE fallback)' {
     $problems = [System.Collections.Generic.List[string]]::new()
-    $script = Read-Text 'tools\package-linux.sh'
+    $script = (Read-Text 'tools\package-linux.sh') + (Read-Text 'tools\linux-policy.sh')
     foreach ($needed in
         'MAX_GLIBC=2.31', 'VERSION_ID="20.04"', 'check-glibc-baseline.sh', 'appimagetool', 'APPIMAGETOOL_SHA256', 'build-appimage-runtime.sh',
-        'sha256sum', 'EXPECTED=', 'forbidden name', 'Xbox 360 package', 'local path in file', 'Windows binary', 'RenderDoc or Vulkan layer file',
+        'sha256sum', 'EXPECTED=', 'forbidden name', 'Xbox 360 package', 'local path in file', 'Windows binary', 'Vulkan loader or layer file',
         'GLIBCXX_3.4.32', '.sha256', 'check-glibc-baseline.sh" --max "$MAX_GLIBC" "$OUT"', 'UTF-16 local path in file', 'DEBUG_SAULO in file',
-        '--verify-only', 'scan_appdir "$CHECK/squashfs-root"') {
+        '--verify-only', 'scan_appdir "$CHECK/squashfs-root"', '--check-image', 'holds_built_libraries', 'objcopy --only-keep-debug', '$NAME-symbols') {
         if ($script.IndexOf($needed, [StringComparison]::Ordinal) -lt 0) { $problems.Add("package-linux.sh has no '$needed'") }
     }
     foreach ($name in 'default.xex', 'TMNT_r.xex', 'user_data', 'logs', 'settings.toml', '*.log', '*.dmp', '*.sav') {
@@ -430,6 +473,39 @@ Invoke-Check 'linux: tools/check-glibc-baseline.sh version logic (self-test)' {
     if ($code) { return @($output | ForEach-Object { "$_" }) }
 }
 
+Invoke-Check 'linux: tools/linux-policy.sh self-test (release policy on canned readelf output)' {
+    if (-not (Get-Command bash -ErrorAction SilentlyContinue)) { return 'NOT RUN: bash is not available' }
+    Push-Location $Root
+    try { $output = & bash tools/linux-policy.sh --self-test 2>&1; $code = $LASTEXITCODE } finally { Pop-Location }
+    if ($code) { return @($output | ForEach-Object { "$_" }) }
+}
+
+function Find-LinuxDistro {
+    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { return $null }
+    $names = if ($env:TMNT_LINUX_DISTRO) { @($env:TMNT_LINUX_DISTRO) } else {
+        @(& wsl.exe --list --quiet 2>$null | ForEach-Object { ("$_" -replace "`0", '').Trim() } | Where-Object { $_ })
+    }
+    foreach ($name in $names) {
+        & wsl.exe -d $name --exec grep -q '20\.04' /etc/os-release 2>$null
+        if ($LASTEXITCODE) { continue }
+        & wsl.exe -d $name --exec which clang-20 *> $null
+        if (-not $LASTEXITCODE) { return $name }
+    }
+    return $null
+}
+
+Invoke-Check 'linux: tools/test-appimage-release.sh on a focal WSL distro (pins, fixture AppDir, refused damage, fixture AppImage with TMNT_APPIMAGE_TOOLS)' {
+    $distro = Find-LinuxDistro
+    if (-not $distro) { return 'NOT RUN: no Ubuntu 20.04 WSL distribution with clang-20 (tools/setup-linux-build-env.sh), or set TMNT_LINUX_DISTRO' }
+    $wslRoot = "$(& wsl.exe -d $distro --exec wslpath -a ($Root -replace '\\', '/'))".Trim()
+    $arguments = @('-d', $distro, '--exec', 'env', "TMNT_APPIMAGE_TOOLS=$env:TMNT_APPIMAGE_TOOLS", 'bash', "$wslRoot/tools/test-appimage-release.sh", $wslRoot)
+    $output = @(& wsl.exe @arguments 2>&1 | ForEach-Object { "$_" })
+    $code = $LASTEXITCODE
+    Write-Host "   $distro`: $($output | Select-Object -Last 1)"
+    foreach ($line in $output) { if ($line -like 'NOT RUN:*') { Write-Host "   $line" -ForegroundColor Yellow } }
+    if ($code) { $output | Where-Object { $_ -like 'FAIL:*' -or $_ -like 'ERROR:*' } }
+}
+
 Invoke-Check 'syntax: every PowerShell script parses; every shell script passes bash -n' {
     $problems = [System.Collections.Generic.List[string]]::new()
     foreach ($file in Get-ChildItem -LiteralPath $PSScriptRoot -Filter '*.ps1' -File) {
@@ -451,6 +527,96 @@ Invoke-Check 'syntax: every PowerShell script parses; every shell script passes 
     $problems
 }
 
+# ---- Windows and Linux feature parity ----------------------------------------------------------------------------------
+
+# The text of a source file a non-Windows build compiles: every #if defined(_WIN32) branch is taken out.
+function Get-NonWindowsSource([string]$Relative) {
+    $kept = [System.Collections.Generic.List[string]]::new()
+    $stack = [System.Collections.Generic.Stack[object]]::new()
+    foreach ($line in (Read-Text $Relative) -split "\r?\n") {
+        if ($line -match '^\s*#\s*(if|ifdef|ifndef)\b') {
+            $windows = $line -match '^\s*#\s*(if\s+defined\(_WIN32\)(\s*$|\s+&&)|ifdef\s+_WIN32)'
+            $notWindows = $line -match '^\s*#\s*(if\s+!defined\(_WIN32\)|ifndef\s+_WIN32)'
+            $stack.Push([pscustomobject]@{ Windows = $windows; NotWindows = $notWindows; InElse = $false })
+            continue
+        }
+        if ($line -match '^\s*#\s*(else|elif)\b' -and $stack.Count) { $stack.Peek().InElse = $true; continue }
+        if ($line -match '^\s*#\s*endif\b' -and $stack.Count) { [void]$stack.Pop(); continue }
+        $inWindows = $false
+        foreach ($frame in $stack) {
+            if (($frame.Windows -and -not $frame.InElse) -or ($frame.NotWindows -and $frame.InElse)) { $inWindows = $true }
+        }
+        if (-not $inWindows) { $kept.Add($line) }
+    }
+    return $kept -join "`n"
+}
+
+# Windows-only sources and the file that does the same job elsewhere.
+$PlatformSourcePairs = @{
+    'src/online/websocket_win.cpp' = 'src/online/websocket_posix.cpp'
+    'src/clipboard_win32.cpp'      = 'src/clipboard_sdl.cpp'
+}
+
+# Each player-facing feature: what a Linux build must compile. A genuine platform limit belongs in docs/linux.md, not here.
+$ParityFeatures = @(
+    @{ Name = 'Launcher'; File = 'src/launcher.cpp'; Needs = 'void PageGraphics', 'static void PageGameplay' }
+    @{ Name = 'Graphics card'; File = 'src/graphics_adapters.cpp'; Needs = 'vkEnumeratePhysicalDevices', 'ListGraphicsAdapters' }
+    @{ Name = 'Graphics card applied'; File = 'src/settings.cpp'; Needs = 'SetFlagByName(kBackendAdapterCvar' }
+    @{ Name = 'Render resolution, MSAA, anti-aliasing, texture filtering'; File = 'src/launcher.cpp'; Needs = '"Render resolution"', '"Anti-aliasing"', '"tmnt_msaa_compatibility"', '"Texture filtering"' }
+    @{ Name = 'Languages and Portugues Brasil'; File = 'src/settings.cpp'; Needs = 'void ApplyLanguage()', 'localization::SetActiveLanguage' }
+    @{ Name = 'Skip intro'; File = 'src/skip_intro_tmnt_r.cpp'; Needs = 'REX_HOOK_RAW' }
+    @{ Name = 'F2 FPS and F3 Ping'; File = 'src/tmnt_turtles_in_time_reshelled_app.h'; Needs = 'FrameCounter', 'Ping' }
+    @{ Name = 'Achievements'; File = 'src/achievements_overlay.cpp'; Needs = 'namespace tmnt' }
+    @{ Name = 'Menu cleanup'; File = 'src/fire_movie_patch.cpp'; Needs = 'namespace tmnt' }
+    @{ Name = 'Online: WebSocket'; File = 'src/online/websocket_posix.cpp'; Needs = 'SSL_connect' }
+    @{ Name = 'Online: Direct'; File = 'src/netplay/udp_transport.cpp'; Needs = 'sendto', 'recvfrom' }
+    @{ Name = 'Online: friends and invites'; File = 'src/online_page.cpp'; Needs = 'namespace tmnt' }
+    @{ Name = 'Detailed logging'; File = 'src/log_filter.cpp'; Needs = 'REXCVAR_DEFINE_BOOL(detailed_logging' }
+    @{ Name = 'Open logs folder'; File = 'src/launcher.cpp'; Needs = 'Open logs folder' }
+    @{ Name = 'Quit from the launcher'; File = 'src/launcher.cpp'; Needs = 'Finish(cb_.quit)' }
+    @{ Name = 'Exit Game from the game'; File = 'src/tmnt_turtles_in_time_reshelled_app.h'; Needs = 'tmnt::StopOnline();', 'void OnClosing' }
+    @{ Name = 'Portable user_data'; File = 'src/platform.cpp'; Needs = 'getenv("APPIMAGE")', 'PortFolder()' }
+    @{ Name = 'Updater'; File = 'src/update_config.cpp'; Needs = 'UpdatePackageKind::kAppImage', 'HasOriginalAppImage' }
+    @{ Name = 'Crash reports'; File = 'src/crash_report.cpp'; Needs = 'InstallPosixHandlers', 'Linux fatal signal' }
+    @{ Name = 'Crash reports installed'; File = 'src/platform.cpp'; Needs = 'InstallCrashReporting(', 'Linux crash reporting enabled for current log.' }
+    @{ Name = 'Vulkan failure window'; File = 'src/platform.cpp'; Needs = 'Vulkan setup required' }
+)
+
+Invoke-Check 'parity: every player-facing feature is compiled on Linux, and every Windows-only source has a counterpart' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $cmake = (Read-Text 'CMakeLists.txt') -replace '\r', ''
+    foreach ($block in [regex]::Matches($cmake, '(?s)if\(WIN32\)(.*?)(?=\nelse\(\)|\nendif\(\))')) {
+        foreach ($list in [regex]::Matches($block.Groups[1].Value, 'list\(APPEND TMNT_\w*SOURCES([^)]*)\)')) {
+            foreach ($m in [regex]::Matches($list.Groups[1].Value, 'src/[A-Za-z0-9_./-]+\.cpp')) {
+                if ($m.Value -notin $PlatformSourcePairs.Keys) { $problems.Add("$($m.Value) is built on Windows only and has no counterpart in `$PlatformSourcePairs") }
+            }
+        }
+    }
+    foreach ($pair in $PlatformSourcePairs.GetEnumerator()) {
+        if ($cmake -notmatch [regex]::Escape($pair.Value)) { $problems.Add("$($pair.Value), the counterpart of $($pair.Key), is not in CMakeLists.txt") }
+    }
+    foreach ($feature in $ParityFeatures) {
+        if ($cmake -notmatch [regex]::Escape($feature.File) -and $feature.File -notlike '*.h') { $problems.Add("$($feature.Name): $($feature.File) is not in CMakeLists.txt") }
+        $source = Get-NonWindowsSource $feature.File
+        foreach ($needed in $feature.Needs) {
+            if (-not $source.Contains($needed)) { $problems.Add("$($feature.Name): the Linux build of $($feature.File) has no '$needed'") }
+        }
+    }
+    $settings = Get-NonWindowsSource 'src/settings.cpp'
+    foreach ($m in [regex]::Matches((Read-Text 'src/settings.cpp'), '(?m)^REXCVAR_DEFINE_\w+\((tmnt_\w+)')) {
+        if (-not $settings.Contains($m.Value)) { $problems.Add("the setting $($m.Groups[1].Value) is defined for Windows only") }
+    }
+    $problems
+}
+
+Invoke-Check 'parity: Windows-only ReXGlue patches that change what a player sees are declared' {
+    $declared = '0040', '0055', '0079', '0080'
+    $found = @(Read-PatchManifest | Where-Object { $_.Fields.Count -eq 5 -and $_.Fields[4] -eq 'vulkan-candidate' } | ForEach-Object { $_.Fields[0].Substring(0, 4) })
+    foreach ($number in $found) { if ($number -notin $declared) { "$number is a new deferred Vulkan candidate: list it in docs/linux.md and here" } }
+    $linuxDoc = Read-Text 'docs\linux.md'
+    foreach ($number in $declared) { if ($number -in $found -and $linuxDoc -notmatch $number) { "docs/linux.md does not mention deferred patch $number" } }
+}
+
 # ---- Repository hygiene ----------------------------------------------------------------------------------------------
 
 Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in the project files' {
@@ -470,11 +636,50 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
 $TemporaryMarkers = @{
 }
 
+Invoke-Check 'hygiene: player-facing documents make no stale claims and advertise nothing removed' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $stale = 'early development', 'not known to be playable', 'has not been run', 'has not been built', 'online multiplayer is not supported',
+        'internal render', 'ultrawide', 'no online multiplayer', 'or online multiplayer'
+    foreach ($document in 'README.md', 'packaging\README.txt', 'docs\linux.md', 'docs\user-data.md', 'docs\project-status.md') {
+        $text = (Read-Text $document) -replace '\s+', ' '
+        foreach ($phrase in $stale) {
+            if ($text.IndexOf($phrase, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $problems.Add("$document says '$phrase'") }
+        }
+    }
+    foreach ($needed in 'SmartScreen', 'F2', 'F3', 'user_data', 'Linux', 'Online') {
+        if ((Read-Text 'packaging\README.txt') -notmatch $needed) { $problems.Add("packaging/README.txt does not mention $needed") }
+        if ((Read-Text 'README.md') -notmatch $needed) { $problems.Add("README.md does not mention $needed") }
+    }
+    $problems
+}
+
+Invoke-Check 'hygiene: no credentials, packers, or antivirus changes in the project files' {
+    if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $credential = '(?i)\b(ADMIN_TOKEN|METRICS_SECRET|CLOUDFLARE_API_TOKEN|CF_API_TOKEN|account_id)\b\s*[:=]\s*["'']?[A-Za-z0-9_-]{16,}', 'ghp_[A-Za-z0-9]{20,}', 'github_pat_[A-Za-z0-9_]{20,}', '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+    foreach ($file in $ProjectFiles) {
+        $normalized = $file -replace '\\', '/'
+        if ($normalized -like 'third_party/*' -or $normalized -like 'tools/rexglue/*' -or $normalized -like 'tests/*' -or $normalized -like 'server/tmnt-lobby/test/*' -or $normalized -eq 'tools/test.ps1') { continue }
+        if ([IO.Path]::GetExtension($normalized) -notin ($TextExtensions + '.js', '.html')) { continue }
+        $path = Join-Root $normalized
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $text = [IO.File]::ReadAllText($path)
+        foreach ($pattern in $credential) { if ($text -match $pattern) { $problems.Add("$normalized matches a credential pattern") } }
+    }
+    foreach ($script in 'tools\package-release.ps1', 'tools\package-linux.sh', 'tools\linux-policy.sh', 'tools\build-updater.ps1') {
+        $text = Read-Text $script
+        foreach ($word in 'upx', 'virustotal', 'Add-MpPreference', 'Set-MpPreference') {
+            if ($text -match "(?i)\b$word\b") { $problems.Add("$script uses $word") }
+        }
+    }
+    $problems
+}
+
 Invoke-Check 'hygiene: no temporary markers or local absolute paths in the project files' {
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
     $temporary = [System.Collections.Generic.List[string]]::new()
-    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/package-linux\.sh$', '^tools/test.*\.ps1$'
+    $markerAllowed = '^tests/', '^docs/', '^tools/package-release\.ps1$', '^tools/linux-policy\.sh$', '^tools/test.*\.(ps1|sh)$'
     $localPath = ('S:\\+VisualStudio', 'C:\\+Users', '/Users/[A-Za-z]', 'scratchpad', 'AppData[\\/]Local[\\/]Temp') -join '|'
     foreach ($file in $ProjectFiles) {
         $normalized = $file -replace '\\', '/'
@@ -524,7 +729,10 @@ Invoke-Check 'online instances: four isolated local test instances (PrepareOnly,
     if ($LASTEXITCODE) { $output.Trim() -split "`r?`n" | Select-Object -Last 6 }
 }
 
-Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every test program (-CppTests <build folder>)' {
+# Real windows and input drivers: Saulo runs these by hand.
+$WindowedTests = 'tmnt_shutdown_order_tests'
+
+Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every headless test program (-CppTests <build folder>)' {
     if (-not $CppTests) { return 'NOT RUN: pass -CppTests <a configured build folder> to build and run the C++ tests' }
     $build = if ([IO.Path]::IsPathRooted($CppTests)) { $CppTests } else { Join-Root $CppTests }
     if (-not (Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) { return "NOT RUN: $build is not a configured CMake build folder" }
@@ -547,7 +755,7 @@ Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every test program (-C
     }
     try {
         $ext = if ($IsLinux) { '' } else { '.exe' }
-        $programs = @(Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Name -match "^tmnt_.+_tests$([regex]::Escape($ext))$" })
+        $programs = @(Get-ChildItem -LiteralPath $build -File | Where-Object { $_.Name -match "^tmnt_.+_tests$([regex]::Escape($ext))$" -and $_.BaseName -notin $WindowedTests })
         foreach ($program in $programs) {
             & $program.FullName *> $null
             # 77: the program had nothing to run against (the integration test without a lobby).

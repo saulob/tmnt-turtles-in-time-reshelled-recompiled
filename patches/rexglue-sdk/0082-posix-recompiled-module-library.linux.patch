@@ -5,15 +5,16 @@ suffix itself; dlopen does not complete a prefix or suffix, so the module never 
 diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
 --- a/src/system/kernel_state.cpp
 +++ b/src/system/kernel_state.cpp
-@@ -16,6 +16,7 @@
+@@ -16,6 +16,8 @@
  
++#include <dlfcn.h>
  #include <fmt/format.h>
  #include <rex/assert.h>
 +#include <rex/filesystem.h>
  #include <rex/image_info.h>
  #include <rex/logging.h>
  #include <rex/math.h>
-@@ -47,6 +48,25 @@ namespace rex::system {
+@@ -47,6 +49,25 @@ namespace rex::system {
  
  constexpr uint32_t kDeferredOverlappedDelayMillis = 100;
  
@@ -39,12 +40,14 @@ diff --git a/src/system/kernel_state.cpp b/src/system/kernel_state.cpp
  // This is a global object initialized with the XboxkrnlModule.
  // It references the current kernel state object that all kernel methods should
  // be using to stash their variables.
-@@ -759,7 +779,7 @@ object_ref<UserModule> KernelState::LoadUserModule(const std::string_view raw_na
+@@ -759,7 +780,8 @@ object_ref<UserModule> KernelState::LoadUserModule(const std::string_view raw_na
      }
  
      rex::platform::DynamicLibrary library_local;
 -    if (!library_local.Load(std::filesystem::path(recomp->shared_lib_name),
 +    if (!library_local.Load(RecompiledModuleLibraryPath(recomp->shared_lib_name),
                              rex::platform::SymbolResolution::kImmediate)) {
-       REXSYS_ERROR("Failed to load shared library for module '{}'", recomp->pe_name);
+-      REXSYS_ERROR("Failed to load shared library for module '{}'", recomp->pe_name);
++      const char* reason = dlerror();
++      REXSYS_ERROR("Failed to load shared library for module '{}': {}", recomp->pe_name, reason ? reason : "unknown");
      } else {

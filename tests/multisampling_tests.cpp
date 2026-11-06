@@ -72,10 +72,11 @@ void TestSetting() {
   CHECK(!Has(launcher, "\"native_2x_msaa\""));
 
   const std::string app = ReadSource("tmnt_turtles_in_time_reshelled_app.h");
-  const std::size_t no_launcher = app.find("if (!show_launcher_) {\n      tmnt::ApplyMultisampling();");
-  const std::size_t no_launcher_crlf =
-      app.find("if (!show_launcher_) {\r\n      tmnt::ApplyMultisampling();");
-  CHECK(no_launcher != std::string::npos || no_launcher_crlf != std::string::npos);
+  const std::size_t no_launcher = app.find("if (!show_launcher_) {");
+  const std::size_t block_end = app.find("}", no_launcher);
+  const std::size_t apply = app.find("tmnt::ApplyMultisampling();", no_launcher);
+  CHECK(no_launcher != std::string::npos);
+  CHECK(apply != std::string::npos && apply < block_end);
 }
 
 }  // namespace

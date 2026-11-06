@@ -1,5 +1,9 @@
 #include "online_runtime.h"
 
+#if !defined(_WIN32)
+#include <csignal>
+#endif
+
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -119,6 +123,10 @@ online::UserSettings SavedSettings() {
 }  // namespace
 
 void ConfigureOnline(const std::filesystem::path& user_dir) {
+#if !defined(_WIN32)
+  // OpenSSL writes with plain write(), so a link the peer reset would otherwise end the process without a crash report.
+  std::signal(SIGPIPE, SIG_IGN);
+#endif
   std::lock_guard<std::mutex> lock(g_mutex);
   g_user_dir = user_dir;
   g_configured = true;

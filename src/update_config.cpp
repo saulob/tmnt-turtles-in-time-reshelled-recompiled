@@ -78,7 +78,8 @@ trg::update::UpdateConfig MakeUpdateConfig(const std::filesystem::path& install_
     return "TurtlesInTimeReshelled-v" + version.CoreString() + "-windows-x64.sha256";
   };
   config.restart_executable = install_dir / "tmnt_turtles_in_time_reshelled.exe";
-  config.required_staged_files = {"tmnt_turtles_in_time_reshelled.exe"};
+  config.required_staged_files = {"tmnt_turtles_in_time_reshelled.exe", "tmnt_turtles_in_time_reshelled_TMNT_r.dll",
+                                   "rexruntime.dll", "rexgpu-xenos.dll"};
   config.install_supported = std::filesystem::exists(install_dir / "trg-updater.exe");
   if (!config.install_supported) {
     config.install_unsupported_reason =
@@ -98,7 +99,7 @@ trg::update::UpdateConfig MakeUpdateConfig(const std::filesystem::path& install_
     config.restart_executable = appimage;
     config.install_supported = true;
   } else {
-    config.install_unsupported_reason = "Automatic installation is available in the AppImage build.";
+    config.install_unsupported_reason = "Automatic installation needs the AppImage with its original file name.";
   }
 #endif
 

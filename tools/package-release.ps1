@@ -41,10 +41,10 @@ $RootFiles = @('tmnt_turtles_in_time_reshelled.exe', 'tmnt_turtles_in_time_reshe
 $LicenseFiles = @('ReXGlue-LICENSE.txt', 'THIRD-PARTY-LICENSES.txt')
 $AssetFiles = @('assets\launcher\header-art.png', 'assets\launcher\sponsor-heart.png')
 # Names that mean game data, a package, saves, settings, caches, logs, symbols, updater leftovers or debugging tools.
-$ForbiddenNames = @('default.xex', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'game-install-temp', 'game-install-backup', 'user_data',
+$ForbiddenNames = @('default.xex', 'default.xexp', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'game-install-temp', 'game-install-backup', 'user_data',
     'user_data.migrating', 'content', 'cache', 'logs', 'settings.toml', 'settings.toml.bak', 'ArcadeInfo.xml', 'nxeart', '584109D2',
-    'vulkan-1.dll')
-$ForbiddenPatterns = @('*.xex', '*.log', '*.dmp', '*.pdb', '*.debug', '*.xsh', '*.xpso', '*.bak', '*.tmp', '*.sav', 'trg-update-*',
+    'vulkan-1.dll', '$SystemUpdate')
+$ForbiddenPatterns = @('*.xex', '*.xexp', '*.bf', '*.log', '*.dmp', '*.pdb', '*.debug', '*.xsh', '*.xpso', '*.bak', '*.tmp', '*.sav', '*.invalid', 'trg-update-*',
     'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*', '*~', 'settings.toml.*', '*.iso')
 # First bytes of an Xbox 360 package or executable.
 $ForbiddenMagic = @('LIVE', 'PIRS', 'CON ', 'XEX2')

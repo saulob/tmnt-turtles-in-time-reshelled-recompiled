@@ -82,7 +82,7 @@
 0076-codegen-vpku-saturate-in-temp.patch                   windows,linux  rexglue                  imported   shared
 0077-xam-profile-setting-type-from-id.patch                windows,linux  rexruntime               imported   shared
 0078-xam-unset-title-setting-source-default.patch          windows,linux  rexruntime               imported   shared
-0079-d3d12-per-draw-vertex-buffer-residency.windows.patch  windows        rexgpu-xenos             imported   d3d12-specific
+0079-d3d12-per-draw-vertex-buffer-residency.windows.patch  windows        rexgpu-xenos             imported   vulkan-candidate
 0080-tmnt-aa838-stage-a-fix.windows.patch                  windows        rexgpu-xenos             tmnt       vulkan-candidate
 0081-rexglue-vertex-fetch-zero-stride.patch                windows,linux  rexgpu-xenos             tmnt       shared
 0082-posix-recompiled-module-library.linux.patch           linux          rexruntime               tmnt       linux-specific

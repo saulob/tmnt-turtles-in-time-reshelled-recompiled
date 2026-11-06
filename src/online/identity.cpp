@@ -82,6 +82,9 @@ Identity LoadOrCreateIdentity(const fs::path& user_dir) {
       return id;
     }
   }
+#if !defined(_WIN32)
+  fs::permissions(temp, fs::perms::owner_read | fs::perms::owner_write, ec);
+#endif
   // The link fails when another process created the file first; then its identity is the one kept.
   fs::create_hard_link(temp, file, ec);
   if (ec && !fs::exists(file)) {

@@ -55,7 +55,7 @@ REXCVAR_DEFINE_STRING(tmnt_aspect_ratio, "16:9", "TMNT",
 REXCVAR_DEFINE_STRING(tmnt_language, "en", "TMNT",
                       "Text language: en, fr, de, it, es or pt-BR (sets user_language at start)");
 REXCVAR_DEFINE_STRING(tmnt_graphics_adapter, "auto", "TMNT",
-                      "Graphics card: auto, or the index d3d12_adapter takes (applied at start)");
+                      "Graphics card: auto, or the index d3d12_adapter (Windows) or vulkan_device (Linux) takes (applied at start)");
 REXCVAR_DEFINE_STRING(tmnt_player_1_name, "Player 1", "TMNT",
                       "Name shown for local player 1; save data is not affected");
 REXCVAR_DEFINE_STRING(tmnt_player_2_name, "Player 2", "TMNT",
@@ -478,12 +478,17 @@ void ApplyLanguage() {
 }
 
 void ApplyGraphicsAdapter() {
-#if defined(_WIN32)
   const std::string setting = REXCVAR_GET(tmnt_graphics_adapter);
+#if !defined(_WIN32)
+  // Until a card is chosen in the launcher the loader's and Mesa's own device selection stands.
+  if (!ParseGraphicsAdapter(setting)) {
+    return;
+  }
+#endif
   const std::vector<GraphicsAdapter> adapters = ListGraphicsAdapters();
   const std::optional<int> index = ResolveGraphicsAdapter(setting, adapters);
   if (!index) {
-    REXLOG_WARN("No usable Direct3D 12 graphics card found");
+    REXLOG_WARN("No usable {} graphics card found", GraphicsBackendName());
     return;
   }
   const auto chosen = std::find_if(adapters.begin(), adapters.end(),
@@ -493,9 +498,8 @@ void ApplyGraphicsAdapter() {
   } else {
     REXLOG_INFO("Graphics card: {} (adapter {})", chosen->name, *index);
   }
-  rex::cvar::SetFlagByName("d3d12_adapter", std::to_string(*index));
+  rex::cvar::SetFlagByName(kBackendAdapterCvar, std::to_string(*index));
   rex::cvar::SetFlagByName("tmnt_graphics_adapter", std::to_string(*index));
-#endif
 }
 
 void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& display, int monitor,
@@ -546,7 +550,7 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
 
   diagnostics.gpu.selected = selected_card;
   const GraphicsAdapterDetails adapter =
-      EffectiveGraphicsAdapter(std::atoi(CvarText("d3d12_adapter", "-1").c_str()));
+      EffectiveGraphicsAdapter(std::atoi(CvarText(kBackendAdapterCvar, "-1").c_str()));
   diagnostics.gpu.resolved = adapter.name;
   diagnostics.gpu.adapter = adapter.index;
   diagnostics.gpu.vendor_id = adapter.vendor_id;

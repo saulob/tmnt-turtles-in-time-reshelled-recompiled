@@ -201,10 +201,10 @@ void TestPpcAndGuestExtra() {
            "TMNT C[0]=0x82B59E00 vptr=0x820D2C28 [default-image]\n");
   const std::string text = Format(report);
   CHECK(Has(text, "PPC GPR:"));
-  CHECK(Has(text, "r3=00000103"));
-  CHECK(Has(text, "r31=0000011F"));
-  CHECK(Has(text, "PPC CTRL: lr=82278298 ctr=82289FC0 cr=12345678 xer=A0000000 fpscr=00000004"));
-  CHECK(Has(text, "PPC FP: f31=3FF0000000000000 last_indirect_target=82289FC0"));
+  CHECK(Has(text, "r3=0x00000103"));
+  CHECK(Has(text, "r31=0x0000011F"));
+  CHECK(Has(text, "PPC CTRL: lr=0x82278298 ctr=0x82289FC0 cr=0x12345678 xer=0xA0000000 fpscr=0x00000004"));
+  CHECK(Has(text, "PPC FP: f31=0x3FF0000000000000 last_indirect_target=0x82289FC0"));
   CHECK(Has(text, "TMNT C: base=0x00000400 stride=4 growth=256 count=1 capacity=256"));
   CHECK(Has(text, "TMNT C[0]=0x82B59E00 vptr=0x820D2C28 [default-image]"));
 }

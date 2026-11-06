@@ -44,11 +44,11 @@ bool Keep(std::string_view message) {
 void TestNormalLog() {
   std::printf("normal log\n");
   constexpr std::string_view lines[] = {
-      "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.1.0",
+      "Mapped guest memory at 0x100000000",
   };
   CHECK(!Keep(lines[0]));
   constexpr std::string_view kept[] = {
-      "Turtles in Time Re-Shelled port 0.1.0",
+      "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled port 0.1.0",
       "Build: RelWithDebInfo x86-64 | ReXGlue SDK 0.10.0 | Direct3D 12",
       "Game files: valid (default.xex, size 4808704, CRC32 FC04059D)",
       "Graphics card: NVIDIA GeForce RTX 4070 (adapter 0)",

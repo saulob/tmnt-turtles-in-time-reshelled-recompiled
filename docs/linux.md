@@ -1,23 +1,27 @@
 # Linux and Steam Deck
 
-> **Experimental and not yet run for this game.** The Linux build infrastructure (presets, `tools/build.sh`,
-> `tools/package-linux.sh`, the AppImage runtime) is inherited from Hard Corps: Uprising Recompiled, where it was tested
-> on SteamOS. Turtles in Time Re-Shelled has not been built or run on Linux yet.
+> **Experimental.** Windows is the primary platform. The AppImage has not yet been validated on real Linux or Steam Deck
+> hardware, so rendering, audio, controllers and online play on Linux are unconfirmed.
 
 The Linux build uses the same code as the Windows build: ReXGlue SDK 0.10.0's Linux runtime and the Xenos GPU
 plugin's Vulkan backend, both built with the project's patches, and the same TRG launcher. It ships as one
-AppImage, which is also the Steam Deck build.
+AppImage, which is also the Steam Deck build. It is native Linux, not Proton or Wine.
+
+Every launcher setting works on Linux. **Graphics card** lists the Vulkan hardware devices (the dedicated GPU first). Until
+one is chosen the driver's own selection stands. A crash appends a `CRASH REPORT` block to the session log, as on Windows,
+with the signal number beside the matching Windows exception code. `libssl` is loaded at run time for the online service,
+so a system without OpenSSL can play everything but online.
 
 **The module library.** The game's code is split between `default.xex` and the module `TMNT_r.xex`, which is recompiled
 into its own shared library (`libtmnt_turtles_in_time_reshelled_TMNT_r.so`). ReXGlue 0.10.0 opens it with
 `dlopen("tmnt_turtles_in_time_reshelled_TMNT_r")`, without the `lib` prefix or the `.so` suffix, which `LoadLibrary`
 completes on Windows but `dlopen` does not. The Linux-only patch `0082-posix-recompiled-module-library` makes the runtime
-look for `lib<name>.so` beside the executable first. It applies cleanly to the pinned SDK source, but no Linux build of
-this game has been made or run yet, so the Linux build stays unconfirmed until it has.
+look for `lib<name>.so` beside the executable first.
 
-The Direct3D 12 fix for the cyan turtle flicker (`0080`) has no Vulkan counterpart yet, so the flicker may still show on
-Linux. The Vulkan equivalents of `0040` and `0055` are deferred too (`patches/rexglue-sdk/patches.txt`, parity
-`vulkan-candidate`).
+Two Direct3D 12 fixes that a player can see have no Vulkan counterpart yet: the cyan turtle flicker (`0080`), and vertex
+buffers rewritten at the same address during a frame (`0079`), which can show as stale geometry. The Vulkan equivalents of
+`0040` and `0055` are deferred too; those two are performance work. All four are parity `vulkan-candidate` in
+`patches/rexglue-sdk/patches.txt`.
 
 The AppImage FUSE fallback (the image unpacks itself and runs from there when it cannot be mounted) is part of the
 inherited runtime ([Steam Beta and the AppImage](#steam-beta-and-the-appimage)).
@@ -45,8 +49,7 @@ is older than GCC 13.
 
 ### Steam Deck
 
-This is the intended flow. A SteamOS tester on a Legion Go 2 reports that it runs from Steam's stable client, but it has
-not been tried on a Steam Deck itself.
+This is the intended flow. It has not been tried on a Steam Deck yet.
 
 1. In **Desktop Mode**, do steps 1 to 5 above. Copy your package to the Deck first (USB stick, SD card or network).
 2. In Steam: **Games** > **Add a Non-Steam Game to My Library**, and pick the AppImage.
@@ -63,16 +66,16 @@ started where that mount is not possible, in Game Mode and in Desktop Mode alike
 file started from a file manager works. Other AppImages are reported to fail the same way
 ([ValveSoftware/steam-for-linux#13736](https://github.com/ValveSoftware/steam-for-linux/issues/13736)).
 
-Since v0.6.1 the AppImage deals with this itself, with nothing to set in Steam. Its runtime still tries the FUSE mount
-first. If the mount cannot be made, it unpacks the AppImage into a private folder under `/tmp` (about 70 MB), runs the game
+The AppImage deals with this itself, with nothing to set in Steam. Its runtime still tries the FUSE mount
+first. If the mount cannot be made, it unpacks the AppImage into a private folder under `/tmp`, runs the game
 from there with the same arguments, returns the game's exit status and removes the folder afterwards. A restart of the game
 from the launcher starts the original AppImage again and goes through the same steps. Where FUSE works, the AppImage is
 mounted as before and nothing is unpacked. Only a failed mount triggers this: a damaged AppImage is still reported as
 damaged. `game`, `logs` and `user_data` stay next to the AppImage in both cases.
 
-Verified in a test environment that blocks FUSE (an unprivileged user namespace, where the runtime prints the same
-"No suitable fusermount binary found" lines as in Steam's log), not yet on SteamOS. In that case a line such as
-`Error: $FUSERMOUNT_PROG not set` can still appear in the terminal or Steam's log; it is expected and harmless.
+`tools/test-appimage-release.sh` verifies this on a fixture AppImage with FUSE out of reach; it has not been tried on
+SteamOS. A line such as `Error: $FUSERMOUNT_PROG not set` can still appear in the terminal or Steam's log; it is expected
+and harmless.
 
 If an AppImage still does not start from Steam, open the game's Steam **Properties**, set **Launch Options** to
 
@@ -91,8 +94,10 @@ and tell us whether that changes anything. It makes the runtime unpack the AppIm
 | Logs | `logs` next to the AppImage (`~/.local/share/tmnt_turtles_in_time_reshelled/logs` if that folder is not writable) |
 | Settings, saves, shader cache | `user_data` next to the AppImage ([user-data.md](user-data.md)) |
 
-Earlier versions used ReXGlue's own Linux location, `$XDG_DATA_HOME/tmnt_turtles_in_time_reshelled`; its contents move into
-`user_data` at the first start. A build run outside an AppImage keeps `game`, `logs` and `user_data` next to the program instead. `--game_data_root` and `--user_data_root` override the folders, as on Windows.
+The AppImage mount is read-only and gone once the program exits, so nothing is written there: every folder above follows the
+`APPIMAGE` path, and saves stay in place when the AppImage is moved to a new version in the same folder or updated by the
+launcher. ReXGlue's own Linux location, `$XDG_DATA_HOME/tmnt_turtles_in_time_reshelled`, moves into `user_data` at the first
+start if it holds data. A build run outside an AppImage keeps `game`, `logs` and `user_data` next to the program instead. `--game_data_root` and `--user_data_root` override the folders, as on Windows.
 
 - **Window icon.** The program sets its window icon from the AppImage's own icon file, so it does not depend on the
   AppImage being integrated into the desktop. A build run outside an AppImage keeps the desktop's default icon.
@@ -102,7 +107,8 @@ Earlier versions used ReXGlue's own Linux location, `$XDG_DATA_HOME/tmnt_turtles
 
 ## Known limits
 
-- Not broadly tested on real hardware: rendering, audio, controllers and performance are largely unconfirmed.
+- Not tested on real hardware yet: rendering, audio, controllers and performance are unconfirmed.
+- The launcher updates the AppImage only under its release file name; a renamed file is left alone.
 - Holding **Shift** to bring the launcher back works only if the window gets keyboard focus while Shift is still
   held, because SDL cannot read the keyboard before the window has focus. Keep Shift held until the launcher appears.
 - The VSync setting maps to Vulkan's present mode: **Off** allows immediate presentation (tearing), **On** uses
@@ -113,7 +119,8 @@ Earlier versions used ReXGlue's own Linux location, `$XDG_DATA_HOME/tmnt_turtles
 ## Building the AppImage
 
 Run on Linux or WSL, from a clone with the TRG launcher submodule, after `tools/codegen.ps1` has generated
-`generated/default` and with your own `game/extracted/default.xex`:
+`generated/default` and `generated/tmnt_r` and with your own `game/extracted/default.xex` and `TMNT_r.xex`. The build runs the
+patched `rexglue` code generator again, which reads both executables; neither is packaged:
 
 ```sh
 tools/package-linux.sh            # incremental Release build, then package
@@ -129,12 +136,15 @@ script stops on any other host (`TMNT_ALLOW_UNSUPPORTED_HOST=1` skips only that 
 `tools/check-glibc-baseline.sh` on the AppDir and again on the finished, extracted AppImage. The checker recognises ELF files
 by their magic bytes, fails on a `GLIBC_` symbol above 2.31 or a bundled glibc runtime library, prints the highest `GLIBC`,
 `GLIBCXX` and `CXXABI` version of every file, and fails when the bundled `libstdc++` provides less than another file needs.
-The same scan (forbidden names and types, Xbox packages, `DEBUG_SAULO`, local folders as text and as UTF-16, RenderDoc and
-Vulkan layer files, RPATH/RUNPATH, debug sections of the program and the module library, the exact file list) runs on both.
-`tools/package-linux.sh --verify-only FILE` runs the scan, the runtime check and the glibc check on an existing AppImage.
+The same scan (forbidden names and types, Xbox packages, `DEBUG_SAULO`, local folders as text and as UTF-16, RenderDoc, the
+Vulkan loader and layers, RPATH/RUNPATH, NEEDED libraries, debug sections of all four binaries, the exact file list) runs on both.
+`tools/linux-policy.sh` holds that policy. The debug information of the program and the module goes to
+`<out dir>/TurtlesInTimeReshelledRecompiled-v<version>-x86_64-symbols/`, which is not packaged.
+`tools/package-linux.sh --verify-only FILE` runs the scan, the runtime checks and the glibc check on an existing AppImage.
 
 `tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, the audio client teardown of patch 0086, packaging inputs,
-hygiene); it builds and launches nothing.
+player-facing feature parity, hygiene); it launches nothing. `tools/test-appimage-release.sh` staged-fixture tests run in a focal WSL
+distribution; set `TMNT_APPIMAGE_TOOLS` to a folder holding appimagetool and a built runtime to add a fixture AppImage.
 `tools/setup-linux-build-env.sh` prepares a clean Ubuntu 20.04 machine for it, as root: clang 20 from
 [apt.llvm.org](https://apt.llvm.org), the GCC 13 runtime from the `ubuntu-toolchain-r/test` PPA, CMake 3.31.8 and the
 SDK's build dependencies. libdecor 0.2.2 and PipeWire 0.3.48 are not packaged for 20.04, so the script builds them
@@ -142,14 +152,14 @@ from their pinned commits into `/usr/local`; SDL loads both at run time and need
 Wayland decoration and PipeWire audio backends, so the AppImage does not carry them. To make the environment in WSL:
 
 ```sh
-wsl --import HcuFocalBuild <folder> ubuntu-base-20.04.5-base-amd64.tar.gz
-wsl -d HcuFocalBuild -u root -- bash tools/setup-linux-build-env.sh
+wsl --import TmntFocalBuild <folder> ubuntu-base-20.04.5-base-amd64.tar.gz
+wsl -d TmntFocalBuild -u root -- bash tools/setup-linux-build-env.sh
 ```
 
 The base image is `ubuntu-base-20.04.5-base-amd64.tar.gz` from cdimage.ubuntu.com (SHA-256
 `60e216b60947653dc8989be3821380268315b99b2959c29882781541bfe5a426`); a Docker `ubuntu:20.04` container works the same
-way. The SDK's stock `rexglue` tool needs glibc 2.35, so `tools/package-linux.sh` builds it from the patched source on
-this baseline.
+way. The build runs `rexglue`, so `tools/package-linux.sh` builds it from the patched source, the same generator Windows uses;
+the SDK's stock tool lacks those patches and needs glibc 2.35.
 
 The script copies the sources to `~/tmnt-linux-build` (set `TMNT_WORK` to change it), downloads the pinned ReXGlue
 SDK and appimagetool with their SHA-256 checks, builds the project's patched ReXGlue runtime and
@@ -178,7 +188,7 @@ runtime stops when FUSE cannot mount the AppImage (see [Steam Beta and the AppIm
   build (needs root or sudo, git, tar and network access). The result is checked (type 2 magic, static, the version
   string) and compared with the pinned SHA-256; with the same Alpine packages two builds give identical files. If the
   checksum differs, packaging stops: review the new build and update `RUNTIME_SHA256`. `--check FILE` verifies a runtime or
-  a finished AppImage.
+  a finished AppImage, and `--check-image FILE` that the runtime at the front of an AppImage is byte for byte the reviewed one.
 
 A build prints, and saves next to the runtime as `<runtime>.manifest`, what produced it: the upstream commit, the patch's SHA-256,
 the Alpine version, the compiler, linker and library package versions apk resolved, and the runtime's SHA-256. The runtime's
@@ -188,6 +198,7 @@ The runtime is rebuilt only when the pins or the patch change. Set `VERBOSE=1` w
 took: a message appears when it falls back to extracting.
 
 For a plain build without packaging, with the SDK extracted into `tools/rexglue/linux-amd64`, `tools/build.sh`
-(`release`, `relwithdebinfo` or `debug`) builds the patched ReXGlue libraries when they are missing or out of date and
-then the `linux-amd64-<config>` preset into `out/build/<preset>`. Building a preset directly works too, but stops if
+(`release` or `relwithdebinfo`) builds the patched ReXGlue libraries and code generator when they are missing or out of date
+and then the `linux-amd64-<config>` preset into `out/build/<preset>`. There is no Debug build on Linux: the stock Debug
+runtime has no patch 0082, so it cannot load the module library. Building a preset directly works too, but stops if
 the SDK does not hold the patched libraries.

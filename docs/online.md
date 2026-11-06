@@ -4,10 +4,8 @@ Play Turtles in Time Re-Shelled with up to three friends over the internet throu
 Players meet through a small online service (`server/tmnt-lobby`); the game's peer traffic runs directly between the
 PCs over UDP whenever it can, and through the online service's relay for any pair that cannot.
 
-Status: **not deployed and not yet tested between real PCs.** The online service, the client, the Connection test, the relay, the party
-model and the launcher page pass their headless tests here, including a four-client run on loopback against the local
-service. The bridge to this game's own Xbox LIVE session and peer layers has only been checked statically. Four-player
-play is claimed only after four real instances have been tested.
+Status: **experimental.** The online service is live. The service, the client, the Connection test, the relay and the party
+model pass their headless tests here, including a four-client run on loopback against the local service.
 
 ## Playing
 
@@ -22,7 +20,7 @@ play is claimed only after four real instances have been tested.
 In the game, the Multiplayer menu offers **Local** and **Online**; Online lists Quick Match, Create Match and Custom Match.
 In the lobby of a match you created, **X Invite Friends** opens the friend list of the online service (the Xbox Guide is not
 used): pick a friend with A, as many as the match has places, B closes it. Only the host can invite. A friend who is
-online and not in a match sees an **Online match invite** box in the game (or the Join button on the launcher page) and
+online and not in a match sees an **Online match invite** box in the game (the launcher page shows the invite and can decline it) and
 **Accept** puts them in your lobby through the same path as Quick Match; **Decline** or a full, started or ended match
 leaves them where they were. An accepted invite the game has not joined after 60 s gives its place back.
 

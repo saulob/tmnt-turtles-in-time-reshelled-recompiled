@@ -110,7 +110,7 @@ bool MatchSession::Required(int slot) const {
 MatchSession::Link& MatchSession::Ensure(int slot) {
   std::optional<Link>& entry = links_[slot];
   if (!entry) {
-    entry.emplace();
+    entry = Link{};
     entry->slot = slot;
   }
   return *entry;

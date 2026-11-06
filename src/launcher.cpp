@@ -508,7 +508,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
          [this](trg::Ui& ui) { PageDisplay(ui); }},
         {"Graphics", "Render resolution, anti-aliasing and texture filtering.",
          [this](trg::Ui& ui) { PageGraphics(ui); }},
-        {"Gameplay", "What the window shows while you play.", [](trg::Ui& ui) { PageGameplay(ui); }},
+        {"Gameplay", "Language, on-screen information and player names.", [](trg::Ui& ui) { PageGameplay(ui); }},
         {"Online", "Add friends and see who is online. Play them from the game's own online menus.",
          [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
         {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
@@ -631,7 +631,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
           return outcome->result.ok() ? std::string() : std::string(DescribeInstall(outcome->result.status).title);
         });
     if (started) {
-      REXLOG_INFO("Installing game files from {}", std::filesystem::path(picked).filename().string());
+      REXLOG_INFO("Installing game files from {}", Utf8(PathFromUtf8(picked).filename()));
     }
   }
 
@@ -881,7 +881,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
           return outcome->install.ok() ? std::string() : std::string(DescribeInstall(outcome->install.status).title);
         });
     if (started) {
-      REXLOG_INFO("Installing DLC from {}", std::filesystem::path(picked).filename().string());
+      REXLOG_INFO("Installing DLC from {}", Utf8(PathFromUtf8(picked).filename()));
     }
   }
 
@@ -1271,8 +1271,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         "Support is completely optional and helps support ongoing improvements and future projects.");
     ui.Paragraph(
         "Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, statically recompiled to run "
-        "natively on PC with the ReXGlue SDK. Early development: the game is not yet known to be playable. No game "
-        "code or assets are included: the game runs from your own game files.");
+        "natively on PC with the ReXGlue SDK. No game code or assets are included: the game runs from your own game "
+        "files.");
     ui.Spacer(4);
     if (!paths_.game_dir.empty()) {
       ui.FolderRow("Game files", "Where the game data is read from.", "Open game folder", Utf8(paths_.game_dir));

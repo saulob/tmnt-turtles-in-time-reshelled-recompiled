@@ -95,7 +95,7 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Window size | `window_width`, `window_height` |
 | | Monitor | `monitor` |
 | | VSync | `d3d12_allow_variable_refresh_rate_and_tearing` (inverted) |
-| Graphics | Graphics card (Windows) | `tmnt_graphics_adapter` |
+| Graphics | Graphics card | `tmnt_graphics_adapter` |
 | | Render resolution | `resolution_scale` |
 | | Anti-aliasing | `swap_post_effect` |
 | | Multisampling | `tmnt_msaa_compatibility` |
@@ -118,7 +118,7 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 
 | Control | Cvar | Values (default) |
 | --- | --- | --- |
-| Graphics card (Windows) | `tmnt_graphics_adapter`, sets `d3d12_adapter` | the DXGI adapter index; the first detected adapter when unset or not present (`0`) |
+| Graphics card | `tmnt_graphics_adapter`, sets `d3d12_adapter` (Windows) or `vulkan_device` (Linux) | the adapter index; on Windows the first detected adapter when unset or not present (`0`), on Linux the driver's own choice until one is picked |
 | Render resolution | `resolution_scale` (integer 1–8, the launcher offers 1–4) | `1` Original, `2`, `3`, `4` (`1`) |
 | Anti-aliasing | `swap_post_effect` | `none` Off, `fxaa`, `fxaa_extreme` (`none`) |
 | Multisampling | `tmnt_msaa_compatibility` | `false` 2x MSAA, `true` 4x MSAA (Compatibility) (`false`) |
@@ -165,8 +165,8 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
 Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F3 in game) and the stored Connection test result
 (`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
-Connection test whose result is Overall usable for the current UDP configuration. Friends and the Join button for a
-party invite are on the same page; the party itself is made in the game, see `docs/online.md`.
+Connection test whose result is Overall usable for the current UDP configuration. Friends and any invite you received are on the
+same page; an invite is accepted in the game, which is also where the party is made, see `docs/online.md`.
 
 ### Page order
 

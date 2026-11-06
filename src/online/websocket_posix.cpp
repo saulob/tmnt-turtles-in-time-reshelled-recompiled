@@ -24,6 +24,15 @@
 namespace tmnt::online {
 namespace {
 
+// A signal on this thread is not a dead link; the wait starts over with its whole timeout.
+int PollRetrying(pollfd* descriptor, int timeout_ms) {
+  int result;
+  do {
+    result = poll(descriptor, 1, timeout_ms);
+  } while (result < 0 && errno == EINTR);
+  return result;
+}
+
 using ws::Base64;
 
 // libssl is loaded at run time: an AppImage cannot carry a GPL-compatible copy, and distributions ship either
@@ -116,7 +125,7 @@ int Connect(const WsUrl& url, int timeout_ms, std::string* error) {
     pollfd pfd{fd, POLLOUT, 0};
     int so_error = 0;
     socklen_t length = sizeof(so_error);
-    if (poll(&pfd, 1, timeout_ms) != 1 || getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &length) != 0 || so_error) {
+    if (PollRetrying(&pfd, timeout_ms) != 1 || getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &length) != 0 || so_error) {
       ::close(fd), fd = -1;
     }
   }
@@ -284,7 +293,7 @@ public:
 
   bool Wait(short events, int timeout_ms) {
     pollfd pfd{fd_, events, 0};
-    return poll(&pfd, 1, timeout_ms) == 1 && !closed_ && !(pfd.revents & (POLLERR | POLLNVAL));
+    return PollRetrying(&pfd, timeout_ms) == 1 && !closed_ && !(pfd.revents & (POLLERR | POLLNVAL));
   }
 
 private:

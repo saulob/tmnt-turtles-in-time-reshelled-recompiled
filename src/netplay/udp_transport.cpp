@@ -168,7 +168,12 @@ UdpTransport::~UdpTransport() { Close(); }
 bool UdpTransport::Open(uint16_t port, bool loopback_only) {
   Close();
   if (!AcquireSockets()) return false;
+#if defined(_WIN32)
   const NativeSocket s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+#else
+  // A relaunched launcher must not inherit the gameplay port.
+  const NativeSocket s = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
+#endif
   if (s == kInvalid) {
     ReleaseSockets();
     return false;

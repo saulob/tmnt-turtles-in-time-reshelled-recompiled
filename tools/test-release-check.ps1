@@ -42,6 +42,12 @@ $Cases = [ordered]@{
     'mixed-case xex'     = 'Default.XEX'
     'nested xex'         = 'assets\launcher\module.xex'
     'nested save'        = 'user_data\x.sav'
+    'patched xex'        = 'default.xexp'
+    'game archive'       = 'TMNT.bf'
+    'RelWithDebInfo DLL' = 'rexruntimerd.dll'
+    'unknown DLL'        = 'helper.dll'
+    'unknown program'    = 'tool.exe'
+    'stale updater'      = 'assets\launcher\trg-updater.exe'
 }
 $Content = @{
     'Xbox package'       = 'LIVE'

@@ -5,7 +5,6 @@ namespace tmnt::localization {
 extern const char kPtBrUiTextTsv[];
 
 const char kPtBrUiTextTsv[] = R"PTBR(     Accept	     Aceitar
-     Join	     Entrar
  (not connected)	 (desconectada)
  (primary)	 (principal)
  could not be applied (it is unreadable or contains an invalid value), so no graphics plugin was selected. Extract the whole game folder again.	 não pôde ser aplicado (está ilegível ou contém um valor inválido), então nenhum plugin gráfico foi selecionado. Extraia a pasta inteira do jogo de novo.
@@ -64,6 +63,7 @@ Aspect Ratio	Proporção
 At startup	Ao iniciar
 Automatic installation is not available in this build.	A instalação automática não está disponível nesta compilação.
 Automatic installation is not available.	A instalação automática não está disponível.
+Automatic installation needs the AppImage with its original file name.	A instalação automática precisa do AppImage com o nome de arquivo original.
 Automatic setup is not available on your router.	A configuração automática não está disponível no seu roteador.
 Automatic: Xbox controllers work without setup.	Automático: controles do Xbox funcionam sem configuração.
 Available. A match that cannot connect directly connects through the online service.	Disponível. Uma partida que não conecta diretamente conecta pelo serviço online.
@@ -90,6 +90,7 @@ Cannot reach the online service. Check your internet connection.	Não foi possí
 Cannot read the downloaded update.	Não foi possível ler a atualização baixada.
 Cannot read the release fixture.	Não foi possível ler o arquivo de teste da versão.
 Cannot read the update staging folder.	Não foi possível ler a pasta de preparação da atualização.
+Cannot read	Não foi possível ler
 Cannot remove this DLC	Não foi possível remover esta DLC
 Cannot write 	Não foi possível gravar 
 Cannot write the update file 	Não foi possível gravar o arquivo de atualização 
@@ -146,6 +147,7 @@ Could not reach the server. Check your internet connection and try again.	Não f
 Could not remove the DLC	Não foi possível remover a DLC
 Could not save the settings.	Não foi possível salvar as configurações.
 Could not start the download.	Não foi possível iniciar o download.
+Could not start the program (	Não foi possível iniciar o programa (
 Could not start the game in a new window. Press Play to try again.	Não foi possível iniciar o jogo em uma nova janela. Aperte Jogar para tentar de novo.
 Could not write the game files	Não foi possível gravar os arquivos do jogo
 Create a match first, then invite friends.	Crie uma partida primeiro e depois convide amigos.
@@ -406,7 +408,7 @@ Start the game with --game_data_root to choose where the game files go.	Inicie o
 Start the game with --user_data_root to choose where DLC is stored.	Inicie o jogo com --user_data_root para escolher onde a DLC fica.
 Staying Alive	Sobrevivente
 Support is completely optional and helps support ongoing improvements and future projects.	O apoio é totalmente opcional e ajuda no desenvolvimento de melhorias e novos projetos.
-Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, statically recompiled to run natively on PC with the ReXGlue SDK. Early development: the game is not yet known to be playable. No game code or assets are included: the game runs from your own game files.	Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled para Xbox Live Arcade, recompilado estaticamente para rodar nativamente no PC com o ReXGlue SDK. Desenvolvimento inicial: ainda não se sabe se o jogo é jogável. Nenhum código ou conteúdo do jogo está incluído: o jogo roda a partir dos seus próprios arquivos.
+Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled for Xbox Live Arcade, statically recompiled to run natively on PC with the ReXGlue SDK. No game code or assets are included: the game runs from your own game files.	Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled para Xbox Live Arcade, recompilado estaticamente para rodar nativamente no PC com o ReXGlue SDK. Nenhum código ou conteúdo do jogo está incluído: o jogo roda a partir dos seus próprios arquivos.
 Testing...	Testando...
 Text language for menus, the HUD and movie subtitles. The game has no spoken dialogue, so this does not change any voice. Applied when the game starts.	Idioma do texto dos menus, do HUD e das legendas. Não muda as vozes. Português Brasil é uma tradução não oficial deste port. Aplicado ao iniciar o jogo.
 Texture filtering	Filtragem de texturas
@@ -476,6 +478,20 @@ The server sent an invalid redirect.	O servidor enviou um redirecionamento invá
 The server sent more data than expected.	O servidor enviou mais dados que o esperado.
 The server took too long to answer.	O servidor demorou demais para responder.
 The update address is not secure.	O endereço da atualização não é seguro.
+Start the game to accept this invite.	Inicie o jogo para aceitar este convite.
+The game needs a working DirectX 12 graphics driver. Update your graphics driver, then see the logs folder for details.	O jogo precisa de um driver gráfico DirectX 12 funcionando. Atualize o driver gráfico e veja os detalhes na pasta de logs.
+The downloaded AppImage or the installed AppImage is missing.	O AppImage baixado ou o AppImage instalado não foi encontrado.
+The update does not contain	A atualização não contém
+The update helper is missing from this installation. Reinstall this release to enable automatic updates.	O auxiliar de atualização não está presente nesta instalação. Reinstale esta versão para ativar as atualizações automáticas.
+The update was downloaded over the installed AppImage.	A atualização foi baixada por cima do AppImage instalado.
+The updated AppImage could not be verified.	Não foi possível verificar o AppImage atualizado.
+Cannot find a free temporary name next to the installed AppImage.	Não foi possível encontrar um nome temporário livre ao lado do AppImage instalado.
+Cannot write the updated AppImage next to the installed one.	Não foi possível gravar o AppImage atualizado ao lado do instalado.
+Cannot read the installed AppImage.	Não foi possível ler o AppImage instalado.
+Cannot make the updated AppImage executable.	Não foi possível tornar o AppImage atualizado executável.
+Cannot back up the installed AppImage.	Não foi possível fazer backup do AppImage instalado.
+Cannot replace the installed AppImage.	Não foi possível substituir o AppImage instalado.
+ The previous AppImage could not be restored.	 Não foi possível restaurar o AppImage anterior.
 The update archive contains a path outside the staging folder.	O arquivo da atualização contém um caminho fora da pasta de preparação.
 The update archive contains a protected path: 	O arquivo da atualização contém um caminho protegido: 
 The update archive contains a symbolic link: 	O arquivo da atualização contém um link simbólico: 
@@ -550,7 +566,7 @@ VSync	VSync
 Wait for the current install to finish.	Aguarde a instalação atual terminar.
 Wait for the install to finish.	Aguarde a instalação terminar.
 What other players see: up to 16 letters, digits, - or _.	O que os outros jogadores veem: até 16 letras, dígitos, - ou _.
-What the window shows while you play.	O que a janela mostra enquanto você joga.
+Language, on-screen information and player names.	Idioma, informações na tela e nomes dos jogadores.
 Where the game data is read from.	De onde os dados do jogo são lidos.
 Window size	Tamanho da janela
 Window, monitor and how the picture fits your screen.	Janela, monitor e como a imagem se ajusta à tela.

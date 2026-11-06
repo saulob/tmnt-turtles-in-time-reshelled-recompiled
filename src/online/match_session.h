@@ -149,13 +149,11 @@ class MatchSession {
   bool Coordinated(const Link& link) const;
   bool Chooser(const Link& link) const { return config_.my_slot < link.slot; }
   void BeginStun();
-  void PumpStun(double now);
   std::optional<std::vector<netplay::Endpoint>> StunServers();
   void SendEndpoint();
   void BeginLink(Link& link, double now);
   void StartDirectProbe(Link& link, double now);
   void EvaluatePeer(Link& link);
-  void PumpLink(Link& link, double now);
   void PumpCoordinated(Link& link, double now, Rendezvous::Stage punch, const Candidate& selected);
   bool PeerEndpointReady(const PeerInfo& peer) const;
   bool FailIfServiceCannotForwardPublic(Link& link);
@@ -197,7 +195,6 @@ class MatchSession {
   mutable std::mutex ping_mutex_;
   PeerPing ping_;
   std::array<netplay::Endpoint, netplay::kMaxSlot + 1> direct_endpoints_{};
-  uint64_t ping_clock_ms_ = 0;
 };
 
 }  // namespace tmnt::online

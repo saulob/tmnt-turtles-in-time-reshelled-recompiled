@@ -595,6 +595,13 @@ target_include_directories(tmnt_graphics_adapter_tests PRIVATE src)
 target_link_libraries(tmnt_graphics_adapter_tests PRIVATE trg::launcher)
 if(WIN32)
     target_link_libraries(tmnt_graphics_adapter_tests PRIVATE dxgi d3d12)
+else()
+    target_link_libraries(tmnt_graphics_adapter_tests PRIVATE ${CMAKE_DL_LIBS})
+    target_include_directories(tmnt_graphics_adapter_tests SYSTEM PRIVATE "${TMNT_SDK_DIR}/include")
+    add_library(tmnt_fake_vulkan SHARED EXCLUDE_FROM_ALL tests/fake_vulkan_driver.cpp)
+    target_include_directories(tmnt_fake_vulkan SYSTEM PRIVATE "${TMNT_SDK_DIR}/include")
+    add_dependencies(tmnt_graphics_adapter_tests tmnt_fake_vulkan)
+    target_compile_definitions(tmnt_graphics_adapter_tests PRIVATE TMNT_FAKE_VULKAN_LIBRARY="$<TARGET_FILE:tmnt_fake_vulkan>")
 endif()
 target_compile_definitions(tmnt_graphics_adapter_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -672,6 +679,8 @@ target_include_directories(tmnt_crash_report_tests PRIVATE src)
 target_compile_definitions(tmnt_crash_report_tests PRIVATE TMNT_BUILD_CONFIG="RelWithDebInfo")
 if(WIN32)
     target_link_libraries(tmnt_crash_report_tests PRIVATE shell32)
+else()
+    target_link_libraries(tmnt_crash_report_tests PRIVATE ${CMAKE_DL_LIBS})
 endif()
 
 # Active log file tests, not part of the default build:
@@ -711,6 +720,8 @@ target_compile_definitions(tmnt_log_filter_tests PRIVATE
 target_link_libraries(tmnt_log_filter_tests PRIVATE rex::runtime)
 if(WIN32)
     target_link_libraries(tmnt_log_filter_tests PRIVATE shell32)
+else()
+    target_link_libraries(tmnt_log_filter_tests PRIVATE ${CMAKE_DL_LIBS})
 endif()
 add_custom_command(TARGET tmnt_log_filter_tests POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -759,6 +770,9 @@ add_executable(tmnt_live_tests EXCLUDE_FROM_ALL
 )
 target_include_directories(tmnt_live_tests PRIVATE src)
 target_compile_definitions(tmnt_live_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+if(NOT WIN32)
+    target_link_libraries(tmnt_live_tests PRIVATE Threads::Threads)
+endif()
 
 # User data tests (portable root and migration), not part of the default build:
 # cmake --build <dir> --target tmnt_user_data_tests
