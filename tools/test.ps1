@@ -634,6 +634,7 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
 # Temporary diagnostics of the current development branch, with how many markers each file may hold: remove a row when
 # its file is clean. -Release accepts none of them.
 $TemporaryMarkers = @{
+    'patches/rexglue-sdk/0088-debug-saulo-aa838-telemetry.windows.patch' = 15
 }
 
 Invoke-Check 'hygiene: player-facing documents make no stale claims and advertise nothing removed' {
