@@ -15,7 +15,7 @@
 
 namespace tmnt::classic {
 
-inline constexpr std::uint32_t kImporterVersion = 2;
+inline constexpr std::uint32_t kImporterVersion = 3;
 inline constexpr std::uint32_t kOldestCompatibleImporter = 2;
 inline constexpr char kSoundtrackFolder[] = "snes_soundtrack";
 inline constexpr char kSoundSetFile[] = "soundset.bin";
@@ -42,6 +42,9 @@ struct RomAnalysis {
   std::string title;
   std::string rom_sha256;
   std::string fingerprint;
+  // SNES Gameplay data from the same ROM; empty when its gameplay code is not a known one.
+  std::vector<std::uint8_t> gameplay_bytes;
+  std::string gameplay_detail;
 };
 
 // Read-only: validates the ROM and derives the sound set without touching the disk.
@@ -62,6 +65,8 @@ struct ImportResult {
   ImportFailure failure = ImportFailure::kNone;
   std::string detail;
   ClassicSoundtrackManifest manifest;
+  bool gameplay = false;
+  std::string gameplay_detail;
 };
 
 std::filesystem::path SoundtrackFolder(const std::filesystem::path& user_data_root);
@@ -88,7 +93,7 @@ const char* SoundtrackStatusText(SoundtrackStatus status);
 StatusResult QuerySoundtrackStatus(const std::filesystem::path& user_data_root, SoundSet* loaded = nullptr);
 SoundtrackStatus StatusForImport(const ImportResult& result);
 
-// Deletes only <user_data_root>/snes_soundtrack and its staging leftovers.
+// Deletes only <user_data_root>/snes_soundtrack (the soundtrack and the SNES Gameplay data) and its staging leftovers.
 bool RemoveSoundtrack(const std::filesystem::path& user_data_root, std::string& error,
                       const ImportFileOps& ops = {});
 

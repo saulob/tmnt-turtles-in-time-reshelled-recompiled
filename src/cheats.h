@@ -198,6 +198,12 @@ inline constexpr double kTurboPulseSeconds = 0.025;
 
 inline bool CheatActive(bool saved, bool online) { return saved && !online; }
 
+// Cheats change the simulation both players run, so they are off from the moment Online play is enabled, not only in a
+// match; a running online game session blocks them too.
+inline bool CheatsAllowed(bool online_enabled, bool in_online_session = false) {
+  return !online_enabled && !in_online_session;
+}
+
 // Turtle_TakeDamage's health damage. A replicated death empties the health through the same call, so it is kept.
 inline float ShieldedDamage(float damage, bool enabled, bool death) {
   return enabled && !death && damage > 0.0f ? 0.0f : damage;

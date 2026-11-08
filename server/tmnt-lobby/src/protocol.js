@@ -71,7 +71,63 @@ export const CAPABILITIES = {
   relay_max_payload: RELAY.maxPayload,
   relay_frame_version: RELAY.version,
   max_party: MAX_PARTY,
+  snes_features: true,
 };
+
+// SNES gameplay mechanics only: the soundtrack is each player's own and is never negotiated.
+export const SNES_KEYS = ['directional_combat', 'throw_control', 'dash'];
+const SNES_ID = /^[0-9a-f]{1,8}$/;
+
+const snesFlags = () => Object.fromEntries(SNES_KEYS.map((key) => [key, false]));
+const snesIds = () => Object.fromEntries(SNES_KEYS.map((key) => [key, '']));
+
+// What a client announced: a feature it does not support is neither enabled nor identified, and anything missing or
+// malformed reads as unsupported, so a client without SNES features announces nothing at all.
+export function normalizeSnes(value) {
+  const out = { supports: snesFlags(), enabled: snesFlags(), compat: snesIds() };
+  if (!isObject(value)) return out;
+  for (const key of SNES_KEYS) {
+    const supported = isObject(value.supports) && value.supports[key] === true;
+    out.supports[key] = supported;
+    out.enabled[key] = supported && isObject(value.enabled) && value.enabled[key] === true;
+    const id = isObject(value.compat) ? value.compat[key] : '';
+    out.compat[key] = supported && typeof id === 'string' && SNES_ID.test(id) ? id : '';
+  }
+  return out;
+}
+
+// The other players as one: supported only when every one of them is, with the data id they share, or `mixed` when they
+// do not share one. Their choices are not combined: each applies to its own player's turtle.
+export function combineSnes(list) {
+  const out = { supports: snesFlags(), compat: snesIds() };
+  for (const key of SNES_KEYS) {
+    out.supports[key] = list.every((s) => s.supports[key]);
+    const ids = new Set(list.map((s) => s.compat[key]));
+    out.compat[key] = out.supports[key] ? (ids.size === 1 ? [...ids][0] : 'mixed') : '';
+  }
+  return out;
+}
+
+// A mechanic is available to a match only when every player supports it with the same data.
+export function supportedSnes(list) {
+  const out = snesFlags();
+  if (list.length < 2) return out;
+  for (const key of SNES_KEYS) {
+    out[key] = list.every((s) => s.supports[key]) && new Set(list.map((s) => s.compat[key])).size === 1;
+  }
+  return out;
+}
+
+export const offSnesTable = () => ({ supported: snesFlags(), players: {} });
+
+// `entries`: [slot, announcement] for every member. Each slot's row is its own player's choice among what the match
+// supports, so every member is told the same table.
+export function snesTable(entries) {
+  const supported = supportedSnes(entries.map(([, s]) => s));
+  const players = Object.fromEntries(entries.map(([slot, s]) => [String(slot),
+    Object.fromEntries(SNES_KEYS.map((key) => [key, supported[key] && s.enabled[key]]))]));
+  return { supported, players };
+}
 
 // The header of one relay frame, or the reason it is not one. The payload is never looked at.
 export function parseRelayFrame(bytes) {

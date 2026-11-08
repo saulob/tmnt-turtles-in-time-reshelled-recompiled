@@ -16,8 +16,6 @@ using ActivationLog = std::function<void(bool warning, const std::string& line)>
 // Hands the provider callbacks to the audio runtime; false when it refuses them.
 using ProviderRegistration = std::function<bool(const RexXmaPcmProvider* callbacks)>;
 
-enum class RuntimeToggle { kOn, kOff, kUnavailable };
-
 // Owns everything the audio runtime keeps pointers to, so it must live as long as the process.
 class ClassicSoundtrackActivation {
  public:
@@ -27,8 +25,8 @@ class ClassicSoundtrackActivation {
   bool Start(bool enabled, const std::filesystem::path& user_data_root, const ProviderRegistration& register_provider,
              ClassicSoundtrackProvider::Warn warn, ClassicSoundtrackProvider::Warn note, const ActivationLog& log);
 
-  // Runtime override of the starting choice; the setting itself is not touched.
-  RuntimeToggle Toggle();
+  // Runtime override of the starting choice; the setting itself is not touched. False when no provider is registered.
+  bool SetReplacing(bool on);
 
   // The provider is registered with the runtime and can replace music.
   bool ready() const { return ready_.load(std::memory_order_acquire); }

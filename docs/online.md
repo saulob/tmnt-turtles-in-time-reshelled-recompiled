@@ -110,6 +110,44 @@ party. A member's LAN addresses reach only members behind the same address. A ga
 service ends the party, the game plays on and the party ends with the game's session. Every match has one 15 s
 establishment budget.
 
+## SNES gameplay online
+
+Three SNES gameplay mechanics can be used online: **Directional Combat**, **SNES Throw Control** and **SNES Dash**.
+Support is global, choices are per player. A mechanic is available in a match only when every PC supports it with the
+same data; once it is, each player's own On or Off applies to the turtle that player controls, and another player's Off
+never takes it away. **Classic Soundtrack** is not part of this: it is each PC's own presentation, follows that player's
+F9 and launcher choice at once, online too, and needs nothing from the other players. Cheats stay off online, and F10
+only says **Cheats are unavailable while Online play is enabled.**.
+
+- **Supports.** A mechanic needs the gameplay data of a Ready import. Without it, or with an older import that only has
+  the soundtrack, it is unsupported, so nobody in that match has it; the match plays normally.
+- **Data identity.** Directional Combat is identified by the facing table, Throw Control by that table and the throw hold
+  time, Dash by the dash hold time, each hold time with the 50 or 60 Hz clock of the imported ROM. A PAL and an NTSC
+  import share Directional Combat only; Throw Control and Dash are unavailable for that match (F9 shows **Incompatible
+  SNES data**).
+- **Table.** Every member announces `supports`, `enabled` and the identities to the match room. The room answers each
+  member with the same table: the `supported` mechanics and, per party slot, that player's choice among them. Every
+  client checks the supported set against its own rule; it can only shrink.
+- **Who uses which row.** One online player per PC: the PC's party slot is its seat, and its controller drives its turtle.
+  Each PC applies only its own seat's row, and only to the turtle its controller drives. The game's replication master
+  for a turtle is its owner's PC, which decides that turtle's facing, throws and dash; the other PCs receive the result,
+  so every screen shows each turtle with its owner's choices.
+- **Lock per gameplay match.** When the game starts a match (`XSessionStart`) the client asks the room to lock that
+  match's round. The first request fixes the table for everyone, and each client uses it whole or, if its own check
+  cannot back the supported set, not at all (every client runs the same check). The table holds until the match ends
+  (`XSessionEnd`); F9 gameplay changes during the match are announced afterwards and the next match of the same party
+  locks a new table. A room reconnect does not change a locked table.
+- **No answer, no mechanics.** Until the locked table arrives every mechanic is off. Without an answer within 5 s, or with
+  a service that does not negotiate, the client locks all off and, when the room is reachable, asks the room to lock that
+  round all off for everyone. A client that locked all off and then learns the room locked something on leaves the party
+  (reason `snes_mismatch`).
+- **F9 online.** Classic Soundtrack shows the local On or Off and switches at once. A gameplay row shows the player's own
+  On or Off while the match supports it (with **Waiting for players** until everyone has announced), and **Unavailable**
+  with the reason otherwise: another player does not support it, the online service does not support it, or
+  **Incompatible SNES data**. During a locked match **Applies to the next online match** is shown under the gameplay rows.
+- **Older peers and services.** A client or service without this negotiation announces or answers nothing, which reads as
+  unsupported: all three mechanics are unavailable to everyone and the match is otherwise unchanged.
+
 ## Privacy and usage statistics
 
 The online service stores anonymous aggregate usage statistics: player counts, sessions, unique players, rooms created

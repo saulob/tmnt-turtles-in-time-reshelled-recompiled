@@ -6,6 +6,7 @@
 #include "classic_soundtrack/rom_zip.h"
 #include "classic_soundtrack/snes_rom.h"
 #include "classic_soundtrack/sound_parser.h"
+#include "snes_gameplay/gameplay_data.h"
 #include "updater/sha256.h"
 
 namespace tmnt::classic {
@@ -79,7 +80,7 @@ void RecoverInterruptedInstall(const fs::path& root, const ImportFileOps& ops) {
 
 // The previous install is moved aside and only deleted once the new folder is in place.
 bool InstallFolder(const fs::path& root, std::span<const std::uint8_t> soundset, const std::string& manifest_text,
-                   const ImportFileOps& ops, std::string& error) {
+                   std::span<const std::uint8_t> gameplay, const ImportFileOps& ops, std::string& error) {
   const fs::path folder = SoundtrackFolder(root);
   const fs::path staging = Sibling(root, kStagingSuffix);
   const fs::path backup = Sibling(root, kBackupSuffix);
@@ -107,7 +108,8 @@ bool InstallFolder(const fs::path& root, std::span<const std::uint8_t> soundset,
   const std::span<const std::uint8_t> manifest_bytes(reinterpret_cast<const std::uint8_t*>(manifest_text.data()),
                                                      manifest_text.size());
   if (!WriteFileAtomic(staging / kSoundSetFile, soundset, ops) ||
-      !WriteFileAtomic(staging / kManifestFile, manifest_bytes, ops)) {
+      !WriteFileAtomic(staging / kManifestFile, manifest_bytes, ops) ||
+      (!gameplay.empty() && !WriteFileAtomic(staging / snes::kGameplayFile, gameplay, ops))) {
     discard_staging();
     error = "cannot write the sound set files";
     return false;
@@ -217,6 +219,12 @@ RomAnalysis AnalyzeRom(std::span<const std::uint8_t> file, std::string_view expe
   for (size_t id = 0; id < analysis.set.songs.size(); ++id) {
     manifest.songs.push_back(SongEntry(analysis.set, id));
   }
+  const snes::ExtractResult gameplay = snes::ExtractGameplay(rom);
+  if (gameplay.ok) {
+    analysis.gameplay_bytes = snes::SerializeGameplay(gameplay.data, analysis.rom_sha256);
+  } else {
+    analysis.gameplay_detail = gameplay.detail;
+  }
   analysis.failure = ImportFailure::kNone;
   return analysis;
 }
@@ -231,13 +239,16 @@ ImportResult ImportSoundtrackFromBytes(std::span<const std::uint8_t> rom_file, c
     return result;
   }
   std::string error;
-  if (!InstallFolder(user_data_root, analysis.soundset_bytes, SerializeManifest(analysis.manifest), ops, error)) {
+  if (!InstallFolder(user_data_root, analysis.soundset_bytes, SerializeManifest(analysis.manifest),
+                     analysis.gameplay_bytes, ops, error)) {
     result.failure = ImportFailure::kImportFailed;
     result.detail = std::move(error);
     return result;
   }
   result.ok = true;
   result.manifest = std::move(analysis.manifest);
+  result.gameplay = !analysis.gameplay_bytes.empty();
+  result.gameplay_detail = std::move(analysis.gameplay_detail);
   return result;
 }
 

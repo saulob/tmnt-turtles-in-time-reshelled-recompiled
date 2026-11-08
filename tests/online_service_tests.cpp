@@ -113,6 +113,7 @@ struct Rig {
   int identity_asked = 0;
   bool delivered_probe = false;
   bool probe_saw_party = false;
+  SnesGameplayCapabilities snes;
 
   explicit Rig(const std::string& guest = kGuestBase, bool ephemeral = false, const std::string& token = kToken,
                tmnt::netplay::OnlineGameSocket* socket = nullptr) {
@@ -155,6 +156,7 @@ struct Rig {
       delivered.push_back(invite);
       if (delivered_probe) probe_saw_party = service->party().has_value();
     };
+    config.snes = [this] { return snes; };
     config.test_beacon = [this](const std::string& path) {
       beacons.push_back(path);
       if (beacon_throws) throw std::runtime_error("beacon broke");
@@ -1860,6 +1862,269 @@ void TestOnlineOffCreatesNoPartyOrRoom() {
   CHECK(rig.channels.empty() && !rig.service->party() && rig.service->Peers().empty() && rig.service->Assignments().empty());
 }
 
+
+// ---- SNES gameplay: global support, per-player choices, one locked table per gameplay match, all Off without it ----
+
+SnesGameplayCapabilities SnesCaps(SnesGameplaySet on, SnesGameplaySet supports = SnesGameplaySet::FromBits(7)) {
+  SnesGameplayCapabilities caps;
+  caps.supports = supports;
+  caps.enabled = on;
+  caps.compat = {0x1A2B3C4Du, 0x1A2B3C4Du, 0x1A2B3C4Du};
+  return caps.Normalized();
+}
+
+SnesGameplaySet Bits(int bits) { return SnesGameplaySet::FromBits(uint8_t(bits)); }
+
+std::string BitsJson(int bits) {
+  const char* keys[] = {"directional_combat", "throw_control", "dash"};
+  std::string out = "{";
+  for (int i = 0; i < 3; ++i) out += std::string(i ? "," : "") + "\"" + keys[i] + "\":" + ((bits >> i) & 1 ? "true" : "false");
+  return out + "}";
+}
+
+std::string TableJson(int supported, int one, int two) {
+  return "\"supported\":" + BitsJson(supported) + ",\"players\":{\"1\":" + BitsJson(one & supported) + ",\"2\":" +
+         BitsJson(two & supported) + "}";
+}
+
+// The room's view: the other player's support, the table now (`one` is this player in slot 1, `two` the guest), and
+// optionally the table locked for `round`.
+std::string SnesView(int peer_supports, int supported, int one, int two, int round = 0, int lock_supported = 0,
+                     int lock_one = 0, int lock_two = 0) {
+  std::string out = "{\"peer\":{\"supports\":" + BitsJson(peer_supports) +
+                    ",\"compat\":{\"directional_combat\":\"1a2b3c4d\",\"throw_control\":\"1a2b3c4d\",\"dash\":\"1a2b3c4d\"}}," +
+                    TableJson(supported, one, two);
+  if (round) out += ",\"locked\":{\"round\":" + std::to_string(round) + "," + TableJson(lock_supported, lock_one, lock_two) + "}";
+  return out + "}";
+}
+
+// The room greets this client; `snes` is the answer's view (empty: an older service that sends none).
+void OpenSnesRoom(Rig& rig, const std::string& snes, bool service_supports = true) {
+  rig.Tick(0.1);
+  rig.EventRoom(ChannelEvent::Kind::kOpen);
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) +
+               ",\"code\":\"ok\",\"generation\":1,\"relay_token\":4000000000,\"members\":" + kRoomOfTwo +
+               ",\"capabilities\":" + (service_supports ? "{\"snes_features\":true}" : "{}") +
+               (snes.empty() ? "" : ",\"snes\":" + snes) + "}");
+}
+
+int RoomOps(Rig& rig, const std::string& op) {
+  int n = 0;
+  for (const std::string& line : rig.Room().sent) n += Contains(line, "\"op\":\"" + op + "\"") ? 1 : 0;
+  return n;
+}
+
+void AnswerLock(Rig& rig, const std::string& snes) {
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.lock"))) + ",\"code\":\"ok\",\"snes\":" + snes + "}");
+}
+
+std::optional<SnesMatchTable> LockedOf(Rig& rig) { return rig.service->Snes().locked; }
+SnesGameplaySet OwnOf(Rig& rig) {
+  const OnlineService::SnesNegotiation n = rig.service->Snes();
+  return n.locked ? n.locked->For(n.my_slot) : SnesGameplaySet{};
+}
+
+void TestTheRoomHelloAnnouncesOnlyTheGameplayMechanics() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(0b101));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 5, 0));
+  const std::string hello = rig.LastRoomRequest("match.hello");
+  CHECK(Contains(hello, "\"snes\":{\"supports\":" + BitsJson(7)) && Contains(hello, "\"enabled\":" + BitsJson(5)));
+  CHECK(!Contains(hello, "soundtrack"));
+  const OnlineService::SnesNegotiation negotiation = rig.service->Snes();
+  CHECK(negotiation.online && negotiation.my_slot == 1 && !negotiation.locked && negotiation.supported == Bits(7));
+  for (const SnesStatus status : negotiation.status) CHECK(status == SnesStatus::kAvailable);  // the guest's Off is theirs
+}
+
+// A Dash On, B Dash Off: one table, and each turtle keeps its own player's choice.
+void TestEachMatchLocksItsOwnTableInTheSameParty() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(0b100));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 4, 0));
+  rig.service->NoteGameStart();
+  CHECK(!LockedOf(rig));
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.lock") == 1 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":1}"));
+  AnswerLock(rig, SnesView(7, 7, 4, 0, 1, 7, 4, 0));
+  CHECK(LockedOf(rig) && LockedOf(rig)->For(1) == Bits(4) && LockedOf(rig)->For(2) == Bits(0) && OwnOf(rig) == Bits(4));
+  CHECK(rig.CountLogs("online snes locked round=1 supported=7 own=4 source=service") == 1);
+
+  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(7, 7, 4, 4, 1, 7, 4, 0) + "}");
+  CHECK(LockedOf(rig)->For(2) == Bits(0));
+  rig.snes = SnesCaps(Bits(0));
+  rig.Tick(10);
+  CHECK(RoomOps(rig, "snes.update") == 0 && OwnOf(rig) == Bits(4));
+  rig.service->NoteGameStart();
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.lock") == 1 && OwnOf(rig) == Bits(4));
+
+  rig.service->NoteGameEnd();
+  CHECK(!LockedOf(rig) && rig.service->party().has_value() && rig.CountLogs("online snes released round=1") == 1);
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.update") == 1 && Contains(rig.LastRoomRequest("snes.update"), "\"enabled\":" + BitsJson(0)));
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.update"))) + ",\"code\":\"ok\",\"snes\":" +
+               SnesView(7, 7, 0, 4, 1, 7, 4, 0) + "}");
+  CHECK(!LockedOf(rig));
+
+  rig.service->NoteGameStart();
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.lock") == 2 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":2}"));
+  AnswerLock(rig, SnesView(7, 7, 0, 4, 2, 7, 0, 4));
+  CHECK(LockedOf(rig)->For(1) == Bits(0) && LockedOf(rig)->For(2) == Bits(4));
+}
+
+void TestEveryPlayerUsesTheServiceTableWholeOrNotAtAll() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7), Bits(0b011));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 3, 3, 7));
+  rig.service->NoteGameStart();
+  rig.Tick();
+  AnswerLock(rig, SnesView(7, 3, 3, 7, 1, 7, 7, 7));
+  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && OwnOf(rig) == Bits(0));
+}
+
+void TestALockThePeerAlreadyTookIsAdoptedAndAnOldRoundIsNot() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 7, 7));
+  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(7, 7, 7, 7, 1, 7, 6, 1) + "}");
+  rig.service->NoteGameStart();
+  CHECK(LockedOf(rig) && OwnOf(rig) == Bits(6));
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.lock") == 0);
+  rig.service->NoteGameEnd();
+  rig.service->NoteGameStart();
+  CHECK(!LockedOf(rig));
+  rig.Tick();
+  CHECK(RoomOps(rig, "snes.lock") == 1 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":2}"));
+}
+
+// A has Dash on, B has it off, and the service never answers: no path may leave A with Dash on.
+void TestAnUnansweredLockIsAllOffAndTellsTheRoom() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(0b100));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 4, 0));
+  rig.service->NoteGameStart();
+  rig.Tick(4);
+  CHECK(!LockedOf(rig) && OwnOf(rig) == Bits(0));
+  rig.Tick(2);
+  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && OwnOf(rig) == Bits(0));
+  CHECK(rig.CountLogs("online snes locked round=1 supported=0 own=0 source=timeout") == 1);
+  CHECK(RoomOps(rig, "snes.lock") == 2 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":1,\"off\":true"));
+  AnswerLock(rig, "{\"supported\":{},\"players\":{},\"locked\":{\"round\":1,\"supported\":{},\"players\":{}}}");
+  rig.Tick();
+  CHECK(OwnOf(rig) == Bits(0) && rig.service->party().has_value());
+}
+
+void TestALateConflictingLockLeavesTheMatch() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 7, 7));
+  rig.service->NoteGameStart();
+  rig.Tick(6);
+  CHECK(*LockedOf(rig) == SnesMatchTable{});
+  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(7, 7, 7, 7, 1, 7, 0, 4) + "}");
+  rig.Tick();
+  CHECK(!rig.service->party() && !LockedOf(rig));
+  CHECK(rig.CountLogs("online snes lock mismatch round=1") == 1 && rig.CountLogs("party ended reason=snes_mismatch") == 1);
+}
+
+void TestALockWithoutAnyRoomIsAllOff() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  rig.service->NoteGameStart();
+  rig.Tick(6);
+  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{});
+}
+
+void TestARoomBackBeforeTheDeadlineStillLocksFromTheService() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(7, 7, 7, 7));
+  rig.EventRoom(ChannelEvent::Kind::kClosed, "dropped");
+  rig.service->NoteGameStart();
+  rig.Tick(1.5);
+  CHECK(!LockedOf(rig));
+  OpenSnesRoom(rig, SnesView(7, 7, 7, 7, 1, 7, 7, 3));
+  CHECK(LockedOf(rig) && OwnOf(rig) == Bits(7) && LockedOf(rig)->For(2) == Bits(3));
+  rig.EventRoom(ChannelEvent::Kind::kClosed, "dropped");
+  rig.Tick(30);
+  CHECK(OwnOf(rig) == Bits(7));
+}
+
+void TestAnOlderServiceOrPeerMakesNothingAvailable() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, "", false);
+  for (const SnesStatus status : rig.service->Snes().status) CHECK(status == SnesStatus::kUnsupportedByService);
+  rig.snes = SnesCaps(Bits(3));
+  rig.Tick(10);
+  CHECK(RoomOps(rig, "snes.update") == 0);
+  rig.service->NoteGameStart();
+  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && RoomOps(rig, "snes.lock") == 0);
+
+  Rig old_peer;
+  old_peer.snes = SnesCaps(Bits(7));
+  HostWithGuest(old_peer);
+  OpenSnesRoom(old_peer, SnesView(0, 0, 0, 0));
+  for (const SnesStatus status : old_peer.service->Snes().status) CHECK(status == SnesStatus::kUnsupportedByOther);
+  old_peer.service->NoteGameStart();
+  old_peer.Tick();
+  AnswerLock(old_peer, SnesView(0, 0, 0, 0, 1, 0, 0, 0));
+  CHECK(OwnOf(old_peer) == Bits(0));
+}
+
+void TestAPeerWithoutDashTakesItFromEveryone() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, SnesView(3, 3, 3, 3));
+  const OnlineService::SnesNegotiation negotiation = rig.service->Snes();
+  CHECK(negotiation.supported == Bits(3) && negotiation.status[2] == SnesStatus::kUnsupportedByOther &&
+        negotiation.status[0] == SnesStatus::kAvailable);
+}
+
+void TestMissingOrMalformedAnswersTurnNothingOn() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  HostWithGuest(rig);
+  OpenSnesRoom(rig, "");
+  for (const SnesStatus status : rig.service->Snes().status) CHECK(status == SnesStatus::kWaiting);
+  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":{\"peer\":5,\"supported\":{\"dash\":\"yes\"},\"locked\":[]}}");
+  CHECK(rig.service->Snes().supported == SnesGameplaySet{});
+  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(0, 7, 7, 7) + "}");
+  CHECK(rig.service->Snes().supported == SnesGameplaySet{});
+  rig.service->NoteGameStart();
+  rig.Tick();
+  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.lock"))) +
+               ",\"code\":\"ok\",\"snes\":{\"locked\":{\"supported\":{\"dash\":true}}}}");
+  CHECK(!LockedOf(rig));
+  rig.Tick(6);
+  CHECK(*LockedOf(rig) == SnesMatchTable{});
+}
+
+void TestTheOnlineMatchStateForTheHotkeys() {
+  Rig rig;
+  rig.snes = SnesCaps(Bits(7));
+  CHECK(!rig.service->InOnlineMatch());
+  InPartyAsHost(rig);
+  CHECK(!rig.service->InOnlineMatch());
+  rig.Feed(std::string("{\"ev\":\"party.update\",\"party\":") +
+           PartyJson({MemberJson(1, rig.me.c_str(), "Saulo"), MemberJson(2, kFriendA, "SauloB")}) + "}");
+  CHECK(rig.service->InOnlineMatch() && rig.service->Snes().online);
+  rig.service->LeaveFinishedMatch();
+  CHECK(!rig.service->InOnlineMatch() && !rig.service->Snes().online);
+}
+
 }  // namespace
 
 int main() {
@@ -1935,6 +2200,18 @@ int main() {
   TestConnectionTestBeaconNeedsNoSessionOrConnection();
   TestEveryReportedReasonIsAKnownCode();
   TestOnlineOffCreatesNoPartyOrRoom();
+  TestTheRoomHelloAnnouncesOnlyTheGameplayMechanics();
+  TestEachMatchLocksItsOwnTableInTheSameParty();
+  TestEveryPlayerUsesTheServiceTableWholeOrNotAtAll();
+  TestALockThePeerAlreadyTookIsAdoptedAndAnOldRoundIsNot();
+  TestAnUnansweredLockIsAllOffAndTellsTheRoom();
+  TestALateConflictingLockLeavesTheMatch();
+  TestALockWithoutAnyRoomIsAllOff();
+  TestARoomBackBeforeTheDeadlineStillLocksFromTheService();
+  TestAnOlderServiceOrPeerMakesNothingAvailable();
+  TestAPeerWithoutDashTakesItFromEveryone();
+  TestMissingOrMalformedAnswersTurnNothingOn();
+  TestTheOnlineMatchStateForTheHotkeys();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

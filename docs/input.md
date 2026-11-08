@@ -61,8 +61,8 @@ Quick menu check: Enter, WASD, Shift + Arrow, Space, Backspace.
 
 - **F2** toggles the frame counter.
 - **F3** toggles the Ping display while Online play is on.
-- **F9** switches between the SNES soundtrack and the original music for this session when a SNES soundtrack is imported ([classic-soundtrack.md](classic-soundtrack.md)). The launcher setting is not changed.
-- **F10** opens and closes the Cheats menu while playing; it changes the cheats for this session only ([launcher.md](launcher.md)).
+- **F9** opens and closes the SNES menu while playing; it changes Classic Soundtrack, Directional Combat, SNES Throw Control and SNES Dash for this session only ([classic-soundtrack.md](classic-soundtrack.md)). The launcher settings are not changed.
+- **F10** opens and closes the Cheats menu while playing; it changes the cheats for this session only ([launcher.md](launcher.md)). Whenever Online play is enabled it opens nothing and shows **Cheats are unavailable while Online play is enabled.**.
 - **F4** does nothing: ReXGlue's developer overlays on F3 and F4 are removed, and so is its console overlay on Backtick.
 - **F11** toggles Windowed and Borderless Fullscreen of the game window. In the launcher it toggles the launcher's own fullscreen. It is handled by a window input listener (`src/window_host.cpp`) above the app's listener, so it is not passed to the game or to the keyboard device. Auto-repeat is ignored. Details are in [display.md](display.md).
 - The mouse cursor follows the last input device during gameplay. Mouse movement, a mouse button or the wheel shows it; keyboard or controller activity hides it. Mouse-driven overlays (F10 menu, Achievements, notice, runtime menus) always show it. It is handled in `src/window_host.cpp`.

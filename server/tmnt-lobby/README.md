@@ -102,16 +102,18 @@ invited[{player, name}]}`; `generation` is a revision counter, `state` is `joine
 `connecting`, `connected` or `disconnected` (seat in grace), derived from room reports. A friend row is
 `{player, name, online, state, platform, version, guest, build, compatible}`; `state` is `offline`, `online`, `party`,
 `connecting` or `in_game`. `capabilities` is `{protocol_version, worker_build, public_endpoints, relay_supported,
-relay_max_payload, relay_frame_version, max_party}`.
+relay_max_payload, relay_frame_version, max_party, snes_features}`.
 
 Room ops (`wss://<host>/match/<match>`; the first frame must be `match.hello` within 10 s, else close `4003`):
 
 | op | fields | answer |
 |---|---|---|
-| `match.hello` | `proto`, `match`, `slot`, `token` (the `join_token`), `relay`, `generation_seen` | `generation`, `relay_token`, `members[]`, `capabilities`; errors `proto`, `not_found`, `unauthorized`, `party_full`; the previous socket of the slot is closed `4001` |
+| `match.hello` | `proto`, `match`, `slot`, `token` (the `join_token`), `relay`, `generation_seen`, optional `snes` | `generation`, `relay_token`, `members[]`, `capabilities`, `snes`; errors `proto`, `not_found`, `unauthorized`, `party_full`; the previous socket of the slot is closed `4001` |
 | `match.endpoint` | `port`, `lan[]`, optional `public_ip` + `public_port` (both or neither) | -; once per socket generation (`already_set`) |
 | `match.transport` | `peer`, `transport` (`direct`/`relay`) | -; only the lower slot of the pair (`not_owner`), immutable (`already_set`), `relay_unavailable` |
 | `match.link` | `peer`, `state` (`connecting`/`connected`/`lost`) | - |
+| `snes.update` | `snes` | `snes` (the sender's view); a change reaches the others as `match.snes` |
+| `snes.lock` | `round` (the party's gameplay match, from 1), optional `off` | `snes` with that round's `locked`; the first call per round fixes it, `off: true` fixes it all Off |
 | `match.leave` | | - |
 | `ping` | | `time` |
 
@@ -120,7 +122,22 @@ Room events: `match.members` (`members[{slot, state, name, links[{peer, transpor
 `same_network`, `service_forwards_public`), `match.transport` (`a`, `b`, `transport`, `by`; to both ends and to the host),
 `match.peer_lost`, `match.peer_back`, `match.left` (`slot`, `reason`: `left`, `disconnect`, `kicked`, `expired`),
 `match.ended` (`reason`: `host_left`, `expired`, `closed`), `relay.closed` (`peer`, `reason`: `peer_disconnected`,
-`rate_limit`, `peer_backpressure`, `peer_unavailable`, `unavailable`).
+`rate_limit`, `peer_backpressure`, `peer_unavailable`, `unavailable`), `match.snes` (`snes`, one view per recipient).
+
+SNES gameplay. Three mechanics are negotiated per room, `directional_combat`, `throw_control` and `dash`; the Classic
+Soundtrack is each player's own and never reaches the service. A client announces
+`snes: {supports{...}, enabled{...}, compat{...}}`: what its build and imported data support, what its player chose for
+their own turtle, and for each supported mechanic a data id of up to 8 hex digits (equal ids mean it behaves the same on
+every machine: the facing table for `directional_combat`, that table or the hold time with the 50 or 60 Hz clock for
+`throw_control` and `dash`, so a PAL and an NTSC import disagree on those two only). Missing or malformed fields read as
+unsupported, `enabled` is cut to `supports`, and a client that sends no `snes` supports nothing. Support is global: a
+mechanic is `supported` when every member supports it and all ids are equal. Choices are per player: `players` maps each
+member's slot to its own choice among the supported mechanics, and one player's Off never takes a mechanic from another.
+The answer is `snes: {peer, supported{...}, players{"1": {...}, ...}, locked?}`, where `peer` combines the other members'
+support (`compat` is the shared id or `mixed`) and is left out, with an empty table, until every member has announced. The
+room keeps the latest announcement per slot and sends each member a fresh `match.snes` when one changes or a member leaves.
+The first `snes.lock` of a round (a member's game started that gameplay match) stores `locked: {round, supported,
+players}`, the one table every member uses for that match; it never changes, and the next round is negotiated again.
 
 Errors: `bad_request`, `too_large`, `no_session`, `proto`, `bad_game`, `bad_guest`, `unauthorized`, `not_found`,
 `not_friends`, `no_party`, `not_host`, `not_owner`, `already_set`, `offline`, `busy`, `already_invited`,

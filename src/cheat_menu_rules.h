@@ -11,6 +11,7 @@ inline constexpr char kCheatMenuTitle[] = "CHEATS";
 inline constexpr char kCheatMenuCloseHint[] = "F10 Close";
 inline constexpr char kCheatMenuNote[] = "Not saved to the launcher";
 inline constexpr char kCheatMenuOnlineNote[] = "No effect in online matches";
+inline constexpr char kCheatsOnlineUnavailable[] = "Cheats are unavailable while Online play is enabled.";
 
 inline constexpr char kSpinAttackControllerHelp[] = "Controller: B";
 inline constexpr char kSpinAttackKeyboardHelp[] = "Keyboard:";
@@ -46,7 +47,7 @@ inline bool CanOpenCheatMenu(bool attached, bool modal_open) { return attached &
 // What F10, Escape and the pad do to the menu. A change applies to the session only.
 class CheatMenuModel {
  public:
-  enum class Action { kNone, kOpen, kClose, kChange };
+  enum class Action { kNone, kOpen, kClose, kChange, kUnavailable };
   struct Result {
     Action action = Action::kNone;
     size_t row = 0;
@@ -61,9 +62,11 @@ class CheatMenuModel {
   // The dialog went away by itself, as the launcher's overlays do.
   void Closed() { open_ = false; }
 
-  Result Press(MenuKey key, bool can_open) {
+  // Online, F10 only says that cheats are unavailable, and an open menu changes nothing.
+  Result Press(MenuKey key, bool can_open, bool online = false) {
     if (key == MenuKey::kF10) {
       if (open_) return Close();
+      if (online) return {Action::kUnavailable, 0};
       if (!can_open) return {};
       open_ = true;
       selected_ = 0;
@@ -82,7 +85,7 @@ class CheatMenuModel {
         return {};
       case MenuKey::kEnter:
       case MenuKey::kPadA:
-        return {Action::kChange, selected_};
+        return online ? Result{} : Result{Action::kChange, selected_};
       case MenuKey::kF10:
         break;
     }

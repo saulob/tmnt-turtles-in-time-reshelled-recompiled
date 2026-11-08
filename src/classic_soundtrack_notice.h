@@ -2,21 +2,19 @@
 
 #include <mutex>
 
-#include "classic_soundtrack/activation.h"
 #include "localization/ui_text.h"
 
 namespace tmnt {
 
-enum class SoundtrackNotice { kNone, kOn, kOff, kUnavailable };
+enum class SoundtrackNotice { kNone, kOn, kCheatsUnavailable };
 
 inline constexpr double kStartupNoticeSeconds = 5.0;
-inline constexpr double kToggleNoticeSeconds = 3.0;
+inline constexpr double kHotkeyNoticeSeconds = 3.0;
 
 inline constexpr const char* SoundtrackNoticeText(SoundtrackNotice notice) {
   switch (notice) {
     case SoundtrackNotice::kOn: return "SNES soundtrack: On";
-    case SoundtrackNotice::kOff: return "SNES soundtrack: Off";
-    case SoundtrackNotice::kUnavailable: return "SNES soundtrack: Unavailable";
+    case SoundtrackNotice::kCheatsUnavailable: return "Cheats are unavailable while Online play is enabled.";
     case SoundtrackNotice::kNone: break;
   }
   return "";
@@ -24,15 +22,6 @@ inline constexpr const char* SoundtrackNoticeText(SoundtrackNotice notice) {
 
 inline const char* LocalizedSoundtrackNoticeText(SoundtrackNotice notice) {
   return notice == SoundtrackNotice::kNone ? "" : Tr(SoundtrackNoticeText(notice));
-}
-
-inline constexpr SoundtrackNotice NoticeForToggle(classic::RuntimeToggle toggle) {
-  switch (toggle) {
-    case classic::RuntimeToggle::kOn: return SoundtrackNotice::kOn;
-    case classic::RuntimeToggle::kOff: return SoundtrackNotice::kOff;
-    case classic::RuntimeToggle::kUnavailable: break;
-  }
-  return SoundtrackNotice::kUnavailable;
 }
 
 // One short message at a time. A new message replaces the old one, and its time runs from the first frame that asks

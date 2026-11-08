@@ -54,13 +54,12 @@ bool ClassicSoundtrackActivation::Start(bool enabled, const std::filesystem::pat
   return active();
 }
 
-RuntimeToggle ClassicSoundtrackActivation::Toggle() {
+bool ClassicSoundtrackActivation::SetReplacing(bool on) {
   if (!ready() || !provider_) {
-    return RuntimeToggle::kUnavailable;
+    return false;
   }
-  const bool on = !provider_->replacing();
   provider_->SetReplacing(on);
-  return on ? RuntimeToggle::kOn : RuntimeToggle::kOff;
+  return true;
 }
 
 }  // namespace tmnt::classic

@@ -372,7 +372,7 @@ void TestEffectiveState() {
   ActivationRun declined = Activate(refused, true, root, false);
   CHECK(!declined.active && !refused.active() && !refused.ready() && refused.provider() == nullptr &&
         declined.registrations == 1);
-  CHECK(refused.Toggle() == RuntimeToggle::kUnavailable);
+  CHECK(!refused.SetReplacing(true));
   CHECK(declined.warnings.size() == 1 && Has(declined.warnings[0], "did not accept the music provider"));
   CHECK(Has(declined.lines.back(), "Ready, source"));
 
@@ -413,7 +413,7 @@ void TestEffectiveState() {
   ActivationRun removed_off = Activate(after_remove_off, player.Enabled(), root);
   CHECK(!removed_off.active && removed_off.warnings.empty() && removed_off.registrations == 0);
   CHECK(removed_off.lines.size() == 1 && removed_off.lines[0] == "Classic soundtrack: Off");
-  CHECK(after_remove_off.Toggle() == RuntimeToggle::kUnavailable);
+  CHECK(!after_remove_off.SetReplacing(true));
 
   const ClassicSettingStore broken{[](const std::string&) { return false; }, [] { return std::string(); }};
   const ClassicToggleOutcome unsaved = CommitClassicToggle(false, ClassicSoundtrackStatus::kReady, broken);
@@ -456,8 +456,6 @@ void TestMusicDiagnostics() {
 void TestOverlay() {
   std::printf("overlay: the SNES message sits directly under the FPS counter, Ping moves only while it shows\n");
   CHECK(std::string(SoundtrackNoticeText(SoundtrackNotice::kOn)) == "SNES soundtrack: On");
-  CHECK(std::string(SoundtrackNoticeText(SoundtrackNotice::kOff)) == "SNES soundtrack: Off");
-  CHECK(std::string(SoundtrackNoticeText(SoundtrackNotice::kUnavailable)) == "SNES soundtrack: Unavailable");
   CHECK(std::string(SoundtrackNoticeText(SoundtrackNotice::kNone)).empty());
   CHECK(FrameCounterSlot() == 0 && ClassicSoundtrackSlot(true) == 1 && ClassicSoundtrackSlot(false) == 0);
   CHECK(PingSlot(true) == 1 && PingSlot(false) == 0);
@@ -497,8 +495,8 @@ void TestOverlay() {
 }
 
 void TestTransientNotices() {
-  std::printf("notices: startup 5 s, F9 messages 3 s, one at a time, nothing left behind\n");
-  CHECK(kStartupNoticeSeconds == 5.0 && kToggleNoticeSeconds == 3.0);
+  std::printf("notices: the startup message shows 5 s, one at a time, nothing left behind\n");
+  CHECK(kStartupNoticeSeconds == 5.0);
   SoundtrackNoticeState state;
   CHECK(state.Current(0.0) == SoundtrackNotice::kNone);
 
@@ -509,33 +507,15 @@ void TestTransientNotices() {
   CHECK(state.Current(105.0) == SoundtrackNotice::kNone);
   CHECK(state.Current(105.1) == SoundtrackNotice::kNone && state.Current(500.0) == SoundtrackNotice::kNone);
 
-  for (const SoundtrackNotice notice : {SoundtrackNotice::kOn, SoundtrackNotice::kOff, SoundtrackNotice::kUnavailable}) {
-    state.Show(notice, kToggleNoticeSeconds);
-    CHECK(state.Current(200.0) == notice);
-    CHECK(state.Current(202.9) == notice);
-    CHECK(state.Current(203.0) == SoundtrackNotice::kNone);
-  }
-
-  state.Show(SoundtrackNotice::kOff, kToggleNoticeSeconds);
-  CHECK(state.Current(300.0) == SoundtrackNotice::kOff);
-  state.Show(SoundtrackNotice::kOn, kToggleNoticeSeconds);
-  CHECK(state.Current(301.0) == SoundtrackNotice::kOn);
-  CHECK(state.Current(303.9) == SoundtrackNotice::kOn);
-  CHECK(state.Current(304.0) == SoundtrackNotice::kNone);
-
   SoundtrackNoticeState early;
   early.Show(SoundtrackNotice::kOn, kStartupNoticeSeconds);
   CHECK(early.Current(1000.0) == SoundtrackNotice::kOn);
   CHECK(early.Current(1004.0) == SoundtrackNotice::kOn);
-
-  CHECK(NoticeForToggle(RuntimeToggle::kOn) == SoundtrackNotice::kOn);
-  CHECK(NoticeForToggle(RuntimeToggle::kOff) == SoundtrackNotice::kOff);
-  CHECK(NoticeForToggle(RuntimeToggle::kUnavailable) == SoundtrackNotice::kUnavailable);
 }
 
-void TestF9Toggle() {
-  std::printf("F9: switches this session only, restarts the SNES song, unavailable without an import\n");
-  TempDir dir("tmnt_classic_launcher_f9");
+void TestSessionSwitch() {
+  std::printf("session switch: the F9 menu changes the soundtrack for this session only, unavailable without an import\n");
+  TempDir dir("tmnt_classic_launcher_session");
   const fs::path root = dir.path() / "user_data";
   const PlayerFile player{root / "settings.toml"};
   fs::create_directories(root);
@@ -549,16 +529,13 @@ void TestF9Toggle() {
     CHECK(Activate(game, configured, root, true, &callbacks).active == configured);
     CHECK(game.ready() && game.active() == configured);
 
-    CHECK(game.Toggle() == (configured ? RuntimeToggle::kOff : RuntimeToggle::kOn));
-    CHECK(game.active() == !configured);
-    CHECK(game.Toggle() == (configured ? RuntimeToggle::kOn : RuntimeToggle::kOff));
-    CHECK(game.active() == configured);
+    CHECK(game.SetReplacing(!configured) && game.active() == !configured);
+    CHECK(game.SetReplacing(configured) && game.active() == configured);
     for (int press = 0; press < 5; ++press) {
-      game.Toggle();
+      game.SetReplacing(!game.active());
     }
     CHECK(game.active() == !configured);
-    game.Toggle();
-    CHECK(game.active() == configured);
+    CHECK(game.SetReplacing(configured) && game.active() == configured);
   }
   CHECK(ReadText(player.path) == settings_before && player.Enabled());
 
@@ -566,16 +543,14 @@ void TestF9Toggle() {
   const fs::path nothing = dir.path() / "nothing";
   ActivationRun unavailable = Activate(empty, true, nothing);
   CHECK(!unavailable.active && !empty.ready());
-  CHECK(empty.Toggle() == RuntimeToggle::kUnavailable && empty.Toggle() == RuntimeToggle::kUnavailable);
+  CHECK(!empty.SetReplacing(true) && !empty.SetReplacing(false));
   CHECK(!empty.active() && !fs::exists(nothing));
-  CHECK(NoticeForToggle(empty.Toggle()) == SoundtrackNotice::kUnavailable);
 
   const std::string overlay = ReadText(fs::path(TMNT_ROOT_DIR) / "src" / "classic_soundtrack_overlay.cpp");
-  for (const char* banned : {"SetFlagByName", "SaveNow", "settings_", "REXCVAR_GET(tmnt_classic_soundtrack)", "settings.toml"}) {
+  for (const char* banned : {"SetFlagByName", "SaveNow", "settings_", "REXCVAR_GET(tmnt_classic_soundtrack)", "settings.toml",
+                             "RegisterBind", "SetClassicSoundtrackActive"}) {
     CHECK(!Has(overlay, banned));
   }
-  CHECK(Has(overlay, "kClassicSoundtrackKey") && Has(overlay, "ToggleClassicSoundtrack()"));
-  CHECK(std::string(kClassicSoundtrackKey) == "F9");
 }
 
 std::set<std::string> PortugueseKeys(const std::string& table, std::vector<std::string>* duplicates) {
@@ -612,13 +587,13 @@ void TestLocalization() {
     std::printf("    %s\n", problem.c_str());
   }
   std::vector<std::string> strings = {
-      "Classic soundtrack", "SNES soundtrack", "Import SNES soundtrack", "Remove SNES soundtrack", "Import...",
+      "Classic Soundtrack", "SNES soundtrack", "Import SNES soundtrack", "Remove SNES soundtrack", "Import...",
       "Import again...", "Remove...", "Remove", "Cancel", "Off", "On", "Remove the imported SNES soundtrack?",
       "Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM", "SNES ROM", "Importing SNES soundtrack...",
       "Import failed", "Could not remove the imported SNES soundtrack.", "Removed the imported SNES soundtrack.",
-      "Language, on-screen information, the classic soundtrack and player names.",
-      "Plays the SNES soundtrack instead of the Re-Shelled music. Press F9 during gameplay to switch between them",
-      "Deletes the imported music. Your ROM file is not touched.", "Could not save the Classic soundtrack setting.",
+      "Language, on-screen information, Quick Play stages and player names.",
+      "Plays the SNES soundtrack instead of the Re-Shelled music",
+      "Deletes the imported music and SNES Gameplay data. Your ROM file is not touched.", "Could not save the Classic soundtrack setting.",
       "Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards."};
   for (const auto status : {ClassicSoundtrackStatus::kNotImported, ClassicSoundtrackStatus::kReady,
                             ClassicSoundtrackStatus::kImporting, ClassicSoundtrackStatus::kReimportRequired}) {
@@ -639,7 +614,7 @@ void TestLocalization() {
       std::printf("    missing pt-BR row: %s\n", english.c_str());
     }
   }
-  for (const char* literal : {"\"Classic soundtrack\"", "\"SNES soundtrack\"", "\"Import SNES soundtrack\"",
+  for (const char* literal : {"\"Classic Soundtrack\"", "\"SNES ROM\"", "\"Import SNES soundtrack\"",
                               "\"Remove SNES soundtrack\"", "\"Remove the imported SNES soundtrack?\""}) {
     CHECK(Has(launcher, literal));
   }
@@ -671,8 +646,8 @@ void TestWiring() {
   CHECK(Has(ReadText(root / "src" / "tmnt_turtles_in_time_reshelled_app.h"), "tmnt::StartClassicSoundtrack(user_data_root());"));
 
   const std::string launcher = ReadText(root / "src" / "launcher.cpp");
-  CHECK(Has(launcher, "[this](trg::Ui& ui) { PageGameplay(ui); }"));
-  CHECK(Has(launcher, "    ClassicSoundtrackRows(ui);\n") || Has(launcher, "    ClassicSoundtrackRows(ui);\r\n"));
+  CHECK(Has(launcher, "[this](trg::Ui& ui) { PageSnes(ui); }"));
+  CHECK(Has(launcher, "    ClassicSoundtrackRows(ui, status);\n") || Has(launcher, "    ClassicSoundtrackRows(ui, status);\r\n"));
   CHECK(Has(launcher, "PollClassicImport();"));
   CHECK(Has(launcher, "classic_task_.running()) {"));
   CHECK(Has(launcher, "ImGui::BeginDisabled(!usable);"));
@@ -681,11 +656,11 @@ void TestWiring() {
   CHECK(Has(launcher, "CommitClassicToggle(requested, status, store)"));
   CHECK(Has(launcher, "PersistClassicToggle(settings_.GetBool(kClassicSoundtrackSetting, false), status);"));
   CHECK(Has(launcher, "PersistClassicToggle(false, classic_->status());"));
-  const size_t info_row = launcher.find("ui.Info(\"SNES soundtrack\"");
+  const size_t info_row = launcher.find("ui.Info(\"SNES ROM\"");
   const size_t import_row = launcher.find("ui.Row(\"Import SNES soundtrack\"");
-  const size_t toggle_row = launcher.find("ui.Toggle(\"Classic soundtrack\"");
+  const size_t toggle_row = launcher.find("ui.Toggle(\"Classic Soundtrack\"");
   const size_t remove_row = launcher.find("ui.ConfirmRow(\"Remove SNES soundtrack\"");
-  CHECK(info_row < import_row && import_row < toggle_row && toggle_row < remove_row);
+  CHECK(info_row < import_row && import_row < remove_row && remove_row < toggle_row);
   CHECK(Has(launcher, "\"*.sfc;*.smc;*.zip\""));
   for (const char* banned : {"AnalyzeRom", "KnownRomRegion", "kKnownRoms", "NormalizeRom", "SoundtrackFingerprint"}) {
     CHECK(!Has(launcher, banned));
@@ -694,7 +669,7 @@ void TestWiring() {
   const std::string runtime = ReadText(root / "src" / "classic_soundtrack_runtime.cpp");
   CHECK(Has(runtime, "REXCVAR_GET(tmnt_classic_soundtrack), user_data_root,"));
   CHECK(Has(runtime, "rex_audio_set_xma_pcm_provider(callbacks);"));
-  CHECK(Has(runtime, "classic::RuntimeToggle ToggleClassicSoundtrack() {"));
+  CHECK(Has(runtime, "bool SetClassicSoundtrackActive(bool on) {"));
   CHECK(Has(runtime, "static auto* activation = new classic::ClassicSoundtrackActivation;"));
   const std::string activation = ReadText(root / "src" / "classic_soundtrack" / "activation.cpp");
   const size_t gate = activation.find("if (start.start != RuntimeStart::kReady) {");
@@ -725,7 +700,7 @@ int main() {
   TestMusicDiagnostics();
   TestOverlay();
   TestTransientNotices();
-  TestF9Toggle();
+  TestSessionSwitch();
   TestLocalization();
   TestWiring();
   std::printf("%d checks, %d failed\n", g_checks, g_failures);

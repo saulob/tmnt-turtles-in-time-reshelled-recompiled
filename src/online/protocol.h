@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "online/party_report.h"
+#include "online/snes_features.h"
 
 namespace tmnt::online {
 
@@ -135,6 +136,7 @@ struct ServiceCapabilities {
   bool public_endpoints = false;
   bool relay_supported = false;
   int relay_max_payload = 0;
+  bool snes_features = false;
 };
 
 struct PeerInfo {
@@ -169,6 +171,7 @@ struct ServerMessage {
     kPartyEnded,
     kMatchTransport,
     kRelayClosed,
+    kMatchSnes,
   };
   Kind kind = Kind::kResponse;
 
@@ -199,6 +202,7 @@ struct ServerMessage {
   PeerInfo peer;
   std::string transport;  // match.transport: "direct" or "relay"
   std::optional<ServiceCapabilities> capabilities;  // hello
+  std::optional<MatchSnes> snes;  // match.hello and snes.update answers, match.snes
 };
 
 // Nothing for text that is not a known, well-formed server message.
@@ -236,7 +240,11 @@ std::string EncodeInviteSend(int seq, const std::string& player);
 std::string EncodeInviteAccept(int seq, const std::string& invite);
 std::string EncodeInviteDecline(int seq, const std::string& invite);
 std::string EncodeMatchHello(int seq, const std::string& match, int slot, const std::string& join_token,
-                             int generation_seen);
+                             int generation_seen, const SnesGameplayCapabilities& snes = {});
+std::string EncodeSnesUpdate(int seq, const SnesGameplayCapabilities& snes);
+// The game started its `round`th match of the party: the room fixes that match's table for everyone. `off` asks for all
+// Off when nothing is fixed for the round yet.
+std::string EncodeSnesLock(int seq, int round, bool off = false);
 // `port` is the gameplay socket's local port; `public_ip`:`public_port` is that socket's STUN-mapped endpoint, left out
 // when `public_port` is 0.
 std::string EncodeMatchEndpoint(int seq, uint16_t port, const std::vector<std::string>& lan,

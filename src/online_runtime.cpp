@@ -23,6 +23,7 @@
 #include "online_setting.h"
 #include "player_match.h"
 #include "port_version.h"
+#include "snes_gameplay_runtime.h"
 
 REXCVAR_DEFINE_BOOL(tmnt_online_enabled, tmnt::kDefaultOnlineEnabled, "TMNT",
                     "Online play: friends, and the game's online matches with them over the internet");
@@ -100,6 +101,7 @@ online::ServiceConfig MakeConfig() {
   config.identity = ResolveIdentity;
   config.log = [](const std::string& line) { REXLOG_INFO("{}", line); };
   config.invite_accepted = DeliverAcceptedInvite;
+  config.snes = LocalSnesCapabilities;
   return config;
 }
 

@@ -196,6 +196,7 @@ set(TMNT_ONLINE_SOURCES
     src/online/protocol.cpp
     src/online/random.cpp
     src/online/rendezvous.cpp
+    src/online/snes_features.cpp
     src/online/stun.cpp
     src/online/telemetry.cpp
     src/online/upnp.cpp
@@ -240,6 +241,8 @@ set(TMNT_CLASSIC_SOUNDTRACK_CORE
     src/classic_soundtrack/soundtrack_stream.cpp
     src/classic_soundtrack/spc_player.cpp
     src/classic_soundtrack/xma_provider.cpp
+    src/snes_gameplay/gameplay_data.cpp
+    src/snes_gameplay/runtime_start.cpp
 )
 
 set(TMNT_SOURCES
@@ -254,6 +257,8 @@ set(TMNT_SOURCES
     src/classic_soundtrack_overlay.cpp
     src/classic_soundtrack_page.cpp
     src/classic_soundtrack_runtime.cpp
+    src/snes_gameplay_runtime.cpp
+    src/snes_menu.cpp
     src/crash_report.cpp
     src/diagnostics.cpp
     src/frame_counter.cpp
@@ -425,7 +430,7 @@ endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
         src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp
-        src/cheats_tmnt_r.cpp)
+        src/cheats_tmnt_r.cpp src/snes_gameplay_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
@@ -590,6 +595,19 @@ target_link_libraries(tmnt_classic_soundtrack_launcher_tests PRIVATE tmnt_snes_s
 add_executable(tmnt_classic_soundtrack_tool EXCLUDE_FROM_ALL tools/classic_soundtrack_tool.cpp src/classic_soundtrack/playback_check.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
 target_include_directories(tmnt_classic_soundtrack_tool PRIVATE src)
 target_link_libraries(tmnt_classic_soundtrack_tool PRIVATE tmnt_snes_spc)
+
+# SNES Gameplay tests, not part of the default build: cmake --build <dir> --target tmnt_snes_gameplay_tests
+add_executable(tmnt_snes_gameplay_tests EXCLUDE_FROM_ALL tests/snes_gameplay_tests.cpp
+    ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_snes_gameplay_tests PRIVATE src)
+target_compile_definitions(tmnt_snes_gameplay_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_snes_gameplay_tests PRIVATE tmnt_snes_spc)
+
+# SNES menu tests, not part of the default build: cmake --build <dir> --target tmnt_snes_menu_tests
+add_executable(tmnt_snes_menu_tests EXCLUDE_FROM_ALL tests/snes_menu_tests.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_snes_menu_tests PRIVATE src)
+target_compile_definitions(tmnt_snes_menu_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_snes_menu_tests PRIVATE tmnt_snes_spc)
 
 # Multisampling setting tests, not part of the default build: cmake --build <dir> --target tmnt_multisampling_tests
 add_executable(tmnt_multisampling_tests EXCLUDE_FROM_ALL tests/multisampling_tests.cpp)
@@ -1019,7 +1037,7 @@ endif()
 # Online play: protocol, identity and instance isolation, the service state machine over a scripted channel, the
 # connection test, per-peer ping, telemetry, wire parity with the online service, and the settings wiring. Headless; nothing opens a window. The
 # integration test skips unless TMNT_LOBBY_TEST_URL names a lobby server (node server/tmnt-lobby/local/server.js).
-foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report)
+foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report snes)
     set(_name tmnt_online_${_test}_tests)
     add_executable(${_name} EXCLUDE_FROM_ALL tests/online_${_test}_tests.cpp ${TMNT_ONLINE_SOURCES})
     target_include_directories(${_name} PRIVATE src tests)

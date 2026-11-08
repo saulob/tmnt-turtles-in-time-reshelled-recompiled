@@ -6,18 +6,26 @@
 #include <imgui.h>
 
 #include <rex/cvar.h>
+#include <rex/logging.h>
 
 #include <rex/ui/imgui_drawer.h>
 #include <rex/ui/virtual_key.h>
 #include <rex/ui/window.h>
 
 #include "cheats.h"
+#include "classic_soundtrack_overlay.h"
 #include "keybinds.h"
 #include "launcher.h"
 #include "localization/ui_text.h"
 #include "modal_dialog.h"
+#include "online_setting.h"
 
 namespace tmnt {
+namespace {
+
+bool CheatsBlocked() { return !cheats::CheatsAllowed(rex::cvar::Query<bool>(kOnlineEnabledSetting)); }
+
+}  // namespace
 namespace {
 
 // Above the ImGui drawer (64), so F10 is consumed before the drawer or the game see it.
@@ -37,13 +45,17 @@ class CheatMenuDialog final : public ModalDialog {
 
  protected:
   void DrawContent(ImGuiIO& io) override {
+    if (CheatsBlocked()) {
+      RequestClose();
+      return;
+    }
     ReadKeys();
     DrawMenu(io);
   }
 
  private:
   void Press(cheats::MenuKey key) {
-    const cheats::CheatMenuModel::Result result = menu_.model_.Press(key, true);
+    const cheats::CheatMenuModel::Result result = menu_.model_.Press(key, true, CheatsBlocked());
     if (result.action != cheats::CheatMenuModel::Action::kChange) {
       return;
     }
@@ -176,8 +188,11 @@ void CheatMenu::OnKeyDown(rex::ui::KeyEvent& e) {
     return;
   }
   const bool can_open = cheats::CanOpenCheatMenu(drawer_ != nullptr, ModalDialog::AnyOpen());
-  const cheats::CheatMenuModel::Result result = model_.Press(cheats::MenuKey::kF10, can_open);
-  if (result.action == cheats::CheatMenuModel::Action::kOpen) {
+  const cheats::CheatMenuModel::Result result = model_.Press(cheats::MenuKey::kF10, can_open, CheatsBlocked());
+  if (result.action == cheats::CheatMenuModel::Action::kUnavailable) {
+    REXLOG_INFO("Cheats menu blocked: Online play enabled");
+    ShowCheatsUnavailableNotice();
+  } else if (result.action == cheats::CheatMenuModel::Action::kOpen) {
     dialog_ = new CheatMenuDialog(drawer_, *this);
   } else if (result.action == cheats::CheatMenuModel::Action::kClose && dialog_) {
     dialog_->RequestClose();

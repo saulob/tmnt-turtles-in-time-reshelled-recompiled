@@ -35,6 +35,7 @@ export const REASON_TABLE = Object.freeze([
   ['disconnect', 'disconnect'],
   ['disabled', 'disconnect'],
   ['host_unreachable', 'disconnect'],
+  ['snes_mismatch', 'disconnect'],
   ['party_replaced', 'disconnect'],
   ['join_timeout', 'disconnect'],
   ['timeout', 'disconnect'],

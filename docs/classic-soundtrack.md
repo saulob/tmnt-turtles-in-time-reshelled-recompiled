@@ -35,14 +35,18 @@ the ROM again. Until then the game uses the Re-Shelled music.
 
 ## In the game
 
-- **F9** switches between the SNES soundtrack and the original Re-Shelled music while you play, for A/B listening. It
-  works from either starting choice as long as a SNES soundtrack is Ready, changes nothing in the launcher settings, and
-  the next start uses the launcher choice again. Switching to the original is immediate. Switching back starts the SNES
-  song of the music that is playing from its beginning. Without an imported soundtrack it shows **SNES soundtrack:
-  Unavailable**.
+- **F9** opens and closes the SNES menu: **Classic Soundtrack** under AUDIO, and **Directional Combat**, **SNES Throw
+  Control** and **SNES Dash** under GAMEPLAY. Up and Down or the D-pad select a row, Enter or A switches it, Escape or B
+  closes. A change applies to this session only, never reaches the launcher settings, and the next start uses the
+  launcher choices again. Switching Classic Soundtrack to the original music is immediate. Switching it back starts the
+  SNES song of the music that is playing from its beginning.
+- Online, Classic Soundtrack stays local: each player hears the music they chose, F9 switches it at once during a match,
+  and the other players need neither the same choice nor a ROM. Only the three gameplay rows depend on the others
+  ([online.md](online.md)).
+- Without an imported ROM the menu still opens, says **SNES ROM not imported**, and every row is disabled. An older
+  import keeps a usable Classic Soundtrack and asks to re-import the ROM for the three gameplay rows.
 - A short message appears under the frame counter (top corner without it): **SNES soundtrack: On** for 5 seconds when
-  the game starts with the SNES music, then **On**, **Off** or **Unavailable** for 3 seconds after each F9. The Ping
-  display moves down only while a message shows.
+  the game starts with the SNES music. The Ping display moves down only while it shows.
 
 Only the music changes. Sound effects and voices stay as they are, and the in-game music volume still applies. If
 the imported music cannot be used when the game starts, the game logs one warning and plays the Re-Shelled music.
@@ -72,7 +76,7 @@ stages they belong to, and the outro follows the last boss.
 | `Classic soundtrack: enabled, 14 music streams` | the provider is registered and the SNES music is active |
 | `Classic soundtrack: the original music plays because ...` | On, but the import or the provider is not usable |
 | `Classic soundtrack: StartMenu plays SNES song 6 OPEN with pack 0 at 44100 Hz` | a Re-Shelled music stream started playing an SNES song, at the stream's rate |
-| `Classic soundtrack: F9 key -> SNES soundtrack: Off` | the player switched at run time |
+| `SNES: Classic Soundtrack Off for this session` | the player switched it in the F9 menu |
 | `Classic soundtrack: DEBUG_SAULO XMA stream not recognised, ...` | a large stream matched no known music, once per stream |
 
 ## How it works (developers)
@@ -100,7 +104,7 @@ stages they belong to, and the outro follows the last boss.
   the ROM region). The patched runtime tells the provider the rate of the XMA stream, the provider resamples to exactly
   that rate, and the game's own mixer carries it to the output device (48000 Hz on the reference machine). The
   provider writes exactly the stereo frames each decoded XMA block holds, in any callback size.
-- **F9** only flips an atomic flag the provider reads. A recognised music stream keeps its slot while the original
+- The F9 menu only flips an atomic flag the provider reads. A recognised music stream keeps its slot while the original
   plays; patch 0087 lets the render callback pass a block through without ending the stream.
 
 Developer commands (not needed to use the feature). `render` writes a WAV file and `analyze` prints statistics; neither

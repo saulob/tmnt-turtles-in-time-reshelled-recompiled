@@ -363,6 +363,7 @@ void SessionStart(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
 
 void SessionEnd(PPCContext& ctx, uint8_t* base, PPCFunc* original) {
   SessionStateChange(ctx, base, original, tmnt::kSessionStateReporting);
+  if (CurrentLive().available) tmnt::Online().NoteGameEnd();
 }
 
 void SessionGetDetails(PPCContext& ctx, uint8_t* base, PPCFunc* original) {

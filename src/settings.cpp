@@ -34,6 +34,7 @@
 #include "player_names.h"
 #include "quick_play_unlock.h"
 #include "retired_settings.h"
+#include "snes_gameplay/rules.h"
 #include "system_info.h"
 #include "updater/sha256.h"
 
@@ -46,6 +47,10 @@ REXCVAR_DEFINE_BOOL(tmnt_skip_launcher, false, "TMNT",
 REXCVAR_DEFINE_BOOL(tmnt_skip_intro, false, "TMNT", "Start directly at the title screen");
 REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false, "TMNT",
                     "In development: replace the music with the imported SNES soundtrack");
+REXCVAR_DEFINE_BOOL(tmnt_snes_directional_combat, true, "TMNT",
+                    "SNES: SNES combat facing and attack direction; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_snes_throw_control, true, "TMNT", "SNES: predictable SNES throw selection; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_snes_dash, true, "TMNT", "SNES: SNES dash timing; not applied online");
 REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_health, false, "TMNT",
                     "Cheat: local players' turtles keep their maximum health; not applied online");
 REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_lives, false, "TMNT",
@@ -119,6 +124,9 @@ std::vector<std::string> GameSettingKeys() {
       "anisotropic_override",
       "tmnt_skip_intro",
       "tmnt_classic_soundtrack",
+      snes::kDirectionalCombatSetting,
+      snes::kThrowControlSetting,
+      snes::kDashSetting,
       cheats::kInfiniteHealthSetting,
       cheats::kInfiniteLivesSetting,
       cheats::kTurboAttackSetting,
@@ -313,14 +321,22 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
 
 namespace {
 
-// Stretch has no launcher control any more: the presenter always letterboxes the chosen format.
+// A retired setting has no cvar and no launcher control; an old file may still hold its line, which does nothing.
 void RemoveRetiredPlayerSettings(const std::filesystem::path& path) {
-  constexpr std::string_view kRetired = "present_letterbox";
   std::ifstream in(path, std::ios::binary);
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
-  const std::string kept = RemoveSettingLines(text, kRetired);
-  if (kept == text) {
+  std::string kept = text;
+  std::string removed;
+  for (const std::string_view key : kRetiredPlayerSettings) {
+    std::string next = RemoveSettingLines(kept, key);
+    if (next != kept) {
+      removed += removed.empty() ? "" : ", ";
+      removed += key;
+      kept = std::move(next);
+    }
+  }
+  if (removed.empty()) {
     return;
   }
 
@@ -330,17 +346,17 @@ void RemoveRetiredPlayerSettings(const std::filesystem::path& path) {
     std::ofstream out(temp, std::ios::binary);
     out << kept;
     if (!out) {
-      REXLOG_ERROR("Cannot write the player settings without {} to {}", kRetired, Utf8(temp.filename()));
+      REXLOG_ERROR("Cannot write the player settings without {} to {}", removed, Utf8(temp.filename()));
       return;
     }
   }
   std::error_code ec;
   std::filesystem::rename(temp, path, ec);
   if (ec) {
-    REXLOG_ERROR("Cannot replace {} with the player settings without {}", Utf8(path.filename()), kRetired);
+    REXLOG_ERROR("Cannot replace {} with the player settings without {}", Utf8(path.filename()), removed);
     return;
   }
-  REXLOG_INFO("Removed the retired {} setting from {}", kRetired, Utf8(path.filename()));
+  REXLOG_INFO("Removed the retired setting(s) {} from {}", removed, Utf8(path.filename()));
 }
 
 }  // namespace

@@ -52,6 +52,8 @@
 #include "system_info.h"
 #include "classic_soundtrack_overlay.h"
 #include "classic_soundtrack_runtime.h"
+#include "snes_gameplay_runtime.h"
+#include "snes_menu.h"
 #include "title_bgm_level.h"
 #include "trg/game_helpers.h"
 #include "user_data.h"
@@ -235,6 +237,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
                                startup_window);
     tmnt::PublishTitleMusicLevel(user_data_root());
     tmnt::StartClassicSoundtrack(user_data_root());
+    tmnt::StartSnesGameplay(user_data_root());
     ReXApp::LaunchModule();
   }
 
@@ -282,6 +285,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       CreateCursorSync(imgui_drawer());
       tmnt::ModalDialog::AttachEscapeKey(window());
       cheat_menu_.Attach(window(), imgui_drawer());
+      snes_menu_.Attach(window(), imgui_drawer());
     }
   }
 
@@ -291,6 +295,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       input->Shutdown();
     }
     cheat_menu_.Detach();
+    snes_menu_.Detach();
     tmnt::ModalDialog::DetachEscapeKey();
     tmnt::StopOnline();
     CloseAchievements();
@@ -381,6 +386,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   tmnt::GameSettings game_settings_;
   tmnt::AchievementsOverlay* achievements_ = nullptr;
   tmnt::CheatMenu cheat_menu_;
+  tmnt::SnesMenu snes_menu_;
   std::filesystem::path shipped_config_;
   tmnt::UserDataSelection user_data_;
   bool show_launcher_ = false;

@@ -141,7 +141,94 @@ ServiceCapabilities ReadCapabilities(const json::Value& v) {
   caps.public_endpoints = BoolOf(v.Find("public_endpoints"), false);
   caps.relay_supported = BoolOf(v.Find("relay_supported"), false);
   caps.relay_max_payload = IntOf(v.Find("relay_max_payload"));
+  caps.snes_features = BoolOf(v.Find("snes_features"), false);
   return caps;
+}
+
+SnesGameplaySet ReadSnesSet(const json::Value* v) {
+  SnesGameplaySet set;
+  if (!v || !v->IsObject()) return set;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const SnesFeature feature = SnesFeatureAt(i);
+    set.Set(feature, BoolOf(v->Find(SnesKey(feature)), false));
+  }
+  return set;
+}
+
+uint32_t ParseCompat(const std::string& text) {
+  if (text == "mixed") return kSnesCompatMixed;
+  if (text.empty() || text.size() > 8) return 0;
+  uint32_t value = 0;
+  for (const char c : text) {
+    const int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+    if (digit < 0) return 0;
+    value = value << 4 | uint32_t(digit);
+  }
+  return value == kSnesCompatMixed ? 0 : value;
+}
+
+SnesGameplayCapabilities ReadSnesCapabilities(const json::Value* v) {
+  SnesGameplayCapabilities caps;
+  if (!v || !v->IsObject()) return caps;
+  caps.supports = ReadSnesSet(v->Find("supports"));
+  caps.enabled = ReadSnesSet(v->Find("enabled"));
+  if (const json::Value* compat = v->Find("compat"); compat && compat->IsObject()) {
+    for (int i = 0; i < kSnesFeatureCount; ++i) {
+      caps.compat[size_t(i)] = ParseCompat(StringOf(compat->Find(SnesKey(SnesFeatureAt(i)))));
+    }
+  }
+  return caps.Normalized();
+}
+
+// `players` is keyed by party slot; a seat outside 1 to 4 or a row that is not an object is left out.
+SnesMatchTable ReadSnesTable(const json::Value& v) {
+  SnesMatchTable table;
+  table.supported = ReadSnesSet(v.Find("supported"));
+  if (const json::Value* players = v.Find("players"); players && players->IsObject()) {
+    for (int slot = 1; slot <= kSnesSeats; ++slot) {
+      const json::Value* row = players->Find(std::to_string(slot));
+      if (row && row->IsObject()) table.players[size_t(slot - 1)] = ReadSnesSet(row);
+    }
+  }
+  return table;
+}
+
+std::optional<MatchSnes> ReadMatchSnes(const json::Value* v) {
+  if (!v || !v->IsObject()) return std::nullopt;
+  MatchSnes snes;
+  if (const json::Value* peer = v->Find("peer"); peer && peer->IsObject()) snes.peer = ReadSnesCapabilities(peer);
+  snes.table = ReadSnesTable(*v);
+  if (const json::Value* locked = v->Find("locked"); locked && locked->IsObject()) {
+    const int round = IntOf(locked->Find("round"));
+    if (round > 0) snes.locked = SnesMatchLock{round, ReadSnesTable(*locked)};
+  }
+  return snes;
+}
+
+std::string SnesSetJson(const SnesGameplaySet& set) {
+  std::string out = "{";
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const SnesFeature feature = SnesFeatureAt(i);
+    out += std::string(i ? "," : "") + "\"" + SnesKey(feature) + "\":" + (set.Has(feature) ? "true" : "false");
+  }
+  return out + "}";
+}
+
+std::string SnesJson(const SnesGameplayCapabilities& snes) {
+  const SnesGameplayCapabilities caps = snes.Normalized();
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string compat = "{";
+  bool first = true;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const uint32_t id = caps.compat[size_t(i)];
+    if (!id || id == kSnesCompatMixed) continue;
+    std::string hex(8, '0');
+    for (int digit = 0; digit < 8; ++digit) hex[size_t(7 - digit)] = kHex[(id >> (digit * 4)) & 0xF];
+    compat += std::string(first ? "" : ",") + "\"" + SnesKey(SnesFeatureAt(i)) + "\":\"" + hex + "\"";
+    first = false;
+  }
+  return "{\"supports\":" + SnesSetJson(caps.supports) + ",\"enabled\":" + SnesSetJson(caps.enabled) +
+         ",\"compat\":" + compat + "}}";
 }
 
 MemberState MemberStateOf(const std::string& text) {
@@ -247,6 +334,7 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
       message.capabilities = ReadCapabilities(*caps);
     }
     if (root->Find("match") && root->Find("slot")) message.access = ReadAccess(*root);
+    message.snes = ReadMatchSnes(root->Find("snes"));
     return message;
   }
   const std::string event = StringOf(root->Find("ev"));
@@ -300,6 +388,11 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
     message.room_members = ReadRoomMembers(root->Find("members"));
     message.generation = IntOf(root->Find("generation"));
     return message.room_members ? std::optional<ServerMessage>(message) : std::nullopt;
+  }
+  if (event == "match.snes") {
+    message.kind = Kind::kMatchSnes;
+    message.snes = ReadMatchSnes(root->Find("snes"));
+    return message.snes ? std::optional<ServerMessage>(message) : std::nullopt;
   }
   if (event == "match.ended") {
     message.kind = Kind::kMatchEnded;
@@ -402,11 +495,20 @@ std::string EncodeInviteDecline(int seq, const std::string& invite) {
 }
 
 std::string EncodeMatchHello(int seq, const std::string& match, int slot, const std::string& join_token,
-                             int generation_seen) {
+                             int generation_seen, const SnesGameplayCapabilities& snes) {
   return Envelope("match.hello", seq,
                   ",\"proto\":" + std::to_string(kLobbyProtocol) + ",\"match\":" + Quote(match) +
                       ",\"slot\":" + std::to_string(slot) + ",\"token\":" + Quote(join_token) +
-                      ",\"relay\":true,\"generation_seen\":" + std::to_string(generation_seen));
+                      ",\"relay\":true,\"generation_seen\":" + std::to_string(generation_seen) +
+                      ",\"snes\":" + SnesJson(snes));
+}
+
+std::string EncodeSnesLock(int seq, int round, bool off) {
+  return Envelope("snes.lock", seq, ",\"round\":" + std::to_string(round) + (off ? ",\"off\":true" : ""));
+}
+
+std::string EncodeSnesUpdate(int seq, const SnesGameplayCapabilities& snes) {
+  return Envelope("snes.update", seq, ",\"snes\":" + SnesJson(snes));
 }
 
 std::string EncodeMatchEndpoint(int seq, uint16_t port, const std::vector<std::string>& lan,

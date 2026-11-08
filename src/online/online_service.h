@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -55,6 +56,8 @@ struct ServiceConfig {
   std::function<void(const std::string& path)> test_beacon;
   // Called once the party of an accepted invite that names a game session is joined.
   std::function<void(const AcceptedInvite&)> invite_accepted;
+  // The SNES features this player supports and has turned on right now; called with the service locked.
+  std::function<SnesGameplayCapabilities()> snes;
 };
 
 struct UserSettings {
@@ -200,6 +203,22 @@ class OnlineService {
   void NotePartySnapshot(const PartySnapshot& snapshot);
   const std::string& url() const { return config_.url; }
 
+  // The game ended a gameplay match (XSessionEnd): its SNES table is released so the next match negotiates again.
+  void NoteGameEnd();
+  // The party has other players, or the game is in a match.
+  bool InOnlineMatch() const;
+
+  // The SNES gameplay mechanics as this party negotiated them. `locked` is the table of the running gameplay match,
+  // from the game's session start to its end; `locked->For(my_slot)` is what this player's own turtle uses.
+  struct SnesNegotiation {
+    bool online = false;
+    int my_slot = 0;
+    std::optional<SnesMatchTable> locked;
+    SnesGameplaySet supported;
+    std::array<SnesStatus, kSnesFeatureCount> status{};
+  };
+  SnesNegotiation Snes() const;
+
  private:
   enum class Step { kIdle, kOpening, kGreeting, kOnline };
   enum class RoomStep { kNone, kOpening, kGreeting, kOnline };
@@ -272,6 +291,15 @@ class OnlineService {
   void FinishGameStart(const std::string& reason);
   void SendTestBeacon(const ConnectionReport& report);
   void DropAcceptedInviteLocked(const std::string& reason);
+  SnesGameplayCapabilities LocalSnes() const;
+  SnesGameplaySet VerifiedSnesLocked() const;
+  void PumpSnes(double now);
+  void SetMatchSnes(const std::optional<MatchSnes>& snes);
+  void LockSnes();
+  void AdoptSnesLock(const SnesMatchTable& table, const char* source);
+  bool InMatchLocked() const;
+  void CheckSnesLock();
+  void ResetSnes();
 
   class Locked;
 
@@ -353,6 +381,22 @@ class OnlineService {
   int room_hello_seq_ = 0;
   int room_hello_failures_ = 0;
   std::vector<RoomMember> room_members_;
+  std::optional<MatchSnes> match_snes_;
+  SnesGameplayCapabilities announced_snes_;
+  SnesGameplayCapabilities sent_snes_;
+  bool snes_announced_ = false;
+  bool room_snes_supported_ = true;
+  int snes_update_seq_ = 0;
+  double snes_retry_at_ = 0;
+  std::optional<SnesMatchTable> snes_locked_;
+  int snes_round_ = 0;
+  bool game_running_ = false;
+  bool snes_lock_pending_ = false;
+  bool snes_lock_from_service_ = false;
+  bool snes_fallback_owed_ = false;
+  bool snes_mismatch_ = false;
+  int snes_lock_seq_ = 0;
+  double snes_lock_deadline_ = 0;
   std::unique_ptr<MatchSession> session_;
   Telemetry telemetry_;
   TelemetryContext telemetry_context_;

@@ -566,7 +566,7 @@ VSync	VSync
 Wait for the current install to finish.	Aguarde a instalação atual terminar.
 Wait for the install to finish.	Aguarde a instalação terminar.
 What other players see: up to 16 letters, digits, - or _.	O que os outros jogadores veem: até 16 letras, dígitos, - ou _.
-Language, on-screen information, the classic soundtrack and player names.	Idioma, informações na tela, a trilha sonora clássica e nomes dos jogadores.
+Language, on-screen information, Quick Play stages and player names.	Idioma, informações na tela, fases do Quick Play e nomes dos jogadores.
 Where the game data is read from.	De onde os dados do jogo são lidos.
 Window size	Tamanho da janela
 Window, monitor and how the picture fits your screen.	Janela, monitor e como a imagem se ajusta à tela.
@@ -588,15 +588,15 @@ Your launcher choices, as plain text. Loaded after tmnt_turtles_in_time_reshelle
 Your online identity could not be created.	Não foi possível criar sua identidade online.
 Your request is waiting for an answer.	Seu pedido está aguardando resposta.
 Your router may stop some players from connecting to you.	Seu roteador pode impedir que alguns jogadores se conectem a você.
-Classic soundtrack	Trilha sonora clássica
-Plays the SNES soundtrack instead of the Re-Shelled music. Press F9 during gameplay to switch between them	Toca a trilha sonora do SNES no lugar da música do Re-Shelled. Pressione F9 durante o jogo para alternar entre elas
+Classic Soundtrack	Trilha sonora clássica
+Plays the SNES soundtrack instead of the Re-Shelled music	Toca a trilha sonora do SNES no lugar da música do Re-Shelled
 SNES soundtrack	Trilha sonora SNES
 Import SNES soundtrack	Importar trilha sonora SNES
 Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards.	Sua própria ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time (.sfc, .smc ou .zip). A música é importada neste PC; depois a ROM não é mais necessária.
 Import again...	Importar de novo...
 Import...	Importar...
 Remove SNES soundtrack	Remover trilha sonora SNES
-Deletes the imported music. Your ROM file is not touched.	Apaga a música importada. Seu arquivo de ROM não é alterado.
+Deletes the imported music and SNES Gameplay data. Your ROM file is not touched.	Apaga a música e os dados de Jogabilidade SNES importados. Seu arquivo de ROM não é alterado.
 Remove...	Remover...
 Remove the imported SNES soundtrack?	Remover a trilha sonora SNES importada?
 Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM	Selecione sua ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time
@@ -605,7 +605,6 @@ Importing SNES soundtrack...	Importando trilha sonora SNES...
 Could not remove the imported SNES soundtrack.	Não foi possível remover a trilha sonora SNES importada.
 Removed the imported SNES soundtrack.	Trilha sonora SNES importada removida.
 SNES soundtrack: On	Trilha sonora SNES: Ligada
-SNES soundtrack: Off	Trilha sonora SNES: Desligada
 SNES soundtrack: Unavailable	Trilha sonora SNES: Indisponível
 Not imported	Não importada
 Ready	Pronta
@@ -635,6 +634,15 @@ CHEATS	TRAPAÇAS
 F10 Close	F10 Fechar
 Not saved to the launcher	Não salvo no launcher
 No effect in online matches	Sem efeito em partidas online
+Cheats are unavailable while Online play is enabled.	Trapaças não estão disponíveis enquanto o jogo online estiver ativado.
+Online: every player needs compatible SNES gameplay data, and each player's choices apply to their own turtle. Classic Soundtrack is local.	Online: todos os jogadores precisam de dados de jogabilidade SNES compatíveis, e as escolhas de cada jogador valem para a própria tartaruga. A Trilha sonora clássica é local.
+Online: each player's gameplay choices apply to their own turtle	Online: as escolhas de jogabilidade de cada jogador valem para a própria tartaruga
+Applies to the next online match	Vale para a próxima partida online
+Unavailable	Indisponível
+Unavailable: another player does not support this feature	Indisponível: outro jogador não oferece suporte a este recurso
+Unavailable: the online service does not support this feature	Indisponível: o serviço online não oferece suporte a este recurso
+Waiting for players	Aguardando os jogadores
+Incompatible SNES data	Dados SNES incompatíveis
 Turbo Strong Attack	Ataque forte turbo
 Repeatedly uses the strong attack while the strong attack button is held	Repete o ataque forte enquanto o botão estiver pressionado
 Damage Multiplier	Multiplicador de dano
@@ -653,6 +661,29 @@ Infinite Lives	Vidas infinitas
 Lives do not decrease when a player is defeated	As vidas não diminuem quando o jogador é derrotado
 Turbo Attack	Ataque turbo
 Repeatedly attacks while the attack button is held	Repete o ataque enquanto o botão de ataque estiver pressionado
+SNES	SNES
+Features based on the original SNES version	Recursos baseados na versão original de SNES
+Press F9 while playing to open the SNES menu. Changes made there apply only to the current session.	Pressione F9 durante o jogo para abrir o menu SNES. As alterações feitas ali valem apenas para a sessão atual.
+Imported SNES ROM used for classic audio and optional gameplay mechanics	ROM de SNES importada usada para áudio clássico e mecânicas opcionais de jogabilidade
+AUDIO	ÁUDIO
+GAMEPLAY	JOGABILIDADE
+Directional Combat	Combate direcional
+Use SNES-style combat facing and attack direction	Usa direção de combate e ataques no estilo SNES
+SNES Throw Control	Controle de arremesso SNES
+Use predictable SNES-style throw selection	Usa seleção previsível de arremessos no estilo SNES
+SNES Dash	Dash SNES
+Use movement and dash behavior based on the SNES version	Usa movimentação e dash baseados na versão de SNES
+Unavailable: import your SNES ROM above.	Indisponível: importe sua ROM de SNES acima.
+Unavailable: import the SNES ROM again to add its gameplay data.	Indisponível: importe a ROM de SNES de novo para adicionar os dados de jogabilidade.
+Unavailable: the gameplay code in this ROM is not a known USA, Europe or Australia version.	Indisponível: o código de jogabilidade desta ROM não é de uma versão conhecida dos EUA, da Europa ou da Austrália.
+USA	EUA
+Europe	Europa
+Australia	Austrália
+Compatible	Compatível
+F9 Close	F9 Fechar
+SNES ROM not imported	ROM de SNES não importada
+SNES gameplay data unavailable: re-import the ROM in the launcher	Dados de jogabilidade SNES indisponíveis: reimporte a ROM no launcher
+SNES gameplay data unavailable: unsupported ROM version	Dados de jogabilidade SNES indisponíveis: versão da ROM não suportada
 )PTBR";
 
 }  // namespace tmnt::localization

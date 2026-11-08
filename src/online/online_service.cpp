@@ -25,6 +25,8 @@ constexpr double kSearchFreshSeconds = 1.0;
 constexpr double kSearchTimeoutSeconds = 5.0;
 constexpr double kTelemetryFlushSeconds = 15.0;
 constexpr double kGameStartTimeoutSeconds = 30.0;
+constexpr double kSnesRetrySeconds = 5.0;
+constexpr double kSnesLockWaitSeconds = 5.0;
 constexpr double kTelemetryAckSeconds = 20.0;
 constexpr double kBeaconTimeoutMs = 3000;
 constexpr int kRoomHelloRetries = 5;
@@ -152,6 +154,7 @@ void OnlineService::Update(double now) {
   if (step_ == Step::kIdle && !channel_ && now >= retry_at_) OpenChannel(now);
   PumpChannel(now);
   PumpRoom(now);
+  PumpSnes(now);
   if (session_) {
     session_->Update(now);
     if (session_->fatal()) {
@@ -813,6 +816,8 @@ void OnlineService::RestoreInflightTelemetry() {
 
 void OnlineService::NoteGameStart() {
   Locked lock(*this);
+  game_running_ = true;
+  LockSnes();
   if (!session_ || !party_ || game_start_.active) return;
   game_start_ = {true, now_};
   const std::vector<PeerView> peers = session_->peers();
@@ -974,8 +979,11 @@ void OnlineService::OnRoomEvent(const ChannelEvent& event, double now) {
       room_step_ = RoomStep::kGreeting;
       room_deadline_ = now + kStepTimeoutSeconds;
       room_hello_seq_ = next_seq_++;
+      announced_snes_ = LocalSnes();
+      snes_announced_ = true;
+      snes_update_seq_ = 0;
       if (room_) room_->Send(EncodeMatchHello(room_hello_seq_, access_->match, access_->slot, access_->join_token,
-                                              room_generation_seen_));
+                                              room_generation_seen_, announced_snes_));
       break;
     case ChannelEvent::Kind::kText: {
       const std::optional<ServerMessage> message = DecodeServerMessage(event.text);
@@ -983,6 +991,22 @@ void OnlineService::OnRoomEvent(const ChannelEvent& event, double now) {
       if (message->kind == ServerMessage::Kind::kResponse) {
         if (room_step_ == RoomStep::kGreeting && message->seq == room_hello_seq_) {
           OnRoomHello(*message, now);
+        } else if (snes_lock_seq_ && message->seq == snes_lock_seq_) {
+          snes_lock_seq_ = 0;
+          if (message->code == "ok") {
+            SetMatchSnes(message->snes);
+          } else {
+            Log("online snes lock refused code=" + message->code);
+          }
+        } else if (snes_update_seq_ && message->seq == snes_update_seq_) {
+          snes_update_seq_ = 0;
+          if (message->code == "ok") {
+            announced_snes_ = sent_snes_;
+            SetMatchSnes(message->snes);
+          } else {
+            snes_retry_at_ = now + kSnesRetrySeconds;
+            Log("online snes update refused code=" + message->code);
+          }
         } else if (message->code != "ok") {
           if (session_) session_->OnRefused(message->seq, message->code, now);
         }
@@ -1025,6 +1049,8 @@ void OnlineService::OnRoomHello(const ServerMessage& message, double now) {
   room_retry_delay_ = 1.0;
   room_hello_failures_ = 0;
   room_generation_seen_ = message.generation;
+  room_snes_supported_ = message.capabilities && message.capabilities->snes_features;
+  SetMatchSnes(message.snes);
   room_members_ = message.room_members.value_or(std::vector<RoomMember>());
   Log("room joined generation=" + std::to_string(message.generation) +
       " relay=" + Flag(message.relay_token != 0) + " members=" + std::to_string(room_members_.size()));
@@ -1090,6 +1116,9 @@ void OnlineService::OnRoomMessage(const ServerMessage& message, double now) {
       break;
     case Kind::kMatchPeerBack:
       break;
+    case Kind::kMatchSnes:
+      SetMatchSnes(message.snes);
+      break;
     case Kind::kMatchLeft:
       if (session_) session_->OnPeerLeft(message.slot, message.reason, now);
       break;
@@ -1106,6 +1135,9 @@ void OnlineService::OnRoomLost(const std::string& why, double now) {
   if (room_) room_->Close();
   room_.reset();
   room_step_ = RoomStep::kNone;
+  snes_announced_ = false;
+  snes_update_seq_ = 0;
+  snes_lock_seq_ = 0;
   // The relay rides this connection: a pair on it waits for the room, a pair still choosing goes on without it.
   if (session_) session_->OnRelayClosed(0, "service_disconnected", now);
   room_retry_at_ = now + room_retry_delay_;
@@ -1121,6 +1153,146 @@ void OnlineService::CloseRoom() {
   session_.reset();
   room_members_.clear();
   room_generation_seen_ = 0;
+  ResetSnes();
+}
+
+SnesGameplayCapabilities OnlineService::LocalSnes() const {
+  return config_.snes ? config_.snes().Normalized() : SnesGameplayCapabilities{};
+}
+
+SnesGameplaySet OnlineService::VerifiedSnesLocked() const {
+  if (!room_snes_supported_ || !match_snes_) return {};
+  return VerifiedSupported(LocalSnes(), *match_snes_);
+}
+
+void OnlineService::PumpSnes(double now) {
+  if (snes_mismatch_) {
+    snes_mismatch_ = false;
+    Notice("The SNES gameplay settings could not be agreed with the other players.");
+    if (Connected()) SendLocked(EncodePartyLeave(next_seq_++));
+    EndParty("snes_mismatch");
+    return;
+  }
+  const bool room_ready = room_ && room_step_ == RoomStep::kOnline && room_snes_supported_;
+  if (snes_lock_pending_ && now >= snes_lock_deadline_) {
+    AdoptSnesLock({}, "timeout");
+    snes_fallback_owed_ = true;
+  }
+  if (room_ready && !snes_lock_seq_ && (snes_lock_pending_ || snes_fallback_owed_)) {
+    snes_lock_seq_ = next_seq_++;
+    SendRoom(EncodeSnesLock(snes_lock_seq_, snes_round_, snes_fallback_owed_));
+    snes_fallback_owed_ = false;
+  }
+  // A choice made during a match is announced once it ends, for the next one.
+  if (!room_ready || snes_locked_ || snes_update_seq_ || now < snes_retry_at_) {
+    return;
+  }
+  const SnesGameplayCapabilities local = LocalSnes();
+  if (snes_announced_ && local == announced_snes_) return;
+  sent_snes_ = local;
+  snes_update_seq_ = next_seq_++;
+  SendRoom(EncodeSnesUpdate(snes_update_seq_, local));
+}
+
+void OnlineService::SetMatchSnes(const std::optional<MatchSnes>& snes) {
+  if (!room_snes_supported_) {
+    match_snes_.reset();
+    return;
+  }
+  const SnesGameplaySet before = VerifiedSnesLocked();
+  match_snes_ = snes;
+  const SnesGameplaySet after = VerifiedSnesLocked();
+  if (!(before == after)) Log("online snes supported bits=" + std::to_string(after.Bits()));
+  CheckSnesLock();
+}
+
+// Only the room's one locked table is shared by every player, so nothing else may turn a mechanic on: without it the
+// match is locked all Off.
+void OnlineService::LockSnes() {
+  if (!party_ || snes_locked_ || snes_lock_pending_) return;
+  ++snes_round_;
+  if (!room_snes_supported_) {
+    AdoptSnesLock({}, "unsupported");
+    return;
+  }
+  snes_lock_pending_ = true;
+  snes_lock_deadline_ = now_ + kSnesLockWaitSeconds;
+  snes_lock_seq_ = 0;
+  CheckSnesLock();
+}
+
+void OnlineService::CheckSnesLock() {
+  if (!match_snes_ || !match_snes_->locked || match_snes_->locked->round != snes_round_) return;
+  if (snes_lock_pending_) {
+    AdoptSnesLock(VerifiedLock(LocalSnes(), *match_snes_), "service");
+    snes_lock_from_service_ = true;
+  } else if (snes_locked_ && !snes_lock_from_service_ && match_snes_->locked->table.AnyOn()) {
+    Log("online snes lock mismatch round=" + std::to_string(snes_round_));
+    snes_mismatch_ = true;
+  }
+}
+
+void OnlineService::AdoptSnesLock(const SnesMatchTable& table, const char* source) {
+  snes_locked_ = table;
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_lock_seq_ = 0;
+  const int slot = access_ ? access_->slot : 0;
+  Log("online snes locked round=" + std::to_string(snes_round_) + " supported=" + std::to_string(table.supported.Bits()) +
+      " own=" + std::to_string(table.For(slot).Bits()) + " source=" + source);
+}
+
+// The table belongs to one gameplay match: the next match of the same party negotiates again.
+void OnlineService::NoteGameEnd() {
+  Locked lock(*this);
+  game_running_ = false;
+  if (!snes_locked_ && !snes_lock_pending_) return;
+  Log("online snes released round=" + std::to_string(snes_round_));
+  snes_locked_.reset();
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_fallback_owed_ = false;
+  snes_lock_seq_ = 0;
+}
+
+void OnlineService::ResetSnes() {
+  match_snes_.reset();
+  snes_announced_ = false;
+  snes_update_seq_ = 0;
+  snes_retry_at_ = 0;
+  snes_locked_.reset();
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_fallback_owed_ = false;
+  snes_mismatch_ = false;
+  snes_lock_seq_ = 0;
+  snes_round_ = 0;
+  game_running_ = false;
+  room_snes_supported_ = true;
+}
+
+bool OnlineService::InMatchLocked() const {
+  return party_ && (party_->members.size() >= 2 || game_running_ || snes_locked_);
+}
+
+bool OnlineService::InOnlineMatch() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return InMatchLocked();
+}
+
+OnlineService::SnesNegotiation OnlineService::Snes() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  SnesNegotiation out;
+  out.online = InMatchLocked();
+  out.my_slot = access_ ? access_->slot : 0;
+  out.locked = snes_locked_;
+  out.supported = VerifiedSnesLocked();
+  const SnesGameplayCapabilities local = LocalSnes();
+  const std::optional<SnesGameplayCapabilities> peer = match_snes_ ? match_snes_->peer : std::nullopt;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    out.status[size_t(i)] = SnesStatusOf(SnesFeatureAt(i), local, peer, room_snes_supported_);
+  }
+  return out;
 }
 
 void OnlineService::SendRoom(const std::string& text) {

@@ -1,10 +1,15 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
 namespace tmnt {
+
+// present_letterbox: the presenter always letterboxes the chosen format. tmnt_snes_gameplay: the SNES features no longer
+// have a master switch and each stands alone.
+inline constexpr std::array<std::string_view, 2> kRetiredPlayerSettings{"present_letterbox", "tmnt_snes_gameplay"};
 
 inline bool IsSettingLine(std::string_view line, std::string_view key) {
   const std::size_t first = line.find_first_not_of(" \t");

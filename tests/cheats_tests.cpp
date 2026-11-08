@@ -82,7 +82,7 @@ void TestOnlineSuppression() {
   CHECK(Has(hooks, "if (amount <= 0.0f || InOnlineSession(ctx, base)) {"));
   CHECK(Has(hooks, "driving && !InOnlineSession(ctx, base)"));
   CHECK(Has(ReadFile("src/guest_session_tmnt_r.h"), "if (!is_in_session) {\n    return true;\n  }"));
-  CHECK(Has(hooks, "const bool online = GuestInOnlineSession(ctx, base);"));
+  CHECK(Has(hooks, "GuestInOnlineSession(ctx, base))"));
 }
 
 void TestHealth() {
@@ -278,7 +278,7 @@ void TestSettings() {
 void TestLauncherRows() {
   std::printf("launcher: Cheats is its own page after Gameplay and the Gameplay page holds none of it\n");
   const std::string launcher = ReadFile("src/launcher.cpp");
-  const size_t gameplay_entry = launcher.find("{\"Gameplay\", \"Language, on-screen information, the classic soundtrack and player names.\",");
+  const size_t gameplay_entry = launcher.find("{\"Gameplay\", \"Language, on-screen information, Quick Play stages and player names.\",");
   const size_t cheats_entry = launcher.find("{\"Cheats\", \"Optional gameplay modifiers\", [](trg::Ui& ui) { PageCheats(ui); }},");
   const size_t online_entry = launcher.find("{\"Online\",");
   CHECK(gameplay_entry != std::string::npos && gameplay_entry < cheats_entry && cheats_entry < online_entry);
@@ -293,7 +293,7 @@ void TestLauncherRows() {
                            "kTurbo", "kDamageMultiplier", "Section(Tr(\"Cheats\")", "Local play only"}) {
     CHECK(!Has(gameplay_page, gone));
   }
-  CHECK(Has(gameplay_page, "ClassicSoundtrackRows(ui);"));
+  CHECK(!Has(gameplay_page, "ClassicSoundtrackRows"));
   CHECK(Has(gameplay_page, "ui.Section(Tr(\"Local player names\"), true)"));
 
   const std::string rows = launcher.substr(cheats, launcher.find("\n  void ", cheats) - cheats);
@@ -391,7 +391,7 @@ void TestPortuguese() {
   }
 
   const std::string launcher = ReadFile("src/launcher.cpp");
-  CHECK(Has(launcher, "{\"Gameplay\", \"Language, on-screen information, the classic soundtrack and player names.\","));
+  CHECK(Has(launcher, "{\"Gameplay\", \"Language, on-screen information, Quick Play stages and player names.\","));
 }
 
 void TestSessionOverrides() {
@@ -985,7 +985,57 @@ void TestBuild() {
 
 }  // namespace
 
+void TestOnlinePlayEnabledBlocksCheats() {
+  std::printf("online play enabled: F10 and every cheat are off from the moment it is on, match or not\n");
+  using namespace tmnt::cheats;
+  CHECK(CheatsAllowed(false) && !CheatsAllowed(true));
+  CHECK(!CheatsAllowed(false, true) && !CheatsAllowed(true, true));
+
+  // Online play on, whatever state the service and the party are in: the menu never opens.
+  for (const bool restart : {false, true}) {
+    CheatMenuModel menu;
+    const bool online_enabled = !restart;
+    const bool blocked = !CheatsAllowed(online_enabled);
+    const CheatMenuModel::Result result = menu.Press(MenuKey::kF10, true, blocked);
+    CHECK(online_enabled ? result.action == CheatMenuModel::Action::kUnavailable && !menu.open()
+                         : result.action == CheatMenuModel::Action::kOpen && menu.open());
+  }
+
+  // A held key arrives as one fresh press and then repeats; only the fresh press reaches the model.
+  const std::string menu_source = ReadFile("src/cheat_menu.cpp");
+  CHECK(Has(menu_source, "  if (e.prev_state()) {\n    return;\n  }\n  const bool can_open"));
+  CHECK(Has(menu_source, "bool CheatsBlocked() { return !cheats::CheatsAllowed(rex::cvar::Query<bool>(kOnlineEnabledSetting)); }"));
+  CHECK(!Has(menu_source, "Online()") && !Has(menu_source, "ONL_") && !Has(menu_source, "OnlineRunning"));
+  CHECK(Has(menu_source, "REXLOG_INFO(\"Cheats menu blocked: Online play enabled\");"));
+
+  // An open menu closes when Online play turns on, and its keys change nothing meanwhile.
+  CheatMenuModel open;
+  CHECK(open.Press(MenuKey::kF10, true, false).action == CheatMenuModel::Action::kOpen);
+  CHECK(open.Press(MenuKey::kEnter, true, true).action == CheatMenuModel::Action::kNone);
+  CHECK(Has(menu_source, "if (CheatsBlocked()) {\n      RequestClose();\n      return;\n    }"));
+
+  // Every cheat hook goes through the one gate, which ignores the match state when Online play is enabled.
+  const std::string hooks = ReadFile("src/cheats_tmnt_r.cpp");
+  CHECK(Has(hooks, "const bool enabled = rex::cvar::Query<bool>(kOnlineEnabledSetting);"));
+  CHECK(Has(hooks, "!cheats::CheatsAllowed(enabled, enabled ? false : GuestInOnlineSession(ctx, base))"));
+  CHECK(Has(hooks, "return Effective(cheat) && cheats::CheatActive(true, InOnlineSession(ctx, base));"));
+  for (const char* use : {"InOnlineSession(ctx, base)) {", "|| InOnlineSession(ctx, base)", "!InOnlineSession(ctx, base)"}) {
+    CHECK(Has(hooks, use));
+  }
+  CHECK(!Has(hooks, "GuestInOnlineSession(ctx, base);\n  if (!online)"));
+  CHECK(hooks.find("GuestInOnlineSession(") == hooks.rfind("GuestInOnlineSession("));
+  for (const Cheat cheat : {Cheat::Health, Cheat::Lives, Cheat::Turbo, Cheat::TurboStrong, Cheat::SuperArmor, Cheat::SpinAttack}) {
+    CHECK(!CheatActive(EffectiveCheat(WithOverride(0, cheat, false, true), cheat, true), !CheatsAllowed(true)));
+  }
+  CHECK(!(EffectiveMultiplier(WithMultiplier(0, 0, 4), 0) > 1 && CheatsAllowed(true)));
+
+  // F9 and the SNES menu do not follow this gate.
+  const std::string snes_menu = ReadFile("src/snes_menu.cpp");
+  CHECK(!Has(snes_menu, "CheatsAllowed") && !Has(snes_menu, "kOnlineEnabledSetting"));
+}
+
 int main() {
+  TestOnlinePlayEnabledBlocksCheats();
   TestOnlineSuppression();
   TestHealth();
   TestLives();

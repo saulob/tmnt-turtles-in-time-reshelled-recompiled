@@ -3,9 +3,7 @@
 #include <imgui.h>
 
 #include <rex/cvar.h>
-#include <rex/logging.h>
 #include <rex/ui/imgui_dialog.h>
-#include <rex/ui/keybinds.h>
 
 #include "classic_soundtrack_notice.h"
 #include "classic_soundtrack_runtime.h"
@@ -33,25 +31,19 @@ class ClassicSoundtrackOverlay final : public rex::ui::ImGuiDialog {
   }
 };
 
-void SwitchSoundtrack() {
-  const classic::RuntimeToggle toggle = ToggleClassicSoundtrack();
-  g_notice.Show(NoticeForToggle(toggle), kToggleNoticeSeconds);
-  REXLOG_INFO("Classic soundtrack: {} key -> {}", kClassicSoundtrackKey, SoundtrackNoticeText(NoticeForToggle(toggle)));
-}
-
 }  // namespace
 
 bool ClassicSoundtrackNoticeVisible() {
   return g_notice.Current(ImGui::GetTime()) != SoundtrackNotice::kNone;
 }
 
+void ShowCheatsUnavailableNotice() { g_notice.Show(SoundtrackNotice::kCheatsUnavailable, kHotkeyNoticeSeconds); }
+
 void CreateClassicSoundtrackOverlay(rex::ui::ImGuiDrawer* drawer) {
   new ClassicSoundtrackOverlay(drawer);  // retained by the drawer for the session
   if (IsClassicSoundtrackActive()) {
     g_notice.Show(SoundtrackNotice::kOn, kStartupNoticeSeconds);
   }
-  rex::ui::RegisterBind("bind_tmnt_classic_soundtrack", kClassicSoundtrackKey, "Switch SNES and original soundtrack",
-                        [] { SwitchSoundtrack(); });
 }
 
 }  // namespace tmnt

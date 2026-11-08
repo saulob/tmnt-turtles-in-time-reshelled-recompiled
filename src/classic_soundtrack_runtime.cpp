@@ -44,8 +44,12 @@ void StartClassicSoundtrack(const std::filesystem::path& user_data_root) {
       });
 }
 
-classic::RuntimeToggle ToggleClassicSoundtrack() {
-  return Activation().Toggle();
+bool SetClassicSoundtrackActive(bool on) {
+  return Activation().SetReplacing(on);
+}
+
+bool IsClassicSoundtrackReady() {
+  return Activation().ready();
 }
 
 bool IsClassicSoundtrackActive() {

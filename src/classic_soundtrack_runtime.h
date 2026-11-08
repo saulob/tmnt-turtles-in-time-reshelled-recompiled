@@ -13,8 +13,11 @@ inline constexpr char kClassicSoundtrackSetting[] = "tmnt_classic_soundtrack";
 // guest starts.
 void StartClassicSoundtrack(const std::filesystem::path& user_data_root);
 
-// F9: switches between the SNES and the original music for this session only.
-classic::RuntimeToggle ToggleClassicSoundtrack();
+// With a registered provider, switches between the SNES and the original music for this session only. False without one.
+bool SetClassicSoundtrackActive(bool on);
+
+// The provider is registered, so the SNES music can be switched on and off.
+bool IsClassicSoundtrackReady();
 
 // True only while the SNES music is what the player hears.
 bool IsClassicSoundtrackActive();

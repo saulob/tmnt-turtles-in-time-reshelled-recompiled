@@ -11,6 +11,7 @@
 #include "cheats.h"
 #include "guest_memory.h"
 #include "guest_session_tmnt_r.h"
+#include "online_setting.h"
 
 using namespace tmnt;
 
@@ -129,12 +130,14 @@ bool ButtonJustPressed(PPCContext& parent, uint8_t* base, uint32_t joystick, uin
   return frame.ctx.r3.u32 != 0;
 }
 
+// True whenever Online play is enabled, or the guest is in an online session, so nothing applies before a match starts.
 bool InOnlineSession(PPCContext& ctx, uint8_t* base) {
-  const bool online = GuestInOnlineSession(ctx, base);
+  const bool enabled = rex::cvar::Query<bool>(kOnlineEnabledSetting);
+  const bool online = !cheats::CheatsAllowed(enabled, enabled ? false : GuestInOnlineSession(ctx, base));
   if (!online) {
     g_online_logged.store(false, std::memory_order_relaxed);
   } else if (!g_online_logged.exchange(true, std::memory_order_relaxed)) {
-    REXLOG_INFO("Cheats: not applied while in an online session");
+    REXLOG_INFO("Cheats: not applied while Online play is enabled or in an online session");
   }
   return online;
 }

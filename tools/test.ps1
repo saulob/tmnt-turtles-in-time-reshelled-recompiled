@@ -906,6 +906,7 @@ function Get-MinizObject {
 
 $ClassicSoundtrackMiniz = Get-MinizObject
 $ClassicSoundtrackSources = @(Get-ChildItem (Join-Root 'src\classic_soundtrack') -Filter '*.cpp' | ForEach-Object { $_.FullName }) +
+    @(Get-ChildItem (Join-Root 'src\snes_gameplay') -Filter '*.cpp' | ForEach-Object { $_.FullName }) +
     @('src\updater\sha256.cpp', 'src\updater\update_paths.cpp', 'src\classic_soundtrack_page.cpp', 'third_party\snes_spc\Snes_Spc.cpp',
         'third_party\snes_spc\Spc_Cpu.cpp', 'third_party\snes_spc\Spc_Dsp.cpp' | ForEach-Object { Join-Root $_ }) +
     @($ClassicSoundtrackMiniz | Where-Object { $_ }) + @('-DBLARGG_LITTLE_ENDIAN=1')
@@ -927,6 +928,16 @@ Invoke-Check 'Classic Soundtrack launcher: Gameplay rows, import and remove mode
     $libraries = if ($IsLinux) { @() } else { @('-luser32', '-lshell32', '-lole32', '-lcomdlg32') }
     Invoke-FocusedTest 'tests\classic_soundtrack_launcher_tests.cpp' ($ClassicSoundtrackIncludes + @((Join-Path $trg 'include'))) (
         $ClassicSoundtrackSources + @((Join-Path $trg 'src\settings.cpp'), (Join-Path $trg 'src\platform.cpp')) + $libraries)
+}
+
+Invoke-Check 'SNES Gameplay: rules, data file, extractor, import status, start decision, launcher rows, TMNT_r wiring, tests/snes_gameplay_tests.cpp, standalone' {
+    if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
+    Invoke-FocusedTest 'tests\snes_gameplay_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
+}
+
+Invoke-Check 'SNES menu: F9 model, session overrides, availability by import state, switched-off reset, retired master setting, launcher page, pt-BR, wiring, tests/snes_menu_tests.cpp, standalone' {
+    if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
+    Invoke-FocusedTest 'tests\snes_menu_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
 }
 
 Invoke-Check 'XMA PCM provider patch: 0087 state machine against the patch stack (tests/xma_pcm_override_tests.cpp) and patched xma_context.cpp syntax' {
