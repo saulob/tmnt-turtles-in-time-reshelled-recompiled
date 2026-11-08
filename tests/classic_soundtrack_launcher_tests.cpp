@@ -22,7 +22,6 @@
 #include "classic_soundtrack_notice.h"
 #include "classic_soundtrack_overlay.h"
 #include "corner_overlay.h"
-#include "quick_play_unlock.h"
 #include "trg/settings.h"
 #include "updater/third_party/miniz/miniz.h"
 
@@ -579,32 +578,6 @@ void TestF9Toggle() {
   CHECK(std::string(kClassicSoundtrackKey) == "F9");
 }
 
-void TestQuickPlayUnlock() {
-  std::printf("Quick Play debug unlock: RelWithDebInfo only, stage select event only, nothing written\n");
-  static_assert(!kQuickPlayUnlockBuild, "the tests build without the RelWithDebInfo definition");
-  CHECK(!UnlocksAllQuickPlayStages(kStageSelectInitEvent, kQuickPlayUnlockBuild));
-  CHECK(UnlocksAllQuickPlayStages(kStageSelectInitEvent, true));
-  CHECK(!UnlocksAllQuickPlayStages(kStageSelectInitEvent + 1, true) && !UnlocksAllQuickPlayStages(127, true));
-  CHECK(!UnlocksAllQuickPlayStages(0, true));
-  CHECK(kStageSelectInitEvent == 166 && kQuickPlayStageCount == 13);
-
-  const fs::path root = TMNT_ROOT_DIR;
-  const std::string cmake = ReadText(root / "CMakeLists.txt");
-  CHECK(Has(cmake, "TMNT_DEBUG_QUICKPLAY_UNLOCK=$<IF:$<CONFIG:RelWithDebInfo>,1,0>"));
-  std::string hooks = ReadText(root / "src" / "live_hooks_tmnt_r.cpp");
-  hooks.erase(std::remove(hooks.begin(), hooks.end(), '\r'), hooks.end());
-  CHECK(Has(hooks, "DEBUG_SAULO Quick Play: all stages unlocked for soundtrack testing"));
-  CHECK(Has(hooks, "if (UnlocksAllQuickPlayStages(event, kQuickPlayUnlockBuild)) UnlockAllQuickPlayStages(ctx, base, self, track);"));
-  const size_t begin = hooks.find("void UnlockAllQuickPlayStages(");
-  const size_t end = hooks.find("\n}\n", begin);
-  const std::string body = hooks.substr(begin, end - begin);
-  CHECK(Has(body, "__imp__sub_875B0ED0(ctx, base);"));
-  for (const char* banned : {"Profile", "Achievement", "Save", "Store", "SetFlag", "online", "Online", "STORE"}) {
-    CHECK(!Has(body, banned));
-  }
-  CHECK(Has(ReadText(root / "src" / "quick_play_unlock.h"), "DEBUG_SAULO"));
-}
-
 std::set<std::string> PortugueseKeys(const std::string& table, std::vector<std::string>* duplicates) {
   const size_t begin = table.find("R\"PTBR(") + 7;
   const size_t end = table.find(")PTBR\"");
@@ -753,7 +726,6 @@ int main() {
   TestOverlay();
   TestTransientNotices();
   TestF9Toggle();
-  TestQuickPlayUnlock();
   TestLocalization();
   TestWiring();
   std::printf("%d checks, %d failed\n", g_checks, g_failures);

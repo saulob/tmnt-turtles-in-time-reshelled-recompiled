@@ -11,8 +11,8 @@ class ImGuiDrawer;
 
 namespace tmnt {
 
-// ReXGlue's own F3 debug and F4 settings overlay binds, removed in game.
-inline constexpr const char* kRemovedSdkBinds[] = {"bind_debug_overlay", "bind_settings"};
+// ReXGlue's own F3 debug, F4 settings and Backtick console overlay binds, removed in the launcher and in game.
+inline constexpr const char* kRemovedSdkBinds[] = {"bind_debug_overlay", "bind_settings", "bind_console"};
 
 // Adds the in-game counter and its F2 toggle.
 void CreateFrameCounter(rex::ui::ImGuiDrawer* drawer);

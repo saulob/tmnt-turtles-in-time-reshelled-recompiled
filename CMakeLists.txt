@@ -249,6 +249,8 @@ set(TMNT_SOURCES
     src/achievement_toast.cpp
     src/achievements_overlay.cpp
     src/active_log.cpp
+    src/cheat_menu.cpp
+    src/cheats.cpp
     src/classic_soundtrack_overlay.cpp
     src/classic_soundtrack_page.cpp
     src/classic_soundtrack_runtime.cpp
@@ -422,11 +424,9 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
-        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp)
+        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp
+        src/cheats_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
-    # DEBUG_SAULO: Quick Play shows every stage in RelWithDebInfo builds only.
-    target_compile_definitions(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE
-        TMNT_DEBUG_QUICKPLAY_UNLOCK=$<IF:$<CONFIG:RelWithDebInfo>,1,0>)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
 
@@ -558,6 +558,11 @@ target_compile_definitions(tmnt_keyboard_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CUR
 add_executable(tmnt_player_names_tests EXCLUDE_FROM_ALL tests/player_names_tests.cpp)
 target_include_directories(tmnt_player_names_tests PRIVATE src)
 target_compile_definitions(tmnt_player_names_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Gameplay cheat tests, not part of the default build: cmake --build <dir> --target tmnt_cheats_tests
+add_executable(tmnt_cheats_tests EXCLUDE_FROM_ALL tests/cheats_tests.cpp)
+target_include_directories(tmnt_cheats_tests PRIVATE src)
+target_compile_definitions(tmnt_cheats_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Language tests, not part of the default build: cmake --build <dir> --target tmnt_language_tests
 add_executable(tmnt_language_tests EXCLUDE_FROM_ALL tests/language_tests.cpp)

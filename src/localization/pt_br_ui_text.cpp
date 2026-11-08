@@ -626,6 +626,33 @@ SNES soundtrack imported from the Europe ROM. Switch Classic soundtrack On to us
 SNES soundtrack imported from the Australia ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Austrália. Ative a Trilha sonora clássica para usá-la.
 SNES soundtrack imported from a compatible ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada de uma ROM compatível. Ative a Trilha sonora clássica para usá-la.
 Could not save the Classic soundtrack setting.	Não foi possível salvar a configuração da Trilha sonora clássica.
+Cheats	Trapaças
+Optional gameplay modifiers	Modificadores opcionais de jogabilidade
+Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.	Pressione F10 durante o jogo para abrir o menu de Trapaças. As alterações feitas ali valem apenas para a sessão atual.
+PLAYER	JOGADOR
+COMBAT	COMBATE
+CHEATS	TRAPAÇAS
+F10 Close	F10 Fechar
+Not saved to the launcher	Não salvo no launcher
+No effect in online matches	Sem efeito em partidas online
+Turbo Strong Attack	Ataque forte turbo
+Repeatedly uses the strong attack while the strong attack button is held	Repete o ataque forte enquanto o botão estiver pressionado
+Damage Multiplier	Multiplicador de dano
+Multiplies damage dealt by players	Multiplica o dano causado pelos jogadores
+Super Armor	Super Armor
+Take damage without attack interruption or knockback	Recebe dano sem interromper ataques ou sofrer knockback
+Spin Attack	Ataque giratório
+Use Spin Attack at any time with B or	Use o Ataque giratório com B ou
+Controller: B	Controle: B
+Keyboard:	Teclado:
+Unlock all stages	Desbloquear todas as fases
+Makes every Quick Play stage selectable without changing saved progress	Torna todas as fases do Quick Play selecionáveis sem alterar o progresso salvo
+Infinite Health	Vida infinita
+Keeps player health at maximum	Mantém a vida do jogador no máximo
+Infinite Lives	Vidas infinitas
+Lives do not decrease when a player is defeated	As vidas não diminuem quando o jogador é derrotado
+Turbo Attack	Ataque turbo
+Repeatedly attacks while the attack button is held	Repete o ataque enquanto o botão de ataque estiver pressionado
 )PTBR";
 
 }  // namespace tmnt::localization

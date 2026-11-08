@@ -25,6 +25,7 @@
 #include "achievement_menu.h"
 #include "active_log.h"
 #include "aspect_ratio.h"
+#include "cheat_menu.h"
 #include "diagnostics.h"
 #include "frame_counter.h"
 #include "game_files.h"
@@ -280,6 +281,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
       });
       CreateCursorSync(imgui_drawer());
       tmnt::ModalDialog::AttachEscapeKey(window());
+      cheat_menu_.Attach(window(), imgui_drawer());
     }
   }
 
@@ -288,6 +290,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (auto* input = runtime() ? runtime()->input_system() : nullptr) {
       input->Shutdown();
     }
+    cheat_menu_.Detach();
     tmnt::ModalDialog::DetachEscapeKey();
     tmnt::StopOnline();
     CloseAchievements();
@@ -377,6 +380,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
 
   tmnt::GameSettings game_settings_;
   tmnt::AchievementsOverlay* achievements_ = nullptr;
+  tmnt::CheatMenu cheat_menu_;
   std::filesystem::path shipped_config_;
   tmnt::UserDataSelection user_data_;
   bool show_launcher_ = false;

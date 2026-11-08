@@ -10,6 +10,7 @@
 #include <rex/system/kernel_state.h>
 
 #include "guest_memory.h"
+#include "guest_session_tmnt_r.h"
 #include "live_scope.h"
 #include "online/party_report.h"
 #include "quick_play_unlock.h"
@@ -212,23 +213,39 @@ REX_HOOK_RAW(sub_876B75C0) {
   __imp__sub_876B75C0(ctx, base);
 }
 
-// DEBUG_SAULO: queues the unlock message of every Quick Play stage, as the stage select does for the stages the profile
-// completed. FireCommunicator_UpdateStageUnLockedDefered(this, stage, track).
+// FireCommunicator_UpdateStageUnLockedDefered and FireCommunicator_UpdateStageLockedDefered(this, stage, track): the
+// stage select's own deferred messages, which only change what the menu shows.
 REX_EXTERN(__imp__sub_875B0ED0);
-void UnlockAllQuickPlayStages(PPCContext& ctx, uint8_t* base, uint32_t self, uint32_t track) {
-  const uint64_t lr = ctx.lr;
-  const uint64_t result = ctx.r3.u64;
+REX_EXTERN(__imp__sub_875B10B0);
+
+namespace {
+
+QuickPlayUnlock g_quick_play;
+
+void QueueEveryStage(PPCContext& ctx, uint8_t* base, PPCFunc& queue, uint32_t self, uint32_t track) {
+  rex::CallFrame frame(ctx);
+  frame.ctx.lr = ctx.lr;
   for (int stage = 0; stage < kQuickPlayStageCount; ++stage) {
-    ctx.r3.u64 = self;
-    ctx.r4.u64 = uint32_t(stage);
-    ctx.r5.u64 = track;
-    __imp__sub_875B0ED0(ctx, base);
+    frame.ctx.r3.u64 = self;
+    frame.ctx.r4.u64 = uint32_t(stage);
+    frame.ctx.r5.u64 = track;
+    queue(frame.ctx, base);
   }
-  ctx.lr = lr;
-  ctx.r3.u64 = result;
-  static std::atomic<bool> logged{false};
-  if (!logged.exchange(true)) REXLOG_INFO("DEBUG_SAULO Quick Play: all stages unlocked for soundtrack testing");
 }
+
+QuickPlayUnlock::Plan PlanQuickPlay(PPCContext& ctx, uint8_t* base, uint32_t event) {
+  if (event != kStageSelectInitEvent) return {};
+  const bool enabled = rex::cvar::Query<bool>(kUnlockAllStagesSetting);
+  const bool was_showing_all = g_quick_play.showing_all();
+  const QuickPlayUnlock::Plan plan =
+      g_quick_play.Open(event, enabled, (enabled || was_showing_all) && GuestInOnlineSession(ctx, base));
+  if (plan.unlock_all_after != was_showing_all) {
+    REXLOG_INFO("Unlock all stages: {}", plan.unlock_all_after ? "On" : "Off");
+  }
+  return plan;
+}
+
+}  // namespace
 
 // FireCommunicator_OnReceiveEvent(this, var): one function for every UI event. Only the leaderboard proceed and the
 // single- and local multiplayer proceeds open a scope; every other event, game loading included, stays offline.
@@ -237,6 +254,9 @@ REX_HOOK_RAW(sub_875BA998) {
   const uint32_t self = ctx.r3.u32;
   const uint32_t var = ctx.r4.u32;
   const uint32_t event = LoadBE32(base, var);
+  const QuickPlayUnlock::Plan quick_play = PlanQuickPlay(ctx, base, event);
+  const uint32_t stage_track = LoadBE32(base, var + kStageSelectTrackOffset);
+  if (quick_play.lock_all_first) QueueEveryStage(ctx, base, __imp__sub_875B10B0, self, stage_track);
   const uint32_t track = LoadBE32(base, var + kFireEventSourceOffset);
   if (ClaimsLocalProfile(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))) {
     ClaimLocalProfile(int32_t(LoadBE32(base, var + kFireEventControllerOffset)));
@@ -249,7 +269,7 @@ REX_HOOK_RAW(sub_875BA998) {
     LiveScopeSuspended offline;
     __imp__sub_875BA998(ctx, base);
   }
-  if (UnlocksAllQuickPlayStages(event, kQuickPlayUnlockBuild)) UnlockAllQuickPlayStages(ctx, base, self, track);
+  if (quick_play.unlock_all_after) QueueEveryStage(ctx, base, __imp__sub_875B0ED0, self, stage_track);
 }
 
 // FireCommunicator_GetMaxPlayers(this): the slots the title configured when it created the session. A guest never

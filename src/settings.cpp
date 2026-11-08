@@ -19,6 +19,7 @@
 #include "trg/settings.h"
 
 #include "aspect_ratio.h"
+#include "cheats.h"
 #include "connection_test_gate.h"
 #include "crash_report.h"
 #include "diagnostics.h"
@@ -31,6 +32,7 @@
 #include "legacy_settings.h"
 #include "multisampling.h"
 #include "player_names.h"
+#include "quick_play_unlock.h"
 #include "retired_settings.h"
 #include "system_info.h"
 #include "updater/sha256.h"
@@ -44,6 +46,22 @@ REXCVAR_DEFINE_BOOL(tmnt_skip_launcher, false, "TMNT",
 REXCVAR_DEFINE_BOOL(tmnt_skip_intro, false, "TMNT", "Start directly at the title screen");
 REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false, "TMNT",
                     "In development: replace the music with the imported SNES soundtrack");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_health, false, "TMNT",
+                    "Cheat: local players' turtles keep their maximum health; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_lives, false, "TMNT",
+                    "Cheat: a defeated local player keeps the same number of lives; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_turbo_attack, false, "TMNT",
+                    "Cheat: holding the attack button repeats the attack during play; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_turbo_strong_attack, false, "TMNT",
+                    "Cheat: holding the strong attack button repeats the strong attack during play; not applied online");
+REXCVAR_DEFINE_INT32(tmnt_cheat_damage_multiplier, 0, "TMNT",
+                     "Cheat: multiplies the damage players deal, 0 Off, 2 or 4; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_super_armor, false, "TMNT",
+                    "Cheat: a hit still deals damage but neither interrupts an attack nor knocks back; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_spin_attack, false, "TMNT",
+                    "Cheat: B starts the Spinning Pizza spin attack during play; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_unlock_all_stages, false, "TMNT",
+                    "Quick Play lists every stage; saved progress is not changed");
 REXCVAR_DEFINE_BOOL(tmnt_show_fps, true, "TMNT", "Show the frame rate in the window title");
 REXCVAR_DEFINE_BOOL(tmnt_show_render_resolution, false, "TMNT",
                     "Show the render resolution in the window title");
@@ -101,6 +119,14 @@ std::vector<std::string> GameSettingKeys() {
       "anisotropic_override",
       "tmnt_skip_intro",
       "tmnt_classic_soundtrack",
+      cheats::kInfiniteHealthSetting,
+      cheats::kInfiniteLivesSetting,
+      cheats::kTurboAttackSetting,
+      cheats::kTurboStrongAttackSetting,
+      cheats::kDamageMultiplierSetting,
+      cheats::kSuperArmorSetting,
+      cheats::kSpinAttackSetting,
+      kUnlockAllStagesSetting,
       "tmnt_show_fps",
       "tmnt_show_render_resolution",
       "tmnt_show_frame_counter",
@@ -540,6 +566,16 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
   diagnostics.launcher_gameplay.frame_counter =
       settings.GetBool("tmnt_show_frame_counter", false) ? "Shown" : "Hidden";
   diagnostics.launcher_gameplay.classic_soundtrack = OnOff(settings.GetBool("tmnt_classic_soundtrack", false));
+  diagnostics.launcher_gameplay.infinite_health = OnOff(settings.GetBool(cheats::kInfiniteHealthSetting, false));
+  diagnostics.launcher_gameplay.infinite_lives = OnOff(settings.GetBool(cheats::kInfiniteLivesSetting, false));
+  diagnostics.launcher_gameplay.turbo_attack = OnOff(settings.GetBool(cheats::kTurboAttackSetting, false));
+  diagnostics.launcher_gameplay.turbo_strong_attack =
+      OnOff(settings.GetBool(cheats::kTurboStrongAttackSetting, false));
+  const int multiplier = cheats::ParseDamageMultiplier(settings.GetInt(cheats::kDamageMultiplierSetting, 0));
+  diagnostics.launcher_gameplay.damage_multiplier = multiplier == 0 ? "Off" : std::to_string(multiplier) + "x";
+  diagnostics.launcher_gameplay.super_armor = OnOff(settings.GetBool(cheats::kSuperArmorSetting, false));
+  diagnostics.launcher_gameplay.spin_attack = OnOff(settings.GetBool(cheats::kSpinAttackSetting, false));
+  diagnostics.launcher_gameplay.unlock_all_stages = OnOff(settings.GetBool(kUnlockAllStagesSetting, false));
 
   diagnostics.launcher_graphics.graphics_card = selected_card;
   diagnostics.launcher_graphics.render_resolution =

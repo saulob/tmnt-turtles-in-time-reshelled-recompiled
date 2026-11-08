@@ -14,6 +14,7 @@
 
 #include "classic_soundtrack_overlay.h"
 #include "corner_overlay.h"
+#include "frame_counter.h"
 #include "keybinds.h"
 #include "ping_display.h"
 
@@ -66,7 +67,7 @@ void TestF9Ownership() {
 void TestSdkBindsRemoved() {
   std::printf("SDK overlays: unregistered in OnCreateDialogs, not hidden\n");
   const std::string counter = ReadFile("src/frame_counter.h");
-  CHECK(Has(counter, "kRemovedSdkBinds[] = {\"bind_debug_overlay\", \"bind_settings\"};"));
+  CHECK(Has(counter, "kRemovedSdkBinds[] = {\"bind_debug_overlay\", \"bind_settings\", \"bind_console\"};"));
   const std::string app = ReadFile("src/tmnt_turtles_in_time_reshelled_app.h");
   CHECK(Has(app, "void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {"));
   CHECK(Has(app, "for (const char* bind : tmnt::kRemovedSdkBinds) rex::ui::UnregisterBind(bind);"));
@@ -80,9 +81,35 @@ void TestSdkBindsRemoved() {
   }
   const size_t debug = sdk.find("RegisterBind(\"bind_debug_overlay\", \"F3\"");
   const size_t settings = sdk.find("RegisterBind(\"bind_settings\", \"F4\"");
+  const size_t console = sdk.find("RegisterBind(\"bind_console\", \"Backtick\"");
   const size_t dialogs = sdk.find("OnCreateDialogs(imgui_drawer_.get());");
-  CHECK(debug != std::string::npos && settings != std::string::npos && dialogs != std::string::npos);
-  CHECK(debug < dialogs && settings < dialogs);
+  CHECK(debug != std::string::npos && settings != std::string::npos && console != std::string::npos &&
+        dialogs != std::string::npos);
+  CHECK(debug < dialogs && settings < dialogs && console < dialogs);
+}
+
+void TestConsoleRemoved() {
+  std::printf("console: Backtick opens nothing, binds like any key, and nothing advertises the console\n");
+  bool unbound = false;
+  for (const char* bind : tmnt::kRemovedSdkBinds) unbound = unbound || std::string_view(bind) == "bind_console";
+  CHECK(unbound);
+  CHECK(!tmnt::KeyboardBindingIsReserved(ImGuiKey_GraveAccent));
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_GraveAccent, false, false, false) == "Backtick");
+  CHECK(tmnt::KeyboardBindingIsValid("Backtick"));
+  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F7, ImGuiKey_F9, ImGuiKey_F10, ImGuiKey_F11}) {
+    CHECK(tmnt::KeyboardBindingIsReserved(key));
+  }
+  for (const char* file : {"src/keybinds.h", "src/launcher.cpp", "docs/input.md", "docs/launcher.md", "README.md",
+                           "packaging/README.txt"}) {
+    const std::string text = ReadFile(file);
+    for (const char* stale : {"Backtick console", "backtick console", "the console)", "console key", "Toggle console"}) {
+      CHECK(!Has(text, stale));
+      if (Has(text, stale)) std::printf("  %s still says '%s'\n", file, stale);
+    }
+  }
+  for (const char* source : {"src/tmnt_turtles_in_time_reshelled_app.h", "src/window_host.cpp", "src/launcher.cpp"}) {
+    CHECK(!Has(ReadFile(source), "\"bind_console\""));
+  }
 }
 
 void TestF3Ownership() {
@@ -179,6 +206,7 @@ void TestDocs() {
 int main() {
   TestF9Ownership();
   TestSdkBindsRemoved();
+  TestConsoleRemoved();
   TestF3Ownership();
   TestGameplayCannotTakeTheKeys();
   TestPingText();

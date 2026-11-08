@@ -151,6 +151,7 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 | --- | --- | --- |
 | Language | `tmnt_language` | `en` English, `fr` French, `de` German, `it` Italian, `es` Spanish, `pt-BR` Português Brasil (`en`) |
 | Skip intro | `tmnt_skip_intro` | `false` Off, `true` On (`false`) |
+| Unlock all stages | `tmnt_unlock_all_stages` | `false` Off, `true` On (`false`) |
 | Frame rate in title | `tmnt_show_fps` | `false` Off, `true` On (`true`) |
 | Render resolution in title | `tmnt_show_render_resolution` | `false` Off, `true` On (`false`) |
 | Frame counter | `tmnt_show_frame_counter` | `false` Hidden, `true` Shown (`false`) |
@@ -163,8 +164,24 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 - **Language** is the only language setting the game has: a single text language for menus, the HUD and movie subtitles. There is no separate voice language, because the game has no spoken dialogue for any language — the archive (`Data\TMNT.bf`) has no audio files at all, and its seven Bink movies share one audio track with only their subtitles translated per language. The five options are exactly the languages with text banks in the archive (`00_French`, `01_English`, `05_German`, `06_Italian`, `07_Spanish` `UI_TextBank`/`ErrorTextBank`/`WaitingTextBank`/`MovieSubtitleBank`); no other language has banks. It is applied by setting ReXGlue's `user_language` to the Xbox `XLanguage` ID the game itself maps to that bank (English 1, French 4, German 3, Italian 6, Spanish 5) before the game boots: `default.xex` reads `user_language` once at startup via `ExGetXConfigSetting(XCONFIG_USER_LANGUAGE)` and switches its text-bank index from it, with no other runtime re-selection. An unknown or missing saved value falls back to English. The same `user_language` cvar already drives achievement name and description localization (`src/achievement_alias.cpp`), so no separate state was introduced.
 - **Português Brasil** is an unofficial translation added by this port, not one of the game's languages. Choosing it changes the launcher at once, with nothing saved, and the game follows when it starts. The game runs on its English slot and the port replaces the text: see [localization-pt-br.md](localization-pt-br.md).
 - **Skip intro** starts directly at the title screen: at boot the game loads the title world in place of the Logo world, so neither the startup logos nor the intro movie play. The loading screen and PRESS START stay, and later movies are not affected. `tmnt_title_music_level` is set by the port at start from the saved profile, not meant to be edited.
+- **Unlock all stages** makes every Quick Play stage selectable. Each time the stage select opens, the game queues the stages the profile completed and the port adds the others to the same menu queue; nothing is written to the profile, saves or achievements. With it Off again, the next stage select first relocks every stage, so the game's own entries show the real progress. It is not applied in an online session.
 - **Classic soundtrack** plays the SNES game's music in place of the Re-Shelled music, from a soundtrack imported from your own SNES ROM. See [classic-soundtrack.md](classic-soundtrack.md).
 - **Local player names** change only the name the game shows for local players 1 to 4; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
+
+### Cheats
+
+| Control | Cvar | Values (default) |
+| --- | --- | --- |
+| Infinite Health | `tmnt_cheat_infinite_health` | `false` Off, `true` On (`false`) |
+| Infinite Lives | `tmnt_cheat_infinite_lives` | `false` Off, `true` On (`false`) |
+| Damage Multiplier | `tmnt_cheat_damage_multiplier` | `0` Off, `2` 2x, `4` 4x (`0`) |
+| Turbo Attack | `tmnt_turbo_attack` | `false` Off, `true` On (`false`) |
+| Turbo Strong Attack | `tmnt_turbo_strong_attack` | `false` Off, `true` On (`false`) |
+| Super Armor | `tmnt_cheat_super_armor` | `false` Off, `true` On (`false`) |
+| Spin Attack | `tmnt_cheat_spin_attack` | `false` Off, `true` On (`false`) |
+
+- The page is for local play. Press **F10** while playing to open the in-game Cheats menu (Up and Down or the D-pad, Enter or A to toggle a row or step Damage Multiplier through Off, 2x and 4x, F10, Escape or B to close; F10 only opens and closes the menu). Its changes are session overrides in `tmnt_cheat_session`, which is never saved: the effective value is the override if there is one, otherwise the saved setting, and a new game starts from the saved settings. While the menu is open the game reads no keyboard or controller input, and what was pressed in it is released before the game gets input back. F10 does nothing while the launcher or another overlay is open.
+- Cheats do nothing while the game is in an online session (`ONL_IsInSession`), whatever is saved or overridden. **Infinite Health** zeroes the health damage of `Turtle_TakeDamage` for every turtle and refills a damaged one through the game's `Turtle_DoCheatHeal`, so switching it on mid-level refills at once; falls and replicated deaths still kill. **Infinite Lives** drops the life a local player loses in `BasicWorld_PlayerRemoved`, so the turtle respawns with the same count; gains pass and a slot already at 0 stays at 0. **Turbo Attack** turns a held X (the attack button) into a fresh press every 50 ms, per controller, only while that controller's turtle is in unpaused play; **Turbo Strong Attack** does the same for Y (the strong attack), with its own state per controller. Holding X and Y together does nothing, as in the original game: the controller only acts on a single button within its 50 ms combo buffer. **Damage Multiplier** scales the damage of a hit or slam an enemy or boss receives in its `Entity_Notify` when the hit's source is a Turtle; hits from enemies, items, hazards and scripted events and the throw to the screen keep their damage. `tmnt_turbo_gameplay` is written by the game for it and is not a setting. **Super Armor** keeps the damage of every hit, then answers the game's own questions in `Turtle_RequestHitRouting` so the hit ends there: "no hit reaction" yes (`Turtle_IsNoHitReact`) and "ultimate hit" no (`Turtle_IsUltimateHit`). An attack goes on and no stagger, knockdown, flatten (the wrecking ball), mine, bubble, cement, special-hit or knockback state is entered. Enemy grabs are refused the way the game refuses them while a turtle is immune (`Turtle_RequestGrabbed` returns -1). A hit that empties the health, pits and falls, the off-screen kill and stage transitions keep their normal handling. **Spin Attack** starts the Spinning Pizza's spin (`103_Turtle_FullSpin`, for its normal duration) once per press of B (Quote or Backspace on the keyboard, following the Controls page) while walking, running, standing or attacking; the power-up count in the profile is not changed.
 
 ### Online
 
@@ -176,20 +193,20 @@ same page; an invite is accepted in the game, which is also where the party is m
 
 ### Page order
 
-The sidebar order is Play, Display, Graphics, Gameplay, Online, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
+The sidebar order is Play, Display, Graphics, Gameplay, Cheats, Online, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
 
-The Hard Corps launcher also had Cheats, Skip intro and a Frame rate choice with visual interpolation. Those were implemented with hooks into the Hard Corps engine and are not part of this project.
+The Hard Corps launcher also had Skip intro and a Frame rate choice with visual interpolation. Those were implemented with hooks into the Hard Corps engine and are not part of this project.
 
 ### Controls
 
-The Controls page opens with **Keyboard**, which turns ReXGlue's keyboard-to-pad emulation on or off; it is on by default. The controller works either way, and the port's own hotkeys (F2 frame counter, F3 and F4 overlays, F7 achievements, F11 fullscreen, the console) do not depend on it.
+The Controls page opens with **Keyboard**, which turns ReXGlue's keyboard-to-pad emulation on or off; it is on by default. The controller works either way, and the port's own hotkeys (F2 frame counter, F3 and F4 overlays, F7 achievements, F10 cheats, F11 fullscreen) do not depend on it. ReXGlue's console overlay has no key, so Backtick can be a gameplay key.
 
 Below it, one row per Xbox pad action: A, B, X, Y, the bumpers, the triggers, the sticks and their presses, the D-pad, and View / Menu. Guide is left out, as the pad ignores it. Click a key, then press the new one; Esc cancels. The launcher captures one key per action: a held Shift, Ctrl or Alt is not recorded as a modifier, so a binding such as the default `Shift+Up` can be restored only with Keyboard defaults. A stored binding with modifiers is shown and works in the game.
 
 - While Keyboard is Off the rows are greyed out, but the mappings are kept and come back when it is turned on again.
 - The bindings are ordinary launcher settings: saved with Save or Play, and put back by Reset all settings. **Keyboard defaults** restores exactly ReXGlue's pinned defaults, including the alternatives some of them use (`Semicolon,Space` for A, `X,Return` for Menu), and does not change the Keyboard On/Off choice. Capturing a key replaces the whole binding with that one key, so the alternatives are dropped on a rebind.
 - They are stored as ReXGlue `keybind_*` cvars, so the same settings file also sets them when the launcher is skipped.
-- Keys the port already uses are refused with a message: Escape, F2, F3, F4, F7, F9, F10, F11, F12 and the backtick console key.
+- Keys the port already uses are refused with a message: Escape, F2, F3, F4, F7, F9, F10, F11 and F12.
 
 ### About
 

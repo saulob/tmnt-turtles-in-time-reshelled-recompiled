@@ -30,6 +30,7 @@
 #include "trg/platform.h"
 
 #include "aspect_ratio.h"
+#include "cheats.h"
 #include "classic_soundtrack_page.h"
 #include "classic_soundtrack_runtime.h"
 #include "dpi.h"
@@ -49,6 +50,7 @@
 #include "platform.h"
 #include "player_names.h"
 #include "port_version.h"
+#include "quick_play_unlock.h"
 #include "settings.h"
 #include "update_config.h"
 #include "updater/update_ui.h"
@@ -515,6 +517,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
          [this](trg::Ui& ui) { PageGraphics(ui); }},
         {"Gameplay", "Language, on-screen information, the classic soundtrack and player names.",
          [this](trg::Ui& ui) { PageGameplay(ui); }},
+        {"Cheats", "Optional gameplay modifiers", [](trg::Ui& ui) { PageCheats(ui); }},
         {"Online", "Add friends and see who is online. Play them from the game's own online menus.",
          [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
         {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
@@ -1136,6 +1139,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   void PageGameplay(trg::Ui& ui) {
     ui.Combo("Language", kLanguageHelp, kLanguageSetting, kLanguageDefault, LanguageOptions());
     ui.Toggle("Skip intro", "Start directly at the title screen", "tmnt_skip_intro", false, "Off", "On");
+    ui.Toggle("Unlock all stages", "Makes every Quick Play stage selectable without changing saved progress",
+              kUnlockAllStagesSetting, false, "Off", "On");
     ui.Toggle("Frame rate in title",
               "Shows the game's frame rate in the window title: Turtles in Time Re-Shelled Recompiled | FPS: 60.00",
               "tmnt_show_fps", true, "Off", "On");
@@ -1150,6 +1155,28 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         PlayerNameRow(ui, player);
       }
     }
+  }
+
+  static void PageCheats(trg::Ui& ui) {
+    ui.Help("Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.");
+    ui.Spacer(12);
+    ui.Heading("PLAYER");
+    ui.Toggle("Infinite Health", "Keeps player health at maximum", cheats::kInfiniteHealthSetting, false, "Off", "On");
+    ui.Toggle("Infinite Lives", "Lives do not decrease when a player is defeated", cheats::kInfiniteLivesSetting, false,
+              "Off", "On");
+    ui.Heading("COMBAT");
+    ui.Choice("Damage Multiplier", "Multiplies damage dealt by players", cheats::kDamageMultiplierSetting, "0",
+              {{"0", "Off"}, {"2", "2x"}, {"4", "4x"}}, 3);
+    ui.Toggle("Turbo Attack", "Repeatedly attacks while the attack button is held", cheats::kTurboAttackSetting, false,
+              "Off", "On");
+    ui.Toggle("Turbo Strong Attack", "Repeatedly uses the strong attack while the strong attack button is held",
+              cheats::kTurboStrongAttackSetting, false, "Off", "On");
+    ui.Toggle("Super Armor", "Take damage without attack interruption or knockback", cheats::kSuperArmorSetting, false,
+              "Off", "On");
+    const std::string spin_help =
+        std::string(Tr("Use Spin Attack at any time with B or")) + " " +
+        TrMessage(KeyboardBindingSlashLabel(SavedKeyboardBinding(ui.settings(), kSpinAttackKeyAction)));
+    ui.Toggle("Spin Attack", spin_help.c_str(), cheats::kSpinAttackSetting, false, "Off", "On");
   }
 
   void ClassicSoundtrackRows(trg::Ui& ui) {

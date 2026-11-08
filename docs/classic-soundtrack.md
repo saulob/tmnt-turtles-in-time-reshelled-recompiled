@@ -58,9 +58,8 @@ FORTRESS (Technodrome), boss BATTLE, stage clear CLEAR, time warp WARP2, outro S
 
 ## Testing the music
 
-A RelWithDebInfo build (not Release) lists every stage in Quick Play, so each stage song can be reached without
-playing through the game. The unlock only queues the stage-select entries, never writes a profile or save, and logs
-`DEBUG_SAULO Quick Play: all stages unlocked for soundtrack testing`. Boss, stage clear and time warp follow the
+**Unlock all stages** on the launcher's Gameplay page lists every stage in Quick Play, so each stage song can be
+reached without playing through the game ([launcher.md](launcher.md)). Boss, stage clear and time warp follow the
 stages they belong to, and the outro follows the last boss.
 
 ## What the log says

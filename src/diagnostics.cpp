@@ -76,7 +76,15 @@ std::vector<std::string> FormatStartupDiagnostics(const StartupDiagnostics& diag
                   " | Frame rate in title=" + diagnostics.launcher_gameplay.frame_rate_in_title +
                   " | Render resolution in title=" + diagnostics.launcher_gameplay.render_resolution_in_title +
                   " | Frame counter=" + diagnostics.launcher_gameplay.frame_counter +
-                  " | Classic soundtrack=" + diagnostics.launcher_gameplay.classic_soundtrack);
+                  " | Classic soundtrack=" + diagnostics.launcher_gameplay.classic_soundtrack +
+                  " | Unlock all stages=" + diagnostics.launcher_gameplay.unlock_all_stages +
+                  " | Infinite Health=" + diagnostics.launcher_gameplay.infinite_health +
+                  " | Infinite Lives=" + diagnostics.launcher_gameplay.infinite_lives +
+                  " | Turbo Attack=" + diagnostics.launcher_gameplay.turbo_attack +
+                  " | Turbo Strong Attack=" + diagnostics.launcher_gameplay.turbo_strong_attack +
+                  " | Damage Multiplier=" + diagnostics.launcher_gameplay.damage_multiplier +
+                  " | Super Armor=" + diagnostics.launcher_gameplay.super_armor +
+                  " | Spin Attack=" + diagnostics.launcher_gameplay.spin_attack);
   lines.push_back("Launcher Graphics: Graphics card=" + diagnostics.launcher_graphics.graphics_card +
                   " | Render resolution=" + diagnostics.launcher_graphics.render_resolution +
                   " | Anti-aliasing=" + diagnostics.launcher_graphics.anti_aliasing +

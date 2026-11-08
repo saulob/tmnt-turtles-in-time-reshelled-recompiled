@@ -69,6 +69,14 @@ struct LauncherGameplayIdentity {
   std::string render_resolution_in_title;
   std::string frame_counter;
   std::string classic_soundtrack;
+  std::string infinite_health;
+  std::string infinite_lives;
+  std::string turbo_attack;
+  std::string turbo_strong_attack;
+  std::string damage_multiplier;
+  std::string super_armor;
+  std::string spin_attack;
+  std::string unlock_all_stages;
 };
 
 struct LauncherGraphicsIdentity {
