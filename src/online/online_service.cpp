@@ -1050,6 +1050,7 @@ void OnlineService::OnRoomHello(const ServerMessage& message, double now) {
   room_hello_failures_ = 0;
   room_generation_seen_ = message.generation;
   room_snes_supported_ = message.capabilities && message.capabilities->snes_features;
+  room_snes_modes_ = message.capabilities && message.capabilities->snes_modes;
   SetMatchSnes(message.snes);
   room_members_ = message.room_members.value_or(std::vector<RoomMember>());
   Log("room joined generation=" + std::to_string(message.generation) +
@@ -1157,7 +1158,9 @@ void OnlineService::CloseRoom() {
 }
 
 SnesGameplayCapabilities OnlineService::LocalSnes() const {
-  return config_.snes ? config_.snes().Normalized() : SnesGameplayCapabilities{};
+  SnesGameplayCapabilities caps = config_.snes ? config_.snes().Normalized() : SnesGameplayCapabilities{};
+  if (!room_snes_modes_ && caps.enabled.dash == DashMode::kManual) caps.enabled.dash = DashMode::kOff;
+  return caps;
 }
 
 SnesGameplaySet OnlineService::VerifiedSnesLocked() const {
@@ -1269,6 +1272,7 @@ void OnlineService::ResetSnes() {
   snes_round_ = 0;
   game_running_ = false;
   room_snes_supported_ = true;
+  room_snes_modes_ = true;
 }
 
 bool OnlineService::InMatchLocked() const {
@@ -1290,8 +1294,11 @@ OnlineService::SnesNegotiation OnlineService::Snes() const {
   const SnesGameplayCapabilities local = LocalSnes();
   const std::optional<SnesGameplayCapabilities> peer = match_snes_ ? match_snes_->peer : std::nullopt;
   for (int i = 0; i < kSnesFeatureCount; ++i) {
-    out.status[size_t(i)] = SnesStatusOf(SnesFeatureAt(i), local, peer, room_snes_supported_);
+    const SnesFeature feature = SnesFeatureAt(i);
+    const bool service = room_snes_supported_ && (room_snes_modes_ || !SnesFeatureNeedsModes(feature));
+    out.status[size_t(i)] = SnesStatusOf(feature, local, peer, service);
   }
+  out.dash_manual_available = room_snes_modes_;
   return out;
 }
 

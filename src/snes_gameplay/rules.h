@@ -10,11 +10,25 @@
 #include <string>
 #include <string_view>
 
+#include "online/snes_features.h"
+
 namespace tmnt::snes {
+
+using DashMode = online::DashMode;
 
 inline constexpr char kDirectionalCombatSetting[] = "tmnt_snes_directional_combat";
 inline constexpr char kThrowControlSetting[] = "tmnt_snes_throw_control";
+inline constexpr char kDoubleJumpSetting[] = "tmnt_snes_disable_double_jump";
 inline constexpr char kDashSetting[] = "tmnt_snes_dash";
+inline constexpr DashMode kDashDefault = DashMode::kAuto;
+
+// The saved Dash value. Older builds saved a bool: true was the Auto dash, false Off. Text no version writes is the default.
+inline DashMode ParseDashSetting(std::string_view text) {
+  if (const auto mode = online::ParseDashModeKey(text)) return *mode;
+  if (text == "true") return DashMode::kAuto;
+  if (text == "false") return DashMode::kOff;
+  return kDashDefault;
+}
 // Written by default.xex before the guest starts, read by TMNT_r: the two modules share only the cvar registry.
 inline constexpr char kRuntimeDataSetting[] = "tmnt_snes_gameplay_data";
 
@@ -32,6 +46,7 @@ struct RuntimeData {
   std::array<Facing, 8> facing{};
   uint32_t dash_hold_frames = 0;
   uint32_t throw_hold_frames = 0;
+  uint32_t dash_tap_frames = 0;
 
   double Seconds(uint32_t frames) const { return frame_rate > 0.0 ? frames / frame_rate : 0.0; }
 };
@@ -47,8 +62,8 @@ inline std::string EncodeRuntimeData(const RuntimeData& data) {
   }
   char rate[32];
   std::snprintf(rate, sizeof rate, "%.4f", data.frame_rate);
-  return "v1 " + std::string(rate) + " " + facing + " " + std::to_string(data.dash_hold_frames) + " " +
-         std::to_string(data.throw_hold_frames);
+  return "v3 " + std::string(rate) + " " + facing + " " + std::to_string(data.dash_hold_frames) + " " +
+         std::to_string(data.throw_hold_frames) + " " + std::to_string(data.dash_tap_frames);
 }
 
 inline std::optional<RuntimeData> DecodeRuntimeData(std::string_view text) {
@@ -62,7 +77,7 @@ inline std::optional<RuntimeData> DecodeRuntimeData(std::string_view text) {
     const auto [end, error] = std::from_chars(word.data(), word.data() + word.size(), value);
     return error == std::errc() && end == word.data() + word.size();
   };
-  if (take() != "v1") {
+  if (take() != "v3") {
     return std::nullopt;
   }
   RuntimeData data;
@@ -84,12 +99,21 @@ inline std::optional<RuntimeData> DecodeRuntimeData(std::string_view text) {
       default: return std::nullopt;
     }
   }
-  if (!number(take(), data.dash_hold_frames) || !number(take(), data.throw_hold_frames) || !text.empty() ||
-      data.dash_hold_frames == 0 || data.dash_hold_frames > 255 || data.throw_hold_frames > 255) {
+  if (!number(take(), data.dash_hold_frames) || !number(take(), data.throw_hold_frames) ||
+      !number(take(), data.dash_tap_frames) || !text.empty() || data.dash_hold_frames == 0 ||
+      data.dash_hold_frames > 255 || data.throw_hold_frames > 255 || data.dash_tap_frames == 0 ||
+      data.dash_tap_frames > 255) {
     return std::nullopt;
   }
   return data;
 }
+
+// Turtle script state of a turtle in its first jump (ENTITY_JUMP).
+inline constexpr int kStateJump = 5;
+
+// Turtle_RequestJump(forced) asked while the turtle is already jumping is Re-Shelled's double jump, the only way a
+// player's jump is requested in the air. Forced jumps (bounces, scripted jumps) and every other state are not it.
+inline bool BlocksAirJump(int state, bool forced, bool on_board) { return !forced && !on_board && state == kStateJump; }
 
 // The SNES 8-way direction a stick vector reads as: 0 right, then clockwise on screen to 7 up-right. Re-Shelled's
 // controller gives +x right and +y up. A centred stick has no direction.
@@ -117,6 +141,16 @@ inline int NextFacing(int current, int direction, const RuntimeData& data) {
   return current;
 }
 
+// The Manual dash: a full push sideways from the centre, then the same push again from the centre within dash_tap_frames
+// of the first one's start. Kept apart from the Auto count so neither reads the other's timer.
+struct ManualDash {
+  int tap_direction = kNoDirection;  // the first tap's side; none while no tap waits for a second
+  double age = 0.0;                  // since the first tap began
+  bool released = false;             // the stick has been back at the centre since the first tap
+  bool from_centre = true;           // the last notification was the centre, so a push now is a fresh press
+  bool dashing = false;
+};
+
 // One controller's stick as the SNES player code sees it.
 struct StickState {
   int direction = kNoDirection;
@@ -124,14 +158,78 @@ struct StickState {
   double held = 0.0;      // since the stick left the centre
   double same_held = 0.0; // in the current direction
   bool dashing = false;
+  ManualDash manual;
 };
 
-inline void ReleaseStick(StickState& stick) { stick = StickState{}; }
+// The centre ends a push but not a waiting tap, so the Manual dash outlives it.
+inline void ReleaseStick(StickState& stick) {
+  const ManualDash manual = stick.manual;
+  stick = StickState{};
+  stick.manual = manual;
+}
 
 // What a feature keeps between frames, dropped when it is switched off so it never resumes from a stale count.
 inline void ResetDashState(StickState& stick) {
   stick.same_held = 0.0;
   stick.dashing = false;
+  stick.manual = ManualDash{};
+}
+
+inline bool ManualTapWaiting(const StickState& stick) { return stick.manual.tap_direction != kNoDirection; }
+
+// The stick is at the centre for dt seconds.
+inline void ManualCentre(StickState& stick, double dt, const RuntimeData& data) {
+  ManualDash& manual = stick.manual;
+  if (manual.dashing) {
+    manual = ManualDash{};
+    return;
+  }
+  manual.from_centre = true;
+  if (manual.tap_direction == kNoDirection) return;
+  manual.released = true;
+  manual.age += dt;
+  constexpr double kSlack = 1e-6;
+  if (manual.age > data.Seconds(data.dash_tap_frames) + kSlack) manual = ManualDash{};
+}
+
+// Any push that is not a full push sideways, and every change of direction while dashing, ends the tap sequence.
+inline void ManualBreak(StickState& stick) {
+  stick.manual = ManualDash{};
+  stick.manual.from_centre = false;
+}
+
+// A full push in `direction` for dt seconds. True while the Manual dash runs.
+inline bool ManualPush(StickState& stick, int direction, double dt, const RuntimeData& data) {
+  ManualDash& manual = stick.manual;
+  const bool fresh = manual.from_centre;
+  manual.from_centre = false;
+  if (!IsHorizontal(direction)) {
+    ManualBreak(stick);
+    return false;
+  }
+  if (manual.dashing) {
+    if (direction == manual.tap_direction) return true;
+    ManualBreak(stick);
+    return false;
+  }
+  constexpr double kSlack = 1e-6;
+  const double window = data.Seconds(data.dash_tap_frames) + kSlack;
+  if (manual.tap_direction != kNoDirection) {
+    manual.age += dt;
+    if (direction == manual.tap_direction && fresh && manual.released && manual.age <= window) {
+      manual.dashing = true;
+      return true;
+    }
+    if (direction == manual.tap_direction && !fresh && manual.age <= window) return false;
+  }
+  if (!fresh) {
+    ManualBreak(stick);
+    return false;
+  }
+  manual.tap_direction = direction;
+  manual.age = 0.0;
+  manual.released = false;
+  return false;
 }
 
 inline void ResetThrowState(StickState& stick) {

@@ -4,12 +4,38 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 namespace tmnt::online {
 
+// How a player's SNES Dash starts. Auto and Manual are one setting, never two switches.
+enum class DashMode : uint8_t { kOff = 0, kAuto = 1, kManual = 2 };
+
+constexpr const char* DashModeKey(DashMode mode) {
+  switch (mode) {
+    case DashMode::kOff: return "off";
+    case DashMode::kAuto: return "auto";
+    case DashMode::kManual: return "manual";
+  }
+  return "off";
+}
+
+// The mode a wire or saved text names; nothing for text no version of the game writes.
+constexpr std::optional<DashMode> ParseDashModeKey(std::string_view text) {
+  if (text == "off") return DashMode::kOff;
+  if (text == "auto") return DashMode::kAuto;
+  if (text == "manual") return DashMode::kManual;
+  return std::nullopt;
+}
+
 // The SNES gameplay mechanics an online match negotiates. Classic Soundtrack is local presentation and is never here.
-enum class SnesFeature : uint8_t { kDirectionalCombat = 0, kThrowControl = 1, kDash = 2 };
-inline constexpr int kSnesFeatureCount = 3;
+enum class SnesFeature : uint8_t {
+  kDirectionalCombat = 0,
+  kThrowControl = 1,
+  kDash = 2,
+  kDoubleJump = 3,
+};
+inline constexpr int kSnesFeatureCount = 4;
 // Party slots 1 to 4, the room's seats.
 inline constexpr int kSnesSeats = 4;
 
@@ -21,39 +47,70 @@ constexpr const char* SnesKey(SnesFeature feature) {
     case SnesFeature::kDirectionalCombat: return "directional_combat";
     case SnesFeature::kThrowControl: return "throw_control";
     case SnesFeature::kDash: return "dash";
+    case SnesFeature::kDoubleJump: return "double_jump";
   }
   return "";
 }
 
+// Features an older game or service does not know. Dash itself is old; only its Manual mode is new.
+constexpr bool SnesFeatureNeedsModes(SnesFeature feature) { return feature == SnesFeature::kDoubleJump; }
+
 const char* SnesLabel(SnesFeature feature);
 
+// A player's choices, or the mechanics a match supports. For Dash, `dash` is the mode; a supported Dash is kAuto.
 struct SnesGameplaySet {
   bool directional_combat = false;
   bool throw_control = false;
-  bool dash = false;
+  DashMode dash = DashMode::kOff;
+  bool double_jump = false;
+
+  constexpr SnesGameplaySet() = default;
+  constexpr SnesGameplaySet(bool directional, bool throw_on, DashMode mode, bool jump = false)
+      : directional_combat(directional), throw_control(throw_on), dash(mode), double_jump(jump) {}
+  constexpr SnesGameplaySet(bool directional, bool throw_on, bool dash_on, bool jump = false)
+      : SnesGameplaySet(directional, throw_on, dash_on ? DashMode::kAuto : DashMode::kOff, jump) {}
 
   bool Has(SnesFeature feature) const {
     switch (feature) {
       case SnesFeature::kDirectionalCombat: return directional_combat;
       case SnesFeature::kThrowControl: return throw_control;
-      case SnesFeature::kDash: return dash;
+      case SnesFeature::kDash: return dash != DashMode::kOff;
+      case SnesFeature::kDoubleJump: return double_jump;
     }
     return false;
   }
+  // Turning Dash on keeps a mode already chosen, otherwise it is Auto.
   void Set(SnesFeature feature, bool value) {
     switch (feature) {
       case SnesFeature::kDirectionalCombat: directional_combat = value; break;
       case SnesFeature::kThrowControl: throw_control = value; break;
-      case SnesFeature::kDash: dash = value; break;
+      case SnesFeature::kDash:
+        dash = !value ? DashMode::kOff : (dash == DashMode::kOff ? DashMode::kAuto : dash);
+        break;
+      case SnesFeature::kDoubleJump: double_jump = value; break;
     }
   }
   bool Any() const { return Bits() != 0; }
+  // One bit per mechanic in SnesFeature order; Dash is set for either mode.
   uint8_t Bits() const {
-    return uint8_t((directional_combat ? 1u : 0u) | (throw_control ? 2u : 0u) | (dash ? 4u : 0u));
+    uint8_t bits = 0;
+    for (int i = 0; i < kSnesFeatureCount; ++i) bits |= uint8_t(Has(SnesFeatureAt(i)) ? 1u << i : 0u);
+    return bits;
   }
-  static SnesGameplaySet FromBits(uint8_t bits) { return {(bits & 1u) != 0, (bits & 2u) != 0, (bits & 4u) != 0}; }
-  SnesGameplaySet operator&(const SnesGameplaySet& other) const { return FromBits(uint8_t(Bits() & other.Bits())); }
-  friend bool operator==(const SnesGameplaySet& a, const SnesGameplaySet& b) { return a.Bits() == b.Bits(); }
+  static SnesGameplaySet FromBits(uint8_t bits) {
+    SnesGameplaySet set;
+    for (int i = 0; i < kSnesFeatureCount; ++i) set.Set(SnesFeatureAt(i), (bits & (1u << i)) != 0);
+    return set;
+  }
+  // The left side keeps its Dash mode where the right side supports Dash at all.
+  SnesGameplaySet operator&(const SnesGameplaySet& other) const {
+    SnesGameplaySet out = FromBits(uint8_t(Bits() & other.Bits()));
+    if (out.Has(SnesFeature::kDash)) out.dash = dash;
+    return out;
+  }
+  friend bool operator==(const SnesGameplaySet& a, const SnesGameplaySet& b) {
+    return a.Bits() == b.Bits() && a.dash == b.dash;
+  }
 };
 
 // What a mechanic depends on to behave the same on every machine; 0 when it is unsupported.
@@ -70,9 +127,9 @@ struct SnesGameplayCapabilities {
   // A client cannot enable or identify what it does not support.
   SnesGameplayCapabilities Normalized() const {
     SnesGameplayCapabilities out{supports, {}, {}};
+    out.enabled = enabled & supports;
     for (int i = 0; i < kSnesFeatureCount; ++i) {
       const SnesFeature feature = SnesFeatureAt(i);
-      out.enabled.Set(feature, enabled.Has(feature) && supports.Has(feature));
       out.compat[size_t(i)] = supports.Has(feature) ? compat[size_t(i)] : 0;
     }
     return out;

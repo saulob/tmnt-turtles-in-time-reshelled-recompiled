@@ -54,7 +54,8 @@ Why a restart: ReXGlue 0.10.0 has no API to resize or move an open window (its `
 - The launcher's 1280×720 target is capped to the usable desktop, so on a display where it does not fit (for example 2560×1440 at 225%, where it becomes 1024×576) the launcher is smaller.
 - Sizes that cannot fit the current display at its scaling are hidden from the Window size list, except the current one.
 - A `present_letterbox` line from an older `settings.toml` is removed when the game starts. The presenter always letterboxes the 16:9 picture, so there is no Stretch mode.
-- A `tmnt_snes_gameplay` line is removed the same way. That master switch is retired: Directional Combat, SNES Throw Control and SNES Dash each stand alone, and its old value never turns them off.
+- A `tmnt_snes_movement_speeds` line (a removed SNES feature) is removed the same way.
+- A `tmnt_snes_gameplay` line is removed the same way. That master switch is retired: the SNES gameplay rows each stand alone, and its old value never turns them off.
 
 ### Aspect Ratio and the guest picture
 
@@ -107,7 +108,7 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Render resolution in title | `tmnt_show_render_resolution` |
 | | Frame counter | `tmnt_show_frame_counter` |
 | | SNES soundtrack, Import SNES soundtrack, Classic Soundtrack, Remove SNES soundtrack | `tmnt_classic_soundtrack`; the import is in `<user_data>/snes_soundtrack` ([classic-soundtrack.md](classic-soundtrack.md)) |
-| | Directional Combat, SNES Throw Control, SNES Dash | `tmnt_snes_directional_combat`, `tmnt_snes_throw_control`, `tmnt_snes_dash` (all `true`); they need the gameplay data of a Ready import, and F9 changes them for the session only; online every PC must support them, each player's choice applies to their own turtle, and Classic Soundtrack stays local ([online.md](online.md)) |
+| | Directional Combat, SNES Throw Control, Disable Double Jump, SNES Dash | `tmnt_snes_directional_combat` and `tmnt_snes_throw_control` (`true`), `tmnt_snes_disable_double_jump` (`false`), `tmnt_snes_dash` (`"off"`, `"auto"` or `"manual"`, `"auto"`; an older `true` or `false` is rewritten to `"auto"` or `"off"` when the file is read); they need the gameplay data of a Ready import, and F9 changes them for the session only; online every PC must support them, each player's choice applies to their own turtle, and Classic Soundtrack stays local ([snes-gameplay.md](snes-gameplay.md), [online.md](online.md)) |
 | | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
 | Online | Online play | `tmnt_online_enabled` |
 | | Online name | `tmnt_online_name` |

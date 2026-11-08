@@ -137,6 +137,7 @@ struct ServiceCapabilities {
   bool relay_supported = false;
   int relay_max_payload = 0;
   bool snes_features = false;
+  bool snes_modes = false;
 };
 
 struct PeerInfo {

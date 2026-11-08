@@ -84,11 +84,12 @@ constexpr Availability kOldImport{true, GameplayStatus::kReimportRequired};
 using Action = MenuModel::Action;
 
 void TestFeatures() {
-  std::printf("features: four, audio first, each with its own saved setting and no master\n");
-  CHECK(kFeatureCount == 4 && kFeatures.size() == 4 && kMenuRowCount == 4);
-  const char* labels[] = {"Classic Soundtrack", "Directional Combat", "SNES Throw Control", "SNES Dash"};
+  std::printf("features: five, audio first, each with its own saved setting and no master\n");
+  CHECK(kFeatureCount == 5 && kFeatures.size() == 5 && kMenuRowCount == 5);
+  const char* labels[] = {"Classic Soundtrack", "Directional Combat", "SNES Throw Control",
+                          "Disable Double Jump",  "SNES Dash"};
   const char* settings[] = {"tmnt_classic_soundtrack", "tmnt_snes_directional_combat", "tmnt_snes_throw_control",
-                            "tmnt_snes_dash"};
+                            "tmnt_snes_disable_double_jump", "tmnt_snes_dash"};
   for (size_t i = 0; i < kFeatureCount; ++i) {
     CHECK(std::string(MenuRow(i).label) == labels[i]);
     CHECK(std::string(MenuRow(i).setting) == settings[i]);
@@ -148,6 +149,53 @@ void TestSessionOverrides() {
   CHECK(Has(Source("src/snes_gameplay_tmnt_r.cpp"), "rex::cvar::Query<uint32_t>(snes::kSessionSetting)"));
 }
 
+void TestDashRow() {
+  std::printf("F9 dash row: Off, Auto, Manual in one row, Left and Right step it, Enter and A go on\n");
+  constexpr size_t kDashRow = kMenuRowCount - 1;
+  CHECK(MenuRow(kDashRow).feature == Feature::kDash);
+  MenuModel menu;
+  menu.Press(MenuKey::kF9, true, kAllReady);
+  menu.Select(kDashRow);
+  const MenuModel::Result next = menu.Press(MenuKey::kRight, true, kAllReady);
+  const MenuModel::Result back = menu.Press(MenuKey::kLeft, true, kAllReady);
+  const MenuModel::Result enter = menu.Press(MenuKey::kEnter, true, kAllReady);
+  const MenuModel::Result pad = menu.Press(MenuKey::kPadA, true, kAllReady);
+  CHECK(next.action == Action::kChange && next.row == kDashRow && next.step == 1);
+  CHECK(back.action == Action::kChange && back.row == kDashRow && back.step == -1);
+  CHECK(enter.action == Action::kChange && enter.step == 1 && pad.action == Action::kChange && pad.step == 1);
+  CHECK(menu.open() && menu.selected() == kDashRow);
+  for (size_t row = 0; row < kDashRow; ++row) {
+    menu.Select(row);
+    CHECK(menu.Press(MenuKey::kLeft, true, kAllReady).action == Action::kNone);
+    CHECK(menu.Press(MenuKey::kRight, true, kAllReady).action == Action::kNone);
+  }
+  menu.Select(kDashRow);
+  CHECK(menu.Press(MenuKey::kRight, true, kOldImport).action == Action::kNone);
+  CHECK(menu.Press(MenuKey::kRight, true, kNoRom).action == Action::kNone);
+
+  const OnlineView offline;
+  CHECK(std::string(DashRowState(offline, true, DashMode::kOff).text) == "Off" && !DashRowState(offline, true, DashMode::kOff).lit);
+  CHECK(std::string(DashRowState(offline, true, DashMode::kAuto).text) == "Auto" && DashRowState(offline, true, DashMode::kAuto).lit);
+  CHECK(std::string(DashRowState(offline, true, DashMode::kManual).text) == "Manual" && DashRowState(offline, true, DashMode::kManual).usable);
+  CHECK(!DashRowState(offline, false, DashMode::kAuto).usable && !DashRowState(offline, false, DashMode::kAuto).lit);
+
+  OnlineView room;
+  room.online = true;
+  CHECK(DashRowState(room, true, DashMode::kManual).usable && DashRowState(room, true, DashMode::kManual).reason == nullptr);
+  room.dash_manual_available = false;
+  const RowState old_service = DashRowState(room, true, DashMode::kManual);
+  CHECK(old_service.usable && !old_service.lit && old_service.reason != nullptr && std::string(old_service.text) == "Manual");
+  CHECK(DashRowState(room, true, DashMode::kAuto).reason == nullptr && DashRowState(room, true, DashMode::kAuto).lit);
+  room.dash_manual_available = true;
+  room.status[size_t(online::SnesFeature::kDash)] = online::SnesStatus::kUnsupportedByOther;
+  const RowState blocked = DashRowState(room, true, DashMode::kAuto);
+  CHECK(!blocked.usable && std::string(blocked.text) == "Unavailable" && blocked.reason != nullptr);
+  // One player's Dash is not another row's: the other rows keep their own status.
+  CHECK(RowStateOf(room, Feature::kDoubleJump, true, true).usable);
+  room.status[size_t(online::SnesFeature::kDash)] = online::SnesStatus::kWaiting;
+  CHECK(DashRowState(room, true, DashMode::kManual).usable);
+}
+
 void TestSessionNeverSaves() {
   std::printf("session: the F9 menu never writes settings.toml or a saved value\n");
   const std::string menu = Source("src/snes_menu.cpp") + Source("src/snes_menu.h") + Source("src/snes_gameplay_runtime.cpp");
@@ -155,10 +203,11 @@ void TestSessionNeverSaves() {
     CHECK(!Has(menu, write));
   }
   const std::string runtime = Source("src/snes_gameplay_runtime.cpp");
-  CHECK(Count(runtime, "SetFlagByName(") == 3);
-  CHECK(Count(runtime, "SetFlagByName(snes::kSessionSetting") == 1 && Count(runtime, "SetFlagByName(snes::kRuntimeDataSetting") == 1 &&
+  CHECK(Count(runtime, "SetFlagByName(") == 4);
+  CHECK(Count(runtime, "SetFlagByName(snes::kSessionSetting") == 2 && Count(runtime, "SetFlagByName(snes::kRuntimeDataSetting") == 1 &&
         Count(runtime, "SetFlagByName(snes::kOnlineLockSetting") == 1);
-  for (const char* key : {"kDirectionalCombatSetting", "kThrowControlSetting", "kDashSetting", "kClassicSoundtrackSetting"}) {
+  for (const char* key : {"kDirectionalCombatSetting", "kThrowControlSetting", "kDoubleJumpSetting",
+                          "kDashSetting", "kClassicSoundtrackSetting"}) {
     CHECK(!Has(runtime, std::string("SetFlagByName(") + key));
   }
 }
@@ -186,13 +235,14 @@ void TestMenuModel() {
     CHECK(menu.selected() == expected % kMenuRowCount);
   }
   menu.Press(MenuKey::kUp, true, kAllReady);
-  CHECK(menu.selected() == 3);
+  CHECK(menu.selected() == kMenuRowCount - 1);
   menu.Press(MenuKey::kUp, true, kAllReady);
-  CHECK(menu.selected() == 2);
+  CHECK(menu.selected() == kMenuRowCount - 2);
 
   for (const MenuKey change : {MenuKey::kEnter, MenuKey::kPadA}) {
     const MenuModel::Result result = menu.Press(change, true, kAllReady);
-    CHECK(result.action == Action::kChange && result.row == 2 && menu.open() && menu.selected() == 2);
+    CHECK(result.action == Action::kChange && result.row == kMenuRowCount - 2 && menu.open() &&
+          menu.selected() == kMenuRowCount - 2);
   }
   menu.Select(1);
   CHECK(menu.Press(MenuKey::kEnter, true, kAllReady).row == 1);
@@ -380,7 +430,7 @@ void TestGameplayEffect() {
   const std::string hooks = Source("src/snes_gameplay_tmnt_r.cpp");
   CHECK(Has(hooks, "const bool online = (wanted || locked_on) && ready && Online(ctx, base);") &&
         Has(hooks, "return snes::MechanicActive(wanted, ready, online, locked_on && own_turtle);"));
-  CHECK(Has(hooks, "Active(ctx, base, snes::Feature::kDash)") && Has(hooks, "Active(ctx, base, snes::Feature::kThrowControl)") &&
+  CHECK(Has(hooks, "ActiveDash(ctx, base)") && Has(hooks, "Active(ctx, base, snes::Feature::kThrowControl)") &&
         Has(hooks, "Active(ctx, base, snes::Feature::kDirectionalCombat, ControllerFor(vars) != nullptr)"));
   CHECK(!Has(hooks, "kSnesGameplaySetting") && !Has(hooks, "tmnt_snes_gameplay\""));
   CHECK(Has(hooks, "snes::EffectiveFeature(session, feature, rex::cvar::Query<bool>(snes::InfoOf(feature).setting))"));
@@ -426,11 +476,16 @@ void TestSwitchedOffReset() {
   ResetSwitchedOff(untouched, changes.Observe(combat_off), combat_off);
   CHECK(untouched.held == copy.held && untouched.same_held == copy.same_held && untouched.direction == copy.direction);
 
-  // Switching on, or leaving a feature on, resets nothing.
+  // Switching a feature on resets nothing of the others; any change of the Dash mode drops the dash counts only.
   StickState running;
   for (int frame = 0; frame < 40; ++frame) PushStick(running, 0, 1.0 / 60.0, data);
-  ResetSwitchedOff(running, changes.Observe(all_on), all_on);
+  const uint32_t others_on = all_on & ~FeatureBit(Feature::kDash);
+  EffectiveChanges again;
+  again.Observe(others_on & ~FeatureBit(Feature::kDirectionalCombat));
+  ResetSwitchedOff(running, again.Observe(others_on), others_on);
   CHECK(running.dashing && running.held > 0.5);
+  ResetSwitchedOff(running, changes.Observe(all_on), all_on);
+  CHECK(!running.dashing && running.held > 0.5);
 
   StickState released;
   ResetDashState(released);
@@ -438,7 +493,7 @@ void TestSwitchedOffReset() {
   CHECK(released.direction == kNoDirection && released.held == 0.0);
 
   const std::string hooks = Source("src/snes_gameplay_tmnt_r.cpp");
-  const std::string controller_of = Between(hooks, "Controller* ControllerOf(", "const Controller* ControllerFor");
+  const std::string controller_of = Between(hooks, "Controller* ControllerOf(", "Controller* ControllerFor(uint32_t");
   CHECK(Has(controller_of, "DropSwitchedOffState(ctx, base);"));
   CHECK(Has(hooks, "snes::ResetSwitchedOff(controller.stick, changed, effective);"));
 }
@@ -473,7 +528,9 @@ void TestOnline() {
   const std::string menu = Source("src/snes_menu.cpp");
   CHECK(Has(menu, "Tr(snes::OnlineNote(online_))") && Has(menu, "online_ = SnesOnline();"));
   CHECK(Has(menu, "snes::RowStateOf(online_, row.feature, local, local && SnesFeatureEnabled(row.feature))"));
-  CHECK(Has(menu, "if (snes::RowStateOf(online_, feature, true, false).usable) {\n        ToggleSnesFeatureForSession(feature);"));
+  CHECK(Has(menu, "} else if (snes::RowStateOf(online_, feature, true, false).usable) {\n        ToggleSnesFeatureForSession(feature);"));
+  CHECK(Has(menu, "snes::DashRowState(online_, true, snes::DashMode::kAuto).usable") && Has(menu, "StepSnesDashForSession(result.step);") &&
+        Has(menu, "snes::DashRowState(online_, local, SnesDashMode())"));
   CHECK(std::string(RowStateOf(view, Feature::kClassicSoundtrack, true, true).text) == "On" &&
         std::string(RowStateOf(view, Feature::kClassicSoundtrack, true, false).text) == "Off");
   const std::string runtime = Source("src/snes_gameplay_runtime.cpp");
@@ -543,8 +600,8 @@ void TestHotkeys() {
 
 void TestRetiredMasterSetting() {
   std::printf("retired: tmnt_snes_gameplay has no cvar, no row, no save, no effect; an old file still loads\n");
-  CHECK(kRetiredPlayerSettings.size() == 2 && kRetiredPlayerSettings[0] == "present_letterbox" &&
-        kRetiredPlayerSettings[1] == "tmnt_snes_gameplay");
+  CHECK(kRetiredPlayerSettings.size() == 3 && kRetiredPlayerSettings[0] == "present_letterbox" &&
+        kRetiredPlayerSettings[1] == "tmnt_snes_gameplay" && kRetiredPlayerSettings[2] == "tmnt_snes_movement_speeds");
   const std::string old_file =
       "tmnt_snes_directional_combat = true\r\n  tmnt_snes_gameplay=false\r\ntmnt_snes_dash = false\r\n"
       "present_letterbox = true\r\ntmnt_snes_throw_control = true";
@@ -562,7 +619,8 @@ void TestRetiredMasterSetting() {
   CHECK(Has(settings, "RemoveRetiredPlayerSettings(path);"));
   CHECK(Has(settings, "REXCVAR_DEFINE_BOOL(tmnt_snes_directional_combat, true,"));
   CHECK(Has(settings, "REXCVAR_DEFINE_BOOL(tmnt_snes_throw_control, true,"));
-  CHECK(Has(settings, "REXCVAR_DEFINE_BOOL(tmnt_snes_dash, true,"));
+  CHECK(Has(settings, "REXCVAR_DEFINE_STRING(tmnt_snes_dash, \"auto\","));
+  CHECK(Has(settings, "REXCVAR_DEFINE_BOOL(tmnt_snes_disable_double_jump, false,"));
   CHECK(Has(settings, "REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false,"));
   const std::string keys = Between(settings, "std::vector<std::string> GameSettingKeys() {", "for (const KeyboardAction");
   for (const char* key : {"snes::kDirectionalCombatSetting,", "snes::kThrowControlSetting,", "snes::kDashSetting,",
@@ -601,9 +659,10 @@ void TestLauncherPage() {
   const std::string rows = Between(launcher, "void SnesGameplayRows(trg::Ui& ui) {", "\n  }");
   const size_t combat = rows.find("ui.Toggle(\"Directional Combat\"");
   const size_t throw_control = rows.find("ui.Toggle(\"SNES Throw Control\"");
-  const size_t dash = rows.find("ui.Toggle(\"SNES Dash\"");
-  CHECK(combat != std::string::npos && combat < throw_control && throw_control < dash);
-  CHECK(Count(rows, "ui.Toggle(") == 3 && Count(rows, "ImGui::BeginDisabled(") == 1);
+  const size_t jump = rows.find("ui.Toggle(\"Disable Double Jump\"");
+  const size_t dash = rows.find("ui.Choice(\"SNES Dash\"");
+  CHECK(combat != std::string::npos && combat < throw_control && throw_control < jump && jump < dash);
+  CHECK(Count(rows, "ui.Toggle(") == 3 && Count(rows, "ui.Choice(") == 1 && Count(rows, "ImGui::BeginDisabled(") == 1);
   CHECK(Has(rows, "ImGui::BeginDisabled(!ready);"));
   CHECK(!Has(launcher, "SNES Gameplay\"") && !Has(launcher, "kSnesGameplaySetting") && !Has(launcher, "tmnt_snes_gameplay"));
   CHECK(Has(launcher, "ui.Toggle(\"Classic Soundtrack\", \"Plays the SNES soundtrack instead of the Re-Shelled music\","));
@@ -684,6 +743,7 @@ void TestDocs() {
 int main() {
   TestFeatures();
   TestSessionOverrides();
+  TestDashRow();
   TestSessionNeverSaves();
   TestMenuModel();
   TestF9OnlyOpensAndCloses();

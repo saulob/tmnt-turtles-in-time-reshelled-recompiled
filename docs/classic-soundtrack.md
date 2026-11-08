@@ -36,15 +36,16 @@ the ROM again. Until then the game uses the Re-Shelled music.
 ## In the game
 
 - **F9** opens and closes the SNES menu: **Classic Soundtrack** under AUDIO, and **Directional Combat**, **SNES Throw
-  Control** and **SNES Dash** under GAMEPLAY. Up and Down or the D-pad select a row, Enter or A switches it, Escape or B
-  closes. A change applies to this session only, never reaches the launcher settings, and the next start uses the
+  Control**, **Disable Double Jump** and **SNES Dash** under GAMEPLAY
+  ([snes-gameplay.md](snes-gameplay.md)). Up and Down or the D-pad select a row, Enter or A switches it (SNES Dash goes
+  through Off, Auto and Manual, and Left and Right step it), Escape or B closes. A change applies to this session only, never reaches the launcher settings, and the next start uses the
   launcher choices again. Switching Classic Soundtrack to the original music is immediate. Switching it back starts the
   SNES song of the music that is playing from its beginning.
 - Online, Classic Soundtrack stays local: each player hears the music they chose, F9 switches it at once during a match,
-  and the other players need neither the same choice nor a ROM. Only the three gameplay rows depend on the others
+  and the other players need neither the same choice nor a ROM. Only the four gameplay rows depend on the others
   ([online.md](online.md)).
 - Without an imported ROM the menu still opens, says **SNES ROM not imported**, and every row is disabled. An older
-  import keeps a usable Classic Soundtrack and asks to re-import the ROM for the three gameplay rows.
+  import keeps a usable Classic Soundtrack and asks to re-import the ROM for the gameplay rows.
 - A short message appears under the frame counter (top corner without it): **SNES soundtrack: On** for 5 seconds when
   the game starts with the SNES music. The Ping display moves down only while it shows.
 

@@ -112,7 +112,8 @@ establishment budget.
 
 ## SNES gameplay online
 
-Three SNES gameplay mechanics can be used online: **Directional Combat**, **SNES Throw Control** and **SNES Dash**.
+Four SNES gameplay mechanics can be used online: **Directional Combat**, **SNES Throw Control**, **Disable Double Jump**
+and **SNES Dash** ([snes-gameplay.md](snes-gameplay.md)).
 Support is global, choices are per player. A mechanic is available in a match only when every PC supports it with the
 same data; once it is, each player's own On or Off applies to the turtle that player controls, and another player's Off
 never takes it away. **Classic Soundtrack** is not part of this: it is each PC's own presentation, follows that player's
@@ -122,9 +123,12 @@ only says **Cheats are unavailable while Online play is enabled.**.
 - **Supports.** A mechanic needs the gameplay data of a Ready import. Without it, or with an older import that only has
   the soundtrack, it is unsupported, so nobody in that match has it; the match plays normally.
 - **Data identity.** Directional Combat is identified by the facing table, Throw Control by that table and the throw hold
-  time, Dash by the dash hold time, each hold time with the 50 or 60 Hz clock of the imported ROM. A PAL and an NTSC
-  import share Directional Combat only; Throw Control and Dash are unavailable for that match (F9 shows **Incompatible
-  SNES data**).
+  time, Disable Double Jump by its rule version, Dash by its modes and the dash hold and tap times; the hold and tap times carry the 50 or 60 Hz clock of the imported ROM. A PAL and
+  an NTSC import share Directional Combat and Disable Double Jump; Throw Control and Dash are unavailable
+  for that match (F9 shows **Incompatible SNES data**).
+- **Dash mode.** Dash is one choice per player with three modes, Off, Auto and Manual, announced as `dash` plus
+  `dash_mode`; the room's table gives each seat its own mode. A service without the `snes_modes` capability is never sent
+  Manual (that player's Dash is Off for the match, F9 says so) and has no Disable Double Jump.
 - **Table.** Every member announces `supports`, `enabled` and the identities to the match room. The room answers each
   member with the same table: the `supported` mechanics and, per party slot, that player's choice among them. Every
   client checks the supported set against its own rule; it can only shrink.
@@ -146,7 +150,8 @@ only says **Cheats are unavailable while Online play is enabled.**.
   with the reason otherwise: another player does not support it, the online service does not support it, or
   **Incompatible SNES data**. During a locked match **Applies to the next online match** is shown under the gameplay rows.
 - **Older peers and services.** A client or service without this negotiation announces or answers nothing, which reads as
-  unsupported: all three mechanics are unavailable to everyone and the match is otherwise unchanged.
+  unsupported: those mechanics are unavailable to everyone and the match is otherwise unchanged. A client from before
+  the Dash modes has another Dash identity, so Dash is unavailable between it and a new client.
 
 ## Privacy and usage statistics
 

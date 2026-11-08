@@ -40,9 +40,12 @@ struct OnlineView {
   bool online = false;
   bool locked = false;
   std::array<online::SnesStatus, online::kSnesFeatureCount> status{};
+  bool dash_manual_available = true;
 };
 
 // Why an online gameplay row cannot be used; null when it can.
+inline constexpr char kMenuManualDashUnavailable[] = "Unavailable: the online service does not support Manual Dash";
+
 inline const char* OnlineReason(online::SnesStatus status) {
   switch (status) {
     case online::SnesStatus::kAvailable:
@@ -72,10 +75,22 @@ struct RowState {
 inline RowState RowStateOf(const OnlineView& view, Feature feature, bool available, bool on) {
   const RowState local{on ? "On" : "Off", available && on, available, nullptr};
   if (!view.online || !InfoOf(feature).gameplay || !available) return local;
-  const online::SnesStatus status = view.status[static_cast<size_t>(feature) - 1];
+  const online::SnesStatus status = view.status[static_cast<size_t>(*OnlineFeature(feature))];
   if (status == online::SnesStatus::kAvailable) return local;
   if (status == online::SnesStatus::kWaiting) return {local.text, local.lit, true, OnlineReason(status)};
   return {"Unavailable", false, false, OnlineReason(status)};
+}
+
+// The Dash row is a mode: it shows the mode itself, and an unusable Manual online stays selectable so it can be left.
+inline RowState DashRowState(const OnlineView& view, bool available, DashMode mode) {
+  RowState state = RowStateOf(view, Feature::kDash, available, mode != DashMode::kOff);
+  if (!available) return state;
+  if (state.usable) state.text = DashLabel(mode);
+  if (view.online && state.usable && mode == DashMode::kManual && !view.dash_manual_available) {
+    state.lit = false;
+    state.reason = kMenuManualDashUnavailable;
+  }
+  return state;
 }
 
 inline bool RowAvailable(const Availability& available, Feature feature) {
@@ -97,7 +112,7 @@ inline const char* StatusMessage(const Availability& available) {
   return available.audio ? nullptr : kMenuSoundtrackUnavailable;
 }
 
-enum class MenuKey { kF9, kEscape, kPadB, kUp, kDown, kEnter, kPadA };
+enum class MenuKey { kF9, kEscape, kPadB, kUp, kDown, kEnter, kPadA, kLeft, kRight };
 
 // The menu exists only once the game runs, and never over another overlay.
 inline bool CanOpenMenu(bool attached, bool modal_open) { return attached && !modal_open; }
@@ -110,6 +125,7 @@ class MenuModel {
   struct Result {
     Action action = Action::kNone;
     size_t row = 0;
+    int step = 1;  // Dash only: -1 goes back through Off, Auto, Manual
   };
 
   bool open() const { return open_; }
@@ -143,6 +159,10 @@ class MenuModel {
       case MenuKey::kEnter:
       case MenuKey::kPadA:
         return RowAvailable(available, MenuRow(selected_).feature) ? Result{Action::kChange, selected_} : Result{};
+      case MenuKey::kLeft:
+      case MenuKey::kRight:
+        if (MenuRow(selected_).feature != Feature::kDash || !RowAvailable(available, Feature::kDash)) return {};
+        return {Action::kChange, selected_, key == MenuKey::kLeft ? -1 : 1};
       case MenuKey::kF9:
         break;
     }

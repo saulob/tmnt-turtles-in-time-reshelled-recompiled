@@ -1,5 +1,7 @@
 #include "classic_soundtrack/soundtrack_stream.h"
 
+#include "classic_soundtrack/loudness.h"
+
 namespace tmnt::classic {
 
 SnesSoundtrackPlayer::StartResult SoundtrackStream::Start(const SoundSet& set, size_t song_id, size_t pack_id,
@@ -22,6 +24,7 @@ bool SoundtrackStream::Render(std::int16_t* frames, size_t frame_count) {
   }
   const bool complete = resampler_.Process(
       frames, frame_count, [this](std::int16_t* dst, size_t count) { return player_.Render(dst, count); });
+  LiftSnesSoundtrack(frames, frame_count * 2);
   return complete && player_.playing();
 }
 

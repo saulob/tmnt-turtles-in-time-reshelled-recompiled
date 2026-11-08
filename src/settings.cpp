@@ -50,7 +50,9 @@ REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false, "TMNT",
 REXCVAR_DEFINE_BOOL(tmnt_snes_directional_combat, true, "TMNT",
                     "SNES: SNES combat facing and attack direction; not applied online");
 REXCVAR_DEFINE_BOOL(tmnt_snes_throw_control, true, "TMNT", "SNES: predictable SNES throw selection; not applied online");
-REXCVAR_DEFINE_BOOL(tmnt_snes_dash, true, "TMNT", "SNES: SNES dash timing; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_snes_disable_double_jump, false, "TMNT",
+                    "SNES: no Re-Shelled double jump; a second jump request in the air is ignored");
+REXCVAR_DEFINE_STRING(tmnt_snes_dash, "auto", "TMNT", "SNES: how the dash starts: off, auto (hold) or manual (double tap)");
 REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_health, false, "TMNT",
                     "Cheat: local players' turtles keep their maximum health; not applied online");
 REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_lives, false, "TMNT",
@@ -126,6 +128,7 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_classic_soundtrack",
       snes::kDirectionalCombatSetting,
       snes::kThrowControlSetting,
+      snes::kDoubleJumpSetting,
       snes::kDashSetting,
       cheats::kInfiniteHealthSetting,
       cheats::kInfiniteLivesSetting,
@@ -287,7 +290,8 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
   std::size_t repaired = 0;
-  const std::string fixed = RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired);
+  const std::string fixed = MigrateBoolToDashMode(
+      RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired), snes::kDashSetting, repaired);
   if (repaired == 0) {
     return;
   }

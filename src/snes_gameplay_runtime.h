@@ -17,6 +17,9 @@ snes::Availability SnesAvailability();
 // The F9 menu's value of a feature: its session override if there is one, otherwise the launcher's saved value.
 bool SnesFeatureEnabled(snes::Feature feature);
 
+// Dash is a mode, not a switch: the F9 menu's value of it, which `SnesFeatureEnabled(kDash)` only reports as on or off.
+snes::DashMode SnesDashMode();
+
 // The gameplay mechanics this player supports and has turned on, for the online negotiation.
 online::SnesGameplayCapabilities LocalSnesCapabilities();
 
@@ -29,5 +32,8 @@ snes::OnlineView SnesOnline();
 // Switches a feature for this session only. The launcher's saved value and settings.toml are never touched. Classic
 // Soundtrack switches at once, online too; a gameplay mechanic changed during a locked online match waits for the next.
 void ToggleSnesFeatureForSession(snes::Feature feature);
+
+// Moves the Dash mode one step through Off, Auto, Manual (-1 goes back) for this session only.
+void StepSnesDashForSession(int step);
 
 }  // namespace tmnt

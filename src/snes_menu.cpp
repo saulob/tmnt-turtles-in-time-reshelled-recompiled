@@ -45,7 +45,9 @@ class SnesMenuDialog final : public ModalDialog {
     const snes::MenuModel::Result result = menu_.model_.Press(key, true, available_);
     if (result.action == snes::MenuModel::Action::kChange) {
       const snes::Feature feature = snes::MenuRow(result.row).feature;
-      if (snes::RowStateOf(online_, feature, true, false).usable) {
+      if (feature == snes::Feature::kDash) {
+        if (snes::DashRowState(online_, true, snes::DashMode::kAuto).usable) StepSnesDashForSession(result.step);
+      } else if (snes::RowStateOf(online_, feature, true, false).usable) {
         ToggleSnesFeatureForSession(feature);
       }
     }
@@ -57,6 +59,12 @@ class SnesMenuDialog final : public ModalDialog {
     }
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown)) {
       Press(snes::MenuKey::kDown);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft)) {
+      Press(snes::MenuKey::kLeft);
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight)) {
+      Press(snes::MenuKey::kRight);
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
       Press(snes::MenuKey::kEnter);
@@ -113,7 +121,10 @@ class SnesMenuDialog final : public ModalDialog {
 
   void DrawRow(const snes::FeatureInfo& row, size_t index, bool mouse_moved) {
     const bool local = snes::RowAvailable(available_, row.feature);
-    const snes::RowState shown = snes::RowStateOf(online_, row.feature, local, local && SnesFeatureEnabled(row.feature));
+    const snes::RowState shown =
+        row.feature == snes::Feature::kDash
+            ? snes::DashRowState(online_, local, SnesDashMode())
+            : snes::RowStateOf(online_, row.feature, local, local && SnesFeatureEnabled(row.feature));
     const bool available = shown.usable;
     const float height = ImGui::GetFrameHeight() + 4.0f;
     const ImVec2 min = ImGui::GetCursorScreenPos();

@@ -257,6 +257,7 @@ RuntimeData ToRuntimeData(const GameplayData& data) {
   runtime.facing = data.facing;
   runtime.dash_hold_frames = data.dash_hold_frames;
   runtime.throw_hold_frames = data.throw_hold_frames;
+  runtime.dash_tap_frames = data.dash_tap_frames;
   return runtime;
 }
 

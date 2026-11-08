@@ -122,4 +122,33 @@ std::string RepairBareString(std::string_view text, std::string_view key, std::s
   return out;
 }
 
+std::string MigrateBoolToDashMode(std::string_view text, std::string_view key, std::size_t& migrated) {
+  std::string out;
+  out.reserve(text.size());
+  while (!text.empty()) {
+    const size_t newline = text.find('\n');
+    const size_t length = newline == std::string_view::npos ? text.size() : newline + 1;
+    const std::string_view line = text.substr(0, length);
+    text.remove_prefix(length);
+    if (!IsSettingLine(line, key)) {
+      out += line;
+      continue;
+    }
+    const size_t eq = line.find('=');
+    const size_t value = line.find_first_not_of(" \t", eq + 1);
+    const size_t end = value == std::string_view::npos ? value : line.find_first_of(" \t#\r\n", value);
+    const std::string_view word =
+        value == std::string_view::npos ? std::string_view() : line.substr(value, std::min(end, line.size()) - value);
+    if (word != "true" && word != "false") {
+      out += line;
+      continue;
+    }
+    out += line.substr(0, value);
+    out += word == "true" ? "\"auto\"" : "\"off\"";
+    out += line.substr(value + word.size());
+    ++migrated;
+  }
+  return out;
+}
+
 }  // namespace tmnt

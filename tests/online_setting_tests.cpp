@@ -22,6 +22,7 @@
 #include "connection_test_gate.h"
 #include "corner_overlay.h"
 #include "legacy_settings.h"
+#include "snes_gameplay/rules.h"
 #include "online_page.h"
 #include "online_setting.h"
 #include "ping_display.h"
@@ -810,6 +811,45 @@ void TestBareValuesAlreadyWrittenAreRepaired() {
   CHECK(ParsedToml("x = " + TomlString("a\"b\\c")).has_value());
 }
 
+// SNES Dash was a bool: a saved true is the Auto dash, false is Off, and the file loads again with the new string setting.
+void TestOldSnesDashSettingMigrates() {
+  const std::string key = "tmnt_snes_dash";
+  std::size_t migrated = 0;
+  CHECK(MigrateBoolToDashMode("tmnt_snes_dash = true\n", key, migrated) == "tmnt_snes_dash = \"auto\"\n" && migrated == 1);
+  migrated = 0;
+  CHECK(MigrateBoolToDashMode("tmnt_snes_dash = false\r\n", key, migrated) == "tmnt_snes_dash = \"off\"\r\n" && migrated == 1);
+  migrated = 0;
+  CHECK(MigrateBoolToDashMode("tmnt_snes_dash=true", key, migrated) == "tmnt_snes_dash=\"auto\"" && migrated == 1);
+  migrated = 0;
+  CHECK(MigrateBoolToDashMode("  tmnt_snes_dash\t=  false  # kept\r\n", key, migrated) == "  tmnt_snes_dash\t=  \"off\"  # kept\r\n" && migrated == 1);
+
+  const std::string file = "# header\r\ntmnt_snes_directional_combat = true\r\ntmnt_snes_dash = true\r\ntmnt_snes_throw_control = false\r\n";
+  migrated = 0;
+  const std::string migrated_file = MigrateBoolToDashMode(file, key, migrated);
+  CHECK(migrated == 1 && migrated_file == "# header\r\ntmnt_snes_directional_combat = true\r\ntmnt_snes_dash = \"auto\"\r\n"
+                                         "tmnt_snes_throw_control = false\r\n");
+  const std::optional<toml::table> table = ParsedToml(migrated_file);
+  CHECK(table.has_value() && (*table)[key].value_or(std::string()) == "auto" && (*table)["tmnt_snes_throw_control"].value_or(true) == false);
+
+  // New values, other keys and prefixes are left exactly as they are, and a second pass changes nothing.
+  for (const std::string same : {std::string("tmnt_snes_dash = \"manual\"\n"), std::string("tmnt_snes_dash = \"auto\"\n"),
+                                 std::string("tmnt_snes_dash = \"off\"\n"), std::string("tmnt_snes_dash_x = true\n"),
+                                 std::string("# tmnt_snes_dash = true\n"), std::string("other = true\n"), std::string("tmnt_snes_dash =\n"),
+                                 std::string("")}) {
+    migrated = 0;
+    CHECK(MigrateBoolToDashMode(same, key, migrated) == same && migrated == 0);
+  }
+  migrated = 0;
+  CHECK(MigrateBoolToDashMode(migrated_file, key, migrated) == migrated_file && migrated == 0);
+
+  // The saved text any version wrote means what the player had.
+  CHECK(tmnt::snes::ParseDashSetting("true") == tmnt::snes::DashMode::kAuto && tmnt::snes::ParseDashSetting("false") == tmnt::snes::DashMode::kOff &&
+        tmnt::snes::ParseDashSetting("auto") == tmnt::snes::DashMode::kAuto && tmnt::snes::ParseDashSetting("manual") == tmnt::snes::DashMode::kManual &&
+        tmnt::snes::ParseDashSetting("off") == tmnt::snes::DashMode::kOff);
+  const std::string settings = ReadSource("settings.cpp");
+  CHECK(Has(settings, "MigrateBoolToDashMode(\n      RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired), snes::kDashSetting, repaired)"));
+}
+
 void TestEveryLauncherWriteQuotesStrings() {
   const std::string settings = ReadSource("settings.cpp");
   CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
@@ -866,6 +906,7 @@ int main() {
   TestInstanceSettingsStayValidThroughTheLauncher();
   TestPlayIsOpenAfterRelaunchWithoutAnotherTest();
   TestBareValuesAlreadyWrittenAreRepaired();
+  TestOldSnesDashSettingMigrates();
   TestEveryLauncherWriteQuotesStrings();
   TestRelaunchKeepsTheInstance();
   TestPlayWaitsForAConnectionTestOnlyWithOnlinePlayOn();

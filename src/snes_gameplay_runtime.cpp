@@ -30,12 +30,19 @@ std::atomic<uint32_t> g_published_lock{0};
 
 bool SavedValue(snes::Feature feature) { return rex::cvar::Query<bool>(snes::InfoOf(feature).setting); }
 
+snes::DashMode SavedDash() { return snes::ParseDashSetting(REXCVAR_GET(tmnt_snes_dash)); }
+
+const char* OnOff(bool on) { return on ? "On" : "Off"; }
+
 void PublishLock(uint32_t lock) {
   if (g_published_lock.exchange(lock) == lock) {
     return;
   }
   rex::cvar::SetFlagByName(snes::kOnlineLockSetting, std::to_string(lock));
-  REXLOG_INFO("SNES: online gameplay lock {}", lock ? "set, mechanics " + std::to_string(lock & 7) : "released");
+  REXLOG_INFO("SNES: online gameplay lock {}",
+              lock ? "set, mechanics " + std::to_string(lock & snes::kOnlineLockMechanics) + ", dash mode " +
+                         snes::DashLabel(snes::LockedDash(lock))
+                   : "released");
 }
 
 }  // namespace
@@ -54,17 +61,21 @@ void StartSnesGameplay(const std::filesystem::path& user_data_root) {
     REXLOG_INFO("{}", start.message);
   }
   if (!start.data.empty()) {
-    REXLOG_INFO("SNES Gameplay: directional combat {}, throw control {}, dash {}",
-                REXCVAR_GET(tmnt_snes_directional_combat) ? "On" : "Off",
-                REXCVAR_GET(tmnt_snes_throw_control) ? "On" : "Off", REXCVAR_GET(tmnt_snes_dash) ? "On" : "Off");
+    REXLOG_INFO("SNES Gameplay: directional combat {}, throw control {}, disable double jump {}, dash {}",
+                OnOff(REXCVAR_GET(tmnt_snes_directional_combat)), OnOff(REXCVAR_GET(tmnt_snes_throw_control)),
+                OnOff(REXCVAR_GET(tmnt_snes_disable_double_jump)),
+                snes::DashLabel(SavedDash()));
   }
 }
 
 snes::Availability SnesAvailability() { return {IsClassicSoundtrackReady(), g_gameplay_status}; }
 
 bool SnesFeatureEnabled(snes::Feature feature) {
+  if (feature == snes::Feature::kDash) return SnesDashMode() != snes::DashMode::kOff;
   return snes::EffectiveFeature(REXCVAR_GET(tmnt_snes_session), feature, SavedValue(feature));
 }
+
+snes::DashMode SnesDashMode() { return snes::EffectiveDash(REXCVAR_GET(tmnt_snes_session), SavedDash()); }
 
 online::SnesGameplayCapabilities LocalSnesCapabilities() {
   online::SnesGameplayCapabilities caps;
@@ -77,6 +88,7 @@ online::SnesGameplayCapabilities LocalSnesCapabilities() {
     const bool supported = snes::RowAvailable(SnesAvailability(), info.feature) && compat != 0;
     caps.supports.Set(*feature, supported);
     caps.enabled.Set(*feature, supported && SnesFeatureEnabled(info.feature));
+    if (*feature == online::SnesFeature::kDash && supported) caps.enabled.dash = SnesDashMode();
     caps.compat[size_t(*feature)] = supported ? compat : 0;
   }
   return caps.Normalized();
@@ -102,11 +114,25 @@ snes::OnlineView SnesOnline() {
   const online::OnlineService::SnesNegotiation negotiation = Online().Snes();
   view.online = negotiation.online;
   view.locked = negotiation.locked.has_value();
+  view.dash_manual_available = negotiation.dash_manual_available;
   view.status = negotiation.status;
   return view;
 }
 
+void StepSnesDashForSession(int step) {
+  if (!snes::RowAvailable(SnesAvailability(), snes::Feature::kDash)) {
+    return;
+  }
+  const uint32_t next = snes::SteppedDashOverride(REXCVAR_GET(tmnt_snes_session), SavedDash(), step);
+  rex::cvar::SetFlagByName(snes::kSessionSetting, std::to_string(next));
+  REXLOG_INFO("SNES: Dash {} for this session", snes::DashLabel(snes::EffectiveDash(next, SavedDash())));
+}
+
 void ToggleSnesFeatureForSession(snes::Feature feature) {
+  if (feature == snes::Feature::kDash) {
+    StepSnesDashForSession(1);
+    return;
+  }
   if (!snes::RowAvailable(SnesAvailability(), feature)) {
     return;
   }

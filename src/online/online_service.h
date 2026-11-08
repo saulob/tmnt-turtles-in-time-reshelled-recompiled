@@ -216,6 +216,7 @@ class OnlineService {
     std::optional<SnesMatchTable> locked;
     SnesGameplaySet supported;
     std::array<SnesStatus, kSnesFeatureCount> status{};
+    bool dash_manual_available = true;
   };
   SnesNegotiation Snes() const;
 
@@ -386,6 +387,7 @@ class OnlineService {
   SnesGameplayCapabilities sent_snes_;
   bool snes_announced_ = false;
   bool room_snes_supported_ = true;
+  bool room_snes_modes_ = true;
   int snes_update_seq_ = 0;
   double snes_retry_at_ = 0;
   std::optional<SnesMatchTable> snes_locked_;

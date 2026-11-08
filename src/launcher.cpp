@@ -1246,8 +1246,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
               true, "Off", "On");
     ui.Toggle("SNES Throw Control", "Use predictable SNES-style throw selection", snes::kThrowControlSetting, true, "Off",
               "On");
-    ui.Toggle("SNES Dash", "Use movement and dash behavior based on the SNES version", snes::kDashSetting, true, "Off",
-              "On");
+    ui.Toggle("Disable Double Jump", "Use SNES jump behavior without Re-Shelled's double jump",
+              snes::kDoubleJumpSetting, false, "Off", "On");
+    ui.Choice("SNES Dash",
+              "Off uses Re-Shelled movement. Auto dashes after holding a direction. Manual dashes with a double tap.",
+              snes::kDashSetting, "auto", {{"off", "Off"}, {"auto", "Auto"}, {"manual", "Manual"}}, 3);
     ImGui::EndDisabled();
     if (!ready) {
       ui.Help(SnesGameplayUnavailableText(snes_gameplay_));

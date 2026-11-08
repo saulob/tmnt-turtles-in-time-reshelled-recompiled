@@ -7,6 +7,7 @@ const char* SnesLabel(SnesFeature feature) {
     case SnesFeature::kDirectionalCombat: return "Directional Combat";
     case SnesFeature::kThrowControl: return "SNES Throw Control";
     case SnesFeature::kDash: return "SNES Dash";
+    case SnesFeature::kDoubleJump: return "Disable Double Jump";
   }
   return "";
 }

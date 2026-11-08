@@ -142,6 +142,7 @@ ServiceCapabilities ReadCapabilities(const json::Value& v) {
   caps.relay_supported = BoolOf(v.Find("relay_supported"), false);
   caps.relay_max_payload = IntOf(v.Find("relay_max_payload"));
   caps.snes_features = BoolOf(v.Find("snes_features"), false);
+  caps.snes_modes = BoolOf(v.Find("snes_modes"), false);
   return caps;
 }
 
@@ -151,6 +152,12 @@ SnesGameplaySet ReadSnesSet(const json::Value* v) {
   for (int i = 0; i < kSnesFeatureCount; ++i) {
     const SnesFeature feature = SnesFeatureAt(i);
     set.Set(feature, BoolOf(v->Find(SnesKey(feature)), false));
+  }
+  // A Dash from a client or service that predates modes has no mode and is Auto; a mode this game does not know is Off.
+  if (set.Has(SnesFeature::kDash)) {
+    if (const json::Value* mode = v->Find("dash_mode"); mode && mode->IsString()) {
+      set.dash = ParseDashModeKey(StringOf(mode)).value_or(DashMode::kOff);
+    }
   }
   return set;
 }
@@ -211,7 +218,7 @@ std::string SnesSetJson(const SnesGameplaySet& set) {
     const SnesFeature feature = SnesFeatureAt(i);
     out += std::string(i ? "," : "") + "\"" + SnesKey(feature) + "\":" + (set.Has(feature) ? "true" : "false");
   }
-  return out + "}";
+  return out + ",\"dash_mode\":\"" + DashModeKey(set.dash) + "\"}";
 }
 
 std::string SnesJson(const SnesGameplayCapabilities& snes) {

@@ -671,8 +671,13 @@ Directional Combat	Combate direcional
 Use SNES-style combat facing and attack direction	Usa direção de combate e ataques no estilo SNES
 SNES Throw Control	Controle de arremesso SNES
 Use predictable SNES-style throw selection	Usa seleção previsível de arremessos no estilo SNES
+Disable Double Jump	Desativar pulo duplo
+Use SNES jump behavior without Re-Shelled's double jump	Usa o pulo do SNES, sem o pulo duplo do Re-Shelled
 SNES Dash	Dash SNES
-Use movement and dash behavior based on the SNES version	Usa movimentação e dash baseados na versão de SNES
+Off uses Re-Shelled movement. Auto dashes after holding a direction. Manual dashes with a double tap.	Desligado usa a movimentação do Re-Shelled. Automático corre depois de segurar uma direção. Manual corre com um toque duplo.
+Auto	Automático
+Manual	Manual
+Unavailable: the online service does not support Manual Dash	Indisponível: o serviço online não oferece suporte ao Dash manual
 Unavailable: import your SNES ROM above.	Indisponível: importe sua ROM de SNES acima.
 Unavailable: import the SNES ROM again to add its gameplay data.	Indisponível: importe a ROM de SNES de novo para adicionar os dados de jogabilidade.
 Unavailable: the gameplay code in this ROM is not a known USA, Europe or Australia version.	Indisponível: o código de jogabilidade desta ROM não é de uma versão conhecida dos EUA, da Europa ou da Austrália.

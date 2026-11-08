@@ -72,19 +72,29 @@ export const CAPABILITIES = {
   relay_frame_version: RELAY.version,
   max_party: MAX_PARTY,
   snes_features: true,
+  snes_modes: true,
 };
 
 // SNES gameplay mechanics only: the soundtrack is each player's own and is never negotiated.
-export const SNES_KEYS = ['directional_combat', 'throw_control', 'dash'];
+export const SNES_KEYS = ['directional_combat', 'throw_control', 'dash', 'double_jump'];
+// How a player's SNES Dash starts. It is one choice per player: `dash` says it is on and `dash_mode` which kind.
+export const DASH_MODES = ['off', 'auto', 'manual'];
 const SNES_ID = /^[0-9a-f]{1,8}$/;
 
 const snesFlags = () => Object.fromEntries(SNES_KEYS.map((key) => [key, false]));
 const snesIds = () => Object.fromEntries(SNES_KEYS.map((key) => [key, '']));
 
+// A Dash announced without a mode is the Auto dash of clients that predate modes; a mode nobody writes is not guessed.
+const dashModeOf = (enabled) => {
+  if (!isObject(enabled) || enabled.dash !== true) return 'off';
+  if (enabled.dash_mode === undefined) return 'auto';
+  return DASH_MODES.includes(enabled.dash_mode) ? enabled.dash_mode : 'off';
+};
+
 // What a client announced: a feature it does not support is neither enabled nor identified, and anything missing or
 // malformed reads as unsupported, so a client without SNES features announces nothing at all.
 export function normalizeSnes(value) {
-  const out = { supports: snesFlags(), enabled: snesFlags(), compat: snesIds() };
+  const out = { supports: snesFlags(), enabled: { ...snesFlags(), dash_mode: 'off' }, compat: snesIds() };
   if (!isObject(value)) return out;
   for (const key of SNES_KEYS) {
     const supported = isObject(value.supports) && value.supports[key] === true;
@@ -93,6 +103,9 @@ export function normalizeSnes(value) {
     const id = isObject(value.compat) ? value.compat[key] : '';
     out.compat[key] = supported && typeof id === 'string' && SNES_ID.test(id) ? id : '';
   }
+  const mode = out.enabled.dash ? dashModeOf(value.enabled) : 'off';
+  out.enabled.dash = mode !== 'off';
+  out.enabled.dash_mode = mode;
   return out;
 }
 
@@ -120,12 +133,16 @@ export function supportedSnes(list) {
 
 export const offSnesTable = () => ({ supported: snesFlags(), players: {} });
 
+const seatRow = (supported, announced) => {
+  const row = Object.fromEntries(SNES_KEYS.map((key) => [key, supported[key] && announced.enabled[key]]));
+  return { ...row, dash_mode: row.dash ? announced.enabled.dash_mode : 'off' };
+};
+
 // `entries`: [slot, announcement] for every member. Each slot's row is its own player's choice among what the match
 // supports, so every member is told the same table.
 export function snesTable(entries) {
   const supported = supportedSnes(entries.map(([, s]) => s));
-  const players = Object.fromEntries(entries.map(([slot, s]) => [String(slot),
-    Object.fromEntries(SNES_KEYS.map((key) => [key, supported[key] && s.enabled[key]]))]));
+  const players = Object.fromEntries(entries.map(([slot, s]) => [String(slot), seatRow(supported, s)]));
   return { supported, players };
 }
 

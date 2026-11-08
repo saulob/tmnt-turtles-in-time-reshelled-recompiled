@@ -41,6 +41,8 @@ constexpr uint32_t kControllerVars = 36;
 constexpr uint32_t kControllerJoystick = 0;
 constexpr uint32_t kControllerEntity = 4;
 
+constexpr uint32_t kState = 3256;
+
 constexpr uint32_t kImportTimeGetDt = 1433;
 constexpr uint32_t kImportObjectModifier = 1855;
 constexpr uint32_t kImportModifierScript = 11;
@@ -104,6 +106,11 @@ bool Wanted(uint32_t session, snes::Feature feature) {
   return snes::EffectiveFeature(session, feature, rex::cvar::Query<bool>(snes::InfoOf(feature).setting));
 }
 
+snes::DashMode WantedDash() {
+  return snes::EffectiveDash(rex::cvar::Query<uint32_t>(snes::kSessionSetting),
+                             snes::ParseDashSetting(rex::cvar::Query<std::string>(snes::kDashSetting)));
+}
+
 // Offline a feature follows the F9 value at once. Online it follows the bits locked for this PC's seat, and only for the
 // turtle this PC controls: the game's replication master decides each turtle, so the others follow their owners.
 bool Active(PPCContext& ctx, uint8_t* base, snes::Feature feature, bool own_turtle = true) {
@@ -117,12 +124,23 @@ bool Active(PPCContext& ctx, uint8_t* base, snes::Feature feature, bool own_turt
   return snes::MechanicActive(wanted, ready, online, locked_on && own_turtle);
 }
 
+// The Dash mode in force: offline the F9 or saved mode at once, online the mode locked for this PC's seat.
+snes::DashMode ActiveDash(PPCContext& ctx, uint8_t* base) {
+  const snes::DashMode wanted = WantedDash();
+  const snes::DashMode locked = snes::LockedDash(rex::cvar::Query<uint32_t>(snes::kOnlineLockSetting));
+  const bool ready = Data().has_value();
+  const bool online = (wanted != snes::DashMode::kOff || locked != snes::DashMode::kOff) && ready && Online(ctx, base);
+  return snes::DashActive(wanted, ready, online, locked);
+}
+
 // A feature switched off drops what it kept for each controller, so it never resumes from a stale count.
 void DropSwitchedOffState(PPCContext& ctx, uint8_t* base) {
   static snes::EffectiveChanges changes;
-  uint32_t effective = 0;
+  uint32_t effective = snes::DashBits(ActiveDash(ctx, base));
   for (const snes::FeatureInfo& info : snes::kFeatures) {
-    effective |= info.gameplay && Active(ctx, base, info.feature) ? snes::FeatureBit(info.feature) : 0;
+    if (info.feature != snes::Feature::kDash) {
+      effective |= info.gameplay && Active(ctx, base, info.feature) ? snes::FeatureBit(info.feature) : 0;
+    }
   }
   if (const uint32_t changed = changes.Observe(effective)) {
     for (Controller& controller : g_controllers) {
@@ -205,8 +223,8 @@ Controller* ControllerOf(PPCContext& ctx, uint8_t* base, uint32_t track) {
   return controller.vars ? &controller : nullptr;
 }
 
-const Controller* ControllerFor(uint32_t vars) {
-  for (const Controller& controller : g_controllers) {
+Controller* ControllerFor(uint32_t vars) {
+  for (Controller& controller : g_controllers) {
     if (controller.vars == vars && vars != 0) {
       return &controller;
     }
@@ -221,11 +239,22 @@ int DirectionOf(const PPCContext& ctx) {
 
 }  // namespace
 
-// TJC_NotifyPlayerIdle(this): the stick is centred.
+// TJC_NotifyPlayerIdle(this): the stick is centred, or the game is paused or the controller disabled, where no time passes.
+// A waiting Manual tap does not survive that, so a pause never completes a double tap.
 REX_EXTERN(__imp__sub_8754B540);
 REX_HOOK_RAW(sub_8754B540) {
   if (Controller* controller = ControllerOf(ctx, base, ctx.r3.u32)) {
     snes::ReleaseStick(controller->stick);
+    if (snes::ManualTapWaiting(controller->stick) || controller->stick.manual.dashing) {
+      const double dt = FrameTime(ctx, base);
+      if (dt > 0.0) {
+        snes::ManualCentre(controller->stick, dt, *Data());
+      } else {
+        controller->stick.manual = snes::ManualDash{};
+      }
+    } else {
+      snes::ManualCentre(controller->stick, 0.0, *Data());
+    }
   }
   __imp__sub_8754B540(ctx, base);
 }
@@ -235,18 +264,25 @@ REX_EXTERN(__imp__sub_8754B318);
 REX_HOOK_RAW(sub_8754B318) {
   if (Controller* controller = ControllerOf(ctx, base, ctx.r3.u32)) {
     snes::HoldStick(controller->stick, DirectionOf(ctx), FrameTime(ctx, base));
+    snes::ManualBreak(controller->stick);
   }
   __imp__sub_8754B318(ctx, base);
 }
 
 // TJC_NotifyPlayerRun(this, dir): a fully pushed stick or the d-pad, which runs at once in Re-Shelled. The SNES walks
-// until its dash starts, so the turtle walks until then.
+// until its dash starts, so the turtle walks until then: after a hold in Auto, after a double tap in Manual.
 REX_EXTERN(__imp__sub_8754B430);
 REX_HOOK_RAW(sub_8754B430) {
   Controller* controller = ControllerOf(ctx, base, ctx.r3.u32);
   if (controller) {
-    const bool dashing = snes::PushStick(controller->stick, DirectionOf(ctx), FrameTime(ctx, base), *Data());
-    if (!dashing && !OnBoard(base, controller->vars) && Active(ctx, base, snes::Feature::kDash)) {
+    const int direction = DirectionOf(ctx);
+    const double dt = FrameTime(ctx, base);
+    bool dashing = snes::PushStick(controller->stick, direction, dt, *Data());
+    const snes::DashMode mode = ActiveDash(ctx, base);
+    if (mode == snes::DashMode::kManual) {
+      dashing = snes::ManualPush(controller->stick, direction, dt, *Data());
+    }
+    if (!dashing && !OnBoard(base, controller->vars) && mode != snes::DashMode::kOff) {
       __imp__sub_8754B318(ctx, base);
       return;
     }
@@ -269,6 +305,19 @@ REX_HOOK_RAW(sub_8767AE70) {
   t_movement_facing = true;
   __imp__sub_8767AE70(ctx, base);
   t_movement_facing = outer;
+}
+
+// Turtle_RequestJump(this, forced): a request made in the air is Re-Shelled's double jump. Forced jumps, the first jump,
+// bounces and scripted jumps do not come through that case.
+REX_EXTERN(__imp__sub_876789C0);
+REX_HOOK_RAW(sub_876789C0) {
+  const uint32_t vars = FunctionVars(base, ctx.r3.u32);
+  if (vars && snes::BlocksAirJump(int(Load32(base, vars + kState)), ctx.r4.u32 != 0, OnBoard(base, vars)) &&
+      ControllerFor(vars) && Active(ctx, base, snes::Feature::kDoubleJump)) {
+    ctx.r3.s64 = -1;
+    return;
+  }
+  __imp__sub_876789C0(ctx, base);
 }
 
 // Turtle_CalcFacing(this): m_LastFacing from the body's sight with a 95 degree hysteresis. The SNES (80:B370) turns

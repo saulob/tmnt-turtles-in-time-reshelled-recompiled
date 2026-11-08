@@ -7,9 +7,10 @@
 
 namespace tmnt {
 
-// present_letterbox: the presenter always letterboxes the chosen format. tmnt_snes_gameplay: the SNES features no longer
+// tmnt_snes_movement_speeds: a removed SNES feature. present_letterbox: the presenter always letterboxes the chosen format. tmnt_snes_gameplay: the SNES features no longer
 // have a master switch and each stands alone.
-inline constexpr std::array<std::string_view, 2> kRetiredPlayerSettings{"present_letterbox", "tmnt_snes_gameplay"};
+inline constexpr std::array<std::string_view, 3> kRetiredPlayerSettings{"present_letterbox", "tmnt_snes_gameplay",
+                                                                          "tmnt_snes_movement_speeds"};
 
 inline bool IsSettingLine(std::string_view line, std::string_view key) {
   const std::size_t first = line.find_first_not_of(" \t");

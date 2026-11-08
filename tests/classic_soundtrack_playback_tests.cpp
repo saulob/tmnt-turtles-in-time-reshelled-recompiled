@@ -17,6 +17,7 @@
 
 #include "Snes_Spc.h"
 #include "classic_soundtrack/importer.h"
+#include "classic_soundtrack/loudness.h"
 #include "classic_soundtrack/manifest.h"
 #include "classic_soundtrack/music_streams.h"
 #include "classic_soundtrack/playback_check.h"
@@ -859,6 +860,38 @@ void TestNoRomAtPlayback() {
   CHECK(QuerySoundtrackStatus(root).status == SoundtrackStatus::kNotImported);
 }
 
+void TestLoudness() {
+  std::printf("loudness: one fixed lift below the knee, a soft bend above it, nothing past full scale\n");
+  using namespace tmnt::classic;
+  CHECK(LiftSample(0) == 0);
+  for (const int s : {1, 100, -100, 8000, -8000, 16000, -16384}) {
+    CHECK(std::abs(int(LiftSample(std::int16_t(s))) - int(std::lround(s * double(kSnesSoundtrackGain)))) <= 1);
+  }
+  int previous = -40000;
+  for (int s = -32768; s <= 32767; ++s) {
+    const int lifted = LiftSample(std::int16_t(s));
+    CHECK(lifted >= previous && lifted >= -32767 && lifted <= 32767);
+    CHECK(lifted == 0 ? s == 0 : (lifted > 0) == (s > 0));
+    previous = lifted;
+  }
+  CHECK(std::abs(int(LiftSample(32767))) > 32000 && std::abs(int(LiftSample(-32768))) > 32000);
+  CHECK(LiftSample(32767) == -LiftSample(-32767));
+  const double db = 20.0 * std::log10(double(kSnesSoundtrackGain));
+  CHECK(db > 2.0 && db < 4.0);
+  // The game's Music volume multiplies after the provider: muted stays silent, half is half, for both soundtracks alike.
+  for (const double slider : {0.0, 0.25, 0.5, 1.0}) {
+    const double snes = LiftSample(10000) * slider;
+    CHECK(slider == 0.0 ? snes == 0.0 : std::abs(snes - 10000 * double(kSnesSoundtrackGain) * slider) <= 1.0);
+  }
+  // Applied exactly once, in the stream, and never on the pass-through path or in the provider.
+  const fs::path sources = fs::path(TMNT_ROOT_DIR) / "src" / "classic_soundtrack";
+  const std::string stream = ReadText(sources / "soundtrack_stream.cpp");
+  const std::string provider = ReadText(sources / "xma_provider.cpp");
+  CHECK(stream.find("LiftSnesSoundtrack(frames, frame_count * 2);") != std::string::npos);
+  CHECK(stream.find("LiftSnesSoundtrack") == stream.rfind("LiftSnesSoundtrack"));
+  CHECK(provider.find("Lift") == std::string::npos);
+}
+
 void TestWiring() {
   std::printf("wiring: setting Off by default, startup call, patch 0087, packaging, licenses\n");
   const fs::path root = TMNT_ROOT_DIR;
@@ -916,6 +949,7 @@ int main() {
   TestMusicUsesBasePack();
   TestRealtimePath();
   TestNoRomAtPlayback();
+  TestLoudness();
   TestWiring();
   std::printf("%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
