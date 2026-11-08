@@ -15,6 +15,7 @@
 REXCVAR_DECLARE(bool, tmnt_launcher);
 REXCVAR_DECLARE(bool, tmnt_skip_launcher);
 REXCVAR_DECLARE(bool, tmnt_skip_intro);
+REXCVAR_DECLARE(bool, tmnt_classic_soundtrack);
 REXCVAR_DECLARE(bool, tmnt_show_fps);
 REXCVAR_DECLARE(bool, tmnt_show_render_resolution);
 REXCVAR_DECLARE(bool, tmnt_show_frame_counter);

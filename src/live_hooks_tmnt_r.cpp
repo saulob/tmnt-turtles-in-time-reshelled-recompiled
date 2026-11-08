@@ -12,6 +12,7 @@
 #include "guest_memory.h"
 #include "live_scope.h"
 #include "online/party_report.h"
+#include "quick_play_unlock.h"
 
 using namespace tmnt;
 using namespace tmnt::live;
@@ -211,22 +212,44 @@ REX_HOOK_RAW(sub_876B75C0) {
   __imp__sub_876B75C0(ctx, base);
 }
 
+// DEBUG_SAULO: queues the unlock message of every Quick Play stage, as the stage select does for the stages the profile
+// completed. FireCommunicator_UpdateStageUnLockedDefered(this, stage, track).
+REX_EXTERN(__imp__sub_875B0ED0);
+void UnlockAllQuickPlayStages(PPCContext& ctx, uint8_t* base, uint32_t self, uint32_t track) {
+  const uint64_t lr = ctx.lr;
+  const uint64_t result = ctx.r3.u64;
+  for (int stage = 0; stage < kQuickPlayStageCount; ++stage) {
+    ctx.r3.u64 = self;
+    ctx.r4.u64 = uint32_t(stage);
+    ctx.r5.u64 = track;
+    __imp__sub_875B0ED0(ctx, base);
+  }
+  ctx.lr = lr;
+  ctx.r3.u64 = result;
+  static std::atomic<bool> logged{false};
+  if (!logged.exchange(true)) REXLOG_INFO("DEBUG_SAULO Quick Play: all stages unlocked for soundtrack testing");
+}
+
 // FireCommunicator_OnReceiveEvent(this, var): one function for every UI event. Only the leaderboard proceed and the
 // single- and local multiplayer proceeds open a scope; every other event, game loading included, stays offline.
 REX_EXTERN(__imp__sub_875BA998);
 REX_HOOK_RAW(sub_875BA998) {
+  const uint32_t self = ctx.r3.u32;
   const uint32_t var = ctx.r4.u32;
+  const uint32_t event = LoadBE32(base, var);
+  const uint32_t track = LoadBE32(base, var + kFireEventSourceOffset);
   if (ClaimsLocalProfile(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))) {
     ClaimLocalProfile(int32_t(LoadBE32(base, var + kFireEventControllerOffset)));
   }
-  const char* name = LocalOnlineEventName(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset));
+  const char* name = LocalOnlineEventName(event, track);
   if (name) {
     LiveScope scope(name);
     __imp__sub_875BA998(ctx, base);
-    return;
+  } else {
+    LiveScopeSuspended offline;
+    __imp__sub_875BA998(ctx, base);
   }
-  LiveScopeSuspended offline;
-  __imp__sub_875BA998(ctx, base);
+  if (UnlocksAllQuickPlayStages(event, kQuickPlayUnlockBuild)) UnlockAllQuickPlayStages(ctx, base, self, track);
 }
 
 // FireCommunicator_GetMaxPlayers(this): the slots the title configured when it created the session. A guest never

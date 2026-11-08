@@ -559,7 +559,7 @@ $PlatformSourcePairs = @{
 
 # Each player-facing feature: what a Linux build must compile. A genuine platform limit belongs in docs/linux.md, not here.
 $ParityFeatures = @(
-    @{ Name = 'Launcher'; File = 'src/launcher.cpp'; Needs = 'void PageGraphics', 'static void PageGameplay' }
+    @{ Name = 'Launcher'; File = 'src/launcher.cpp'; Needs = 'void PageGraphics', 'void PageGameplay(trg::Ui& ui)' }
     @{ Name = 'Graphics card'; File = 'src/graphics_adapters.cpp'; Needs = 'vkEnumeratePhysicalDevices', 'ListGraphicsAdapters' }
     @{ Name = 'Graphics card applied'; File = 'src/settings.cpp'; Needs = 'SetFlagByName(kBackendAdapterCvar' }
     @{ Name = 'Render resolution, MSAA, anti-aliasing, texture filtering'; File = 'src/launcher.cpp'; Needs = '"Render resolution"', '"Anti-aliasing"', '"tmnt_msaa_compatibility"', '"Texture filtering"' }
@@ -622,7 +622,7 @@ Invoke-Check 'parity: Windows-only ReXGlue patches that change what a player see
 Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in the project files' {
     if (-not $GitAvailable) { return 'NOT RUN: git is not available' }
     $problems = [System.Collections.Generic.List[string]]::new()
-    $forbidden = '(^|/)(default\.xex|TMNT_r\.xex|TMNT\.bf|build_log\.txt)$', '(^|/)(user_data|user_data\.migrating|logs|game|dist|build|build-release|scratchpad)/', '\.(log|dmp|pdb|sav|xsh|xpso|bak|tmp|exe|dll|so|AppImage)$', '(^|/)[^/]*renderdoc[^/]*\.(dll|so)$', '(^|/)VkLayer[^/]*\.(json|dll|so)$'
+    $forbidden = '(^|/)(default\.xex|TMNT_r\.xex|TMNT\.bf|build_log\.txt)$', '(^|/)(user_data|user_data\.migrating|logs|game|dist|build|build-release|scratchpad|snes|snes_soundtrack)/', '\.(sfc|smc|swc|fig|spc|rsn)$', '(^|/)soundset\.bin$', '\.(log|dmp|pdb|sav|xsh|xpso|bak|tmp|exe|dll|so|AppImage)$', '(^|/)[^/]*renderdoc[^/]*\.(dll|so)$', '(^|/)VkLayer[^/]*\.(json|dll|so)$'
     foreach ($file in $ProjectFiles) {
         $normalized = $file -replace '\\', '/'
         if ($normalized -like 'tools/rexglue/*') { continue }
@@ -891,6 +891,63 @@ Invoke-Check 'Menu cleanup: Leaderboards, Xbox Live Party and Gamer Card removed
 
 Invoke-Check 'Portugues Brasil: registration, live launcher language, tables, font and banks against the game data, tests/localization_tests.cpp, standalone' {
     Invoke-FocusedTest 'tests\localization_tests.cpp'
+}
+
+# miniz is C, so it is compiled once with the C driver and linked as an object.
+function Get-MinizObject {
+    if (-not $CppCompiler) { return $null }
+    $object = Join-Path ([IO.Path]::GetTempPath()) 'tmnt_classic_soundtrack_miniz.o'
+    $compiler = $CppCompiler -replace 'clang\+\+((-[0-9]+)?(\.exe)?)$', 'clang$1'
+    $compiled = Invoke-Compiler $compiler @('-O1', '-w', '-c', (Join-Root 'src\updater\third_party\miniz\miniz.c'), '-o', $object) "$object.rsp"
+    if ($compiled.Code) { return $null }
+    return $object
+}
+
+$ClassicSoundtrackMiniz = Get-MinizObject
+$ClassicSoundtrackSources = @(Get-ChildItem (Join-Root 'src\classic_soundtrack') -Filter '*.cpp' | ForEach-Object { $_.FullName }) +
+    @('src\updater\sha256.cpp', 'src\updater\update_paths.cpp', 'src\classic_soundtrack_page.cpp', 'third_party\snes_spc\Snes_Spc.cpp',
+        'third_party\snes_spc\Spc_Cpu.cpp', 'third_party\snes_spc\Spc_Dsp.cpp' | ForEach-Object { Join-Root $_ }) +
+    @($ClassicSoundtrackMiniz | Where-Object { $_ }) + @('-DBLARGG_LITTLE_ENDIAN=1')
+$ClassicSoundtrackIncludes = @((Join-Root 'third_party\snes_spc'), (Join-Root 'tests'))
+
+Invoke-Check 'Classic Soundtrack importer: ROM validation, Konami LZ, sound set, manifest, atomic import, status, remove, safeguards, tests/classic_soundtrack_tests.cpp, standalone' {
+    if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
+    Invoke-FocusedTest 'tests\classic_soundtrack_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
+}
+
+Invoke-Check 'Classic Soundtrack playback: SPC driver boot and handshake, PCM, resampler, music streams, XMA provider, no ROM at playback, no allocation on the audio path, tests/classic_soundtrack_playback_tests.cpp, standalone' {
+    if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
+    Invoke-FocusedTest 'tests\classic_soundtrack_playback_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
+}
+
+Invoke-Check 'Classic Soundtrack launcher: Gameplay rows, import and remove model, ZIP input, setting rules, game start Off/Ready/fallback, pt-BR rows, build wiring, tests/classic_soundtrack_launcher_tests.cpp, standalone' {
+    if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
+    $trg = Join-Root 'third_party\trg-launcher'
+    $libraries = if ($IsLinux) { @() } else { @('-luser32', '-lshell32', '-lole32', '-lcomdlg32') }
+    Invoke-FocusedTest 'tests\classic_soundtrack_launcher_tests.cpp' ($ClassicSoundtrackIncludes + @((Join-Path $trg 'include'))) (
+        $ClassicSoundtrackSources + @((Join-Path $trg 'src\settings.cpp'), (Join-Path $trg 'src\platform.cpp')) + $libraries)
+}
+
+Invoke-Check 'XMA PCM provider patch: 0087 state machine against the patch stack (tests/xma_pcm_override_tests.cpp) and patched xma_context.cpp syntax' {
+    if (-not $CppCompiler) { return $CompilerHelp }
+    if (-not $PatchedSdk) { return 'NOT RUN: the patch stack did not produce a patched source tree' }
+    $audio = Join-Path $PatchedSdk 'src\audio'
+    if (-not (Test-Path -LiteralPath (Join-Path $audio 'xma_pcm_override.h'))) { return 'the patch stack has no src/audio/xma_pcm_override.h: 0087 did not apply' }
+    $result = Invoke-FocusedTest 'tests\xma_pcm_override_tests.cpp' @($audio)
+    if ($result) { return $result }
+    $thirdparty = Join-Path $SdkRepo 'thirdparty'
+    $includes = 'fmt\include', 'spdlog\include', 'sdl3\include', 'simde', 'tomlplusplus\include', 'tracy\public', 'utfcpp\source', 'FFmpeg'
+    foreach ($include in $includes) {
+        if (-not (Test-Path -LiteralPath (Join-Path $thirdparty $include))) { return "NOT RUN: $(Join-Path $thirdparty $include) is missing. $SdkHelp" }
+    }
+    $platformDefine = if ($IsLinux) { 'REX_PLATFORM_LINUX=1' } else { 'REX_PLATFORM_WINDOWS=1' }
+    $arguments = @('-std=c++23', '-fsyntax-only', '-w', '-march=x86-64-v2', "-D$platformDefine", '-DREXGLUE_BUILD_CONFIG="RelWithDebInfo"',
+        '-DREXGLUE_ENABLE_PROFILING', "-I$(Join-Path $PatchedSdk 'include')", "-I$(Join-Path $PatchedSdk 'src')")
+    if (-not $IsLinux) { $arguments += '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-D_CRT_SECURE_NO_WARNINGS' }
+    $arguments += @($includes | ForEach-Object { "-I$(Join-Path $thirdparty $_)" })
+    $source = Join-Path $audio 'xma_context.cpp'
+    $checked = Invoke-Compiler $CppCompiler ($arguments + $source) (Join-Path (Split-Path $PatchedSdk -Parent) 'xma_syntax.rsp')
+    if ($checked.Code) { return @($checked.Output | Where-Object { $_ -match 'error' } | Select-Object -First 8) + 'xma_context.cpp does not compile with the patch stack' }
 }
 
 Invoke-Check 'Patched AudioSystem syntax: audio_system.cpp with the whole patch stack, compile only' {

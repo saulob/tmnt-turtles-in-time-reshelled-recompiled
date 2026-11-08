@@ -46,3 +46,14 @@ __pycache__/
 # Local AI agent instructions
 CLAUDE.md
 .claude/
+
+# SNES ROMs and sound dumps are user supplied and never committed
+*.sfc
+*.smc
+*.swc
+*.fig
+*.spc
+*.rsn
+*.wav
+*.ogg
+*.flac

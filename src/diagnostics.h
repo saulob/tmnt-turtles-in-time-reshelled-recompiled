@@ -68,6 +68,7 @@ struct LauncherGameplayIdentity {
   std::string frame_rate_in_title;
   std::string render_resolution_in_title;
   std::string frame_counter;
+  std::string classic_soundtrack;
 };
 
 struct LauncherGraphicsIdentity {

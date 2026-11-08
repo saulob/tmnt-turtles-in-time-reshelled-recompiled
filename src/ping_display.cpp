@@ -6,6 +6,7 @@
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/keybinds.h>
 
+#include "classic_soundtrack_overlay.h"
 #include "corner_overlay.h"
 #include "frame_counter.h"
 #include "online_runtime.h"
@@ -25,7 +26,7 @@ class PingOverlay final : public rex::ui::ImGuiDialog {
   void OnDraw(ImGuiIO&) override {
     if (!PingVisible(REXCVAR_GET(tmnt_online_enabled), REXCVAR_GET(tmnt_online_ping_display))) return;
     const bool counter = FrameCounterVisible(REXCVAR_GET(tmnt_show_frame_counter), GetGuestFrameStats());
-    DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter));
+    DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter, ClassicSoundtrackNoticeVisible()));
   }
 };
 

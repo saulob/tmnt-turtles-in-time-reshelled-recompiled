@@ -169,7 +169,7 @@ void TestRejection() {
     CHECK(tmnt::KeyboardBindingFor(key, false, false, false).empty());
   }
   // Reserved: the port and the SDK already use these while playing.
-  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4, ImGuiKey_F7, ImGuiKey_F10, ImGuiKey_F11,
+  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4, ImGuiKey_F7, ImGuiKey_F9, ImGuiKey_F10, ImGuiKey_F11,
                        ImGuiKey_F12, ImGuiKey_Escape, ImGuiKey_GraveAccent}) {
     CHECK(tmnt::KeyboardBindingIsReserved(key));
     CHECK(tmnt::KeyboardBindingFor(key, false, false, false).empty());

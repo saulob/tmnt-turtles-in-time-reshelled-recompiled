@@ -179,7 +179,7 @@ inline const char* KeyboardKeyName(ImGuiKey key) {
 
 // Whether the port already handles this key itself. Such a key may not be a gameplay binding, so a
 // press does not reach the game and the port action at once. The list is the keys with a live
-// listener (F2 frame counter, F3 ping display, F7 achievements, F11 fullscreen, Backtick console)
+// listener (F2 frame counter, F3 ping display, F7 achievements, F9 SNES soundtrack, F11 fullscreen, Backtick console)
 // plus Escape, F4, F10 and F12, which stay reserved and unbound.
 inline bool KeyboardBindingIsReserved(ImGuiKey key) {
   switch (key) {
@@ -188,6 +188,7 @@ inline bool KeyboardBindingIsReserved(ImGuiKey key) {
     case ImGuiKey_F3:
     case ImGuiKey_F4:
     case ImGuiKey_F7:
+    case ImGuiKey_F9:
     case ImGuiKey_F10:
     case ImGuiKey_F11:
     case ImGuiKey_F12:

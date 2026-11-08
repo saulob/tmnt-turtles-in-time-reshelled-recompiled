@@ -215,6 +215,33 @@ else()
     list(APPEND TMNT_ONLINE_LIBS Threads::Threads ${CMAKE_DL_LIBS})
 endif()
 
+# The SPC700 and S-DSP emulator from Game_Music_Emu 0.6.4 (LGPL 2.1 or later), unmodified: third_party/snes_spc.
+add_library(tmnt_snes_spc STATIC
+    third_party/snes_spc/Snes_Spc.cpp
+    third_party/snes_spc/Spc_Cpu.cpp
+    third_party/snes_spc/Spc_Dsp.cpp
+)
+target_include_directories(tmnt_snes_spc PUBLIC third_party/snes_spc)
+target_compile_definitions(tmnt_snes_spc PUBLIC BLARGG_LITTLE_ENDIAN=1)
+target_compile_options(tmnt_snes_spc PRIVATE -w)
+
+set(TMNT_CLASSIC_SOUNDTRACK_CORE
+    src/classic_soundtrack/activation.cpp
+    src/classic_soundtrack/importer.cpp
+    src/classic_soundtrack/konami_lz.cpp
+    src/classic_soundtrack/manifest.cpp
+    src/classic_soundtrack/music_streams.cpp
+    src/classic_soundtrack/resampler.cpp
+    src/classic_soundtrack/rom_zip.cpp
+    src/classic_soundtrack/runtime_start.cpp
+    src/classic_soundtrack/snes_rom.cpp
+    src/classic_soundtrack/sound_parser.cpp
+    src/classic_soundtrack/soundset.cpp
+    src/classic_soundtrack/soundtrack_stream.cpp
+    src/classic_soundtrack/spc_player.cpp
+    src/classic_soundtrack/xma_provider.cpp
+)
+
 set(TMNT_SOURCES
     src/main.cpp
     src/achievement_alias.cpp
@@ -222,6 +249,9 @@ set(TMNT_SOURCES
     src/achievement_toast.cpp
     src/achievements_overlay.cpp
     src/active_log.cpp
+    src/classic_soundtrack_overlay.cpp
+    src/classic_soundtrack_page.cpp
+    src/classic_soundtrack_runtime.cpp
     src/crash_report.cpp
     src/diagnostics.cpp
     src/frame_counter.cpp
@@ -288,6 +318,7 @@ if(WIN32)
 else()
     list(APPEND TMNT_SOURCES src/clipboard_sdl.cpp)
 endif()
+list(APPEND TMNT_SOURCES ${TMNT_CLASSIC_SOUNDTRACK_CORE})
 foreach(_online_source IN LISTS TMNT_ONLINE_SOURCES)
     if(NOT _online_source IN_LIST TMNT_SOURCES)
         list(APPEND TMNT_SOURCES ${_online_source})
@@ -310,7 +341,7 @@ else()
 endif()
 
 rexglue_setup_target(tmnt_turtles_in_time_reshelled GPU_PLUGINS xenos)
-target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher ${TMNT_ONLINE_LIBS})
+target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher tmnt_snes_spc ${TMNT_ONLINE_LIBS})
 if(WIN32)
     target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE shcore synchronization dxgi shell32)
     # The SDK stages its DLLs only when the program links, so a rebuilt runtime or GPU plugin has to
@@ -393,6 +424,9 @@ if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
         src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
+    # DEBUG_SAULO: Quick Play shows every stage in RelWithDebInfo builds only.
+    target_compile_definitions(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE
+        TMNT_DEBUG_QUICKPLAY_UNLOCK=$<IF:$<CONFIG:RelWithDebInfo>,1,0>)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
 
@@ -529,6 +563,28 @@ target_compile_definitions(tmnt_player_names_tests PRIVATE TMNT_SRC_DIR="${CMAKE
 add_executable(tmnt_language_tests EXCLUDE_FROM_ALL tests/language_tests.cpp)
 target_include_directories(tmnt_language_tests PRIVATE src)
 target_compile_definitions(tmnt_language_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Classic Soundtrack importer tests and developer CLI, not part of the default build:
+# cmake --build <dir> --target tmnt_classic_soundtrack_tests tmnt_classic_soundtrack_playback_tests
+#     tmnt_classic_soundtrack_launcher_tests tmnt_classic_soundtrack_tool
+set(TMNT_CLASSIC_SOUNDTRACK_SOURCES ${TMNT_CLASSIC_SOUNDTRACK_CORE} src/updater/sha256.cpp src/updater/update_paths.cpp
+    src/updater/third_party/miniz/miniz.c)
+add_executable(tmnt_classic_soundtrack_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_tests.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_tests PRIVATE src)
+target_link_libraries(tmnt_classic_soundtrack_tests PRIVATE tmnt_snes_spc)
+add_executable(tmnt_classic_soundtrack_playback_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_playback_tests.cpp src/classic_soundtrack/playback_check.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_playback_tests PRIVATE src)
+target_compile_definitions(tmnt_classic_soundtrack_playback_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_classic_soundtrack_playback_tests PRIVATE tmnt_snes_spc)
+target_compile_definitions(tmnt_classic_soundtrack_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_executable(tmnt_classic_soundtrack_launcher_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_launcher_tests.cpp
+    src/classic_soundtrack_page.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_launcher_tests PRIVATE src)
+target_compile_definitions(tmnt_classic_soundtrack_launcher_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_classic_soundtrack_launcher_tests PRIVATE tmnt_snes_spc trg::launcher)
+add_executable(tmnt_classic_soundtrack_tool EXCLUDE_FROM_ALL tools/classic_soundtrack_tool.cpp src/classic_soundtrack/playback_check.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_tool PRIVATE src)
+target_link_libraries(tmnt_classic_soundtrack_tool PRIVATE tmnt_snes_spc)
 
 # Multisampling setting tests, not part of the default build: cmake --build <dir> --target tmnt_multisampling_tests
 add_executable(tmnt_multisampling_tests EXCLUDE_FROM_ALL tests/multisampling_tests.cpp)

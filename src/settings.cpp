@@ -42,6 +42,8 @@ REXCVAR_DEFINE_BOOL(tmnt_launcher, true, "TMNT",
 REXCVAR_DEFINE_BOOL(tmnt_skip_launcher, false, "TMNT",
                     "Skip the launcher once (set when the launcher restarts the game)");
 REXCVAR_DEFINE_BOOL(tmnt_skip_intro, false, "TMNT", "Start directly at the title screen");
+REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false, "TMNT",
+                    "In development: replace the music with the imported SNES soundtrack");
 REXCVAR_DEFINE_BOOL(tmnt_show_fps, true, "TMNT", "Show the frame rate in the window title");
 REXCVAR_DEFINE_BOOL(tmnt_show_render_resolution, false, "TMNT",
                     "Show the render resolution in the window title");
@@ -98,6 +100,7 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_msaa_compatibility",
       "anisotropic_override",
       "tmnt_skip_intro",
+      "tmnt_classic_soundtrack",
       "tmnt_show_fps",
       "tmnt_show_render_resolution",
       "tmnt_show_frame_counter",
@@ -421,6 +424,11 @@ bool GameSettings::SaveNow(const SettingValues& values) {
     REXLOG_ERROR("Cannot write player settings to {}", Utf8(player_file_.filename()));
     return false;
   }
+  for (const auto& [key, value] : values) {
+    if (const auto saved = saved_.find(key); saved != saved_.end()) {
+      saved->second = value;
+    }
+  }
   return true;
 }
 
@@ -531,6 +539,7 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
       OnOff(settings.GetBool("tmnt_show_render_resolution", false));
   diagnostics.launcher_gameplay.frame_counter =
       settings.GetBool("tmnt_show_frame_counter", false) ? "Shown" : "Hidden";
+  diagnostics.launcher_gameplay.classic_soundtrack = OnOff(settings.GetBool("tmnt_classic_soundtrack", false));
 
   diagnostics.launcher_graphics.graphics_card = selected_card;
   diagnostics.launcher_graphics.render_resolution =

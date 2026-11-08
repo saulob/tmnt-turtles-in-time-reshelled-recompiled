@@ -43,9 +43,9 @@ $AssetFiles = @('assets\launcher\header-art.png', 'assets\launcher\sponsor-heart
 # Names that mean game data, a package, saves, settings, caches, logs, symbols, updater leftovers or debugging tools.
 $ForbiddenNames = @('default.xex', 'default.xexp', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'game-install-temp', 'game-install-backup', 'user_data',
     'user_data.migrating', 'content', 'cache', 'logs', 'settings.toml', 'settings.toml.bak', 'ArcadeInfo.xml', 'nxeart', '584109D2',
-    'vulkan-1.dll', '$SystemUpdate')
+    'vulkan-1.dll', '$SystemUpdate', 'snes', 'snes_soundtrack', 'soundset.bin')
 $ForbiddenPatterns = @('*.xex', '*.xexp', '*.bf', '*.log', '*.dmp', '*.pdb', '*.debug', '*.xsh', '*.xpso', '*.bak', '*.tmp', '*.sav', '*.invalid', 'trg-update-*',
-    'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*', '*~', 'settings.toml.*', '*.iso')
+    'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*', '*~', 'settings.toml.*', '*.iso', '*.sfc', '*.smc', '*.swc', '*.fig', '*.spc', '*.rsn', '*.wav', '*.ogg', '*.flac')
 # First bytes of an Xbox 360 package or executable.
 $ForbiddenMagic = @('LIVE', 'PIRS', 'CON ', 'XEX2')
 

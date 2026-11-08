@@ -49,6 +49,8 @@
 #include "session_log.h"
 #include "settings.h"
 #include "system_info.h"
+#include "classic_soundtrack_overlay.h"
+#include "classic_soundtrack_runtime.h"
 #include "title_bgm_level.h"
 #include "trg/game_helpers.h"
 #include "user_data.h"
@@ -231,6 +233,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     tmnt::LogStartupDiagnostics(game_settings_, tmnt::MonitorForSetting(monitor), monitor, game_data_root(),
                                startup_window);
     tmnt::PublishTitleMusicLevel(user_data_root());
+    tmnt::StartClassicSoundtrack(user_data_root());
     ReXApp::LaunchModule();
   }
 
@@ -270,6 +273,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     }
     if (window() && imgui_drawer()) {
       tmnt::CreateFrameCounter(imgui_drawer());
+      tmnt::CreateClassicSoundtrackOverlay(imgui_drawer());
       tmnt::CreatePingDisplay(imgui_drawer());
       tmnt::CreateInviteUi(imgui_drawer(), [this](std::function<void()> work) {
         app_context().CallInUIThreadDeferred(std::move(work));

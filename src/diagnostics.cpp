@@ -75,7 +75,8 @@ std::vector<std::string> FormatStartupDiagnostics(const StartupDiagnostics& diag
                   " | Skip intro=" + diagnostics.launcher_gameplay.skip_intro +
                   " | Frame rate in title=" + diagnostics.launcher_gameplay.frame_rate_in_title +
                   " | Render resolution in title=" + diagnostics.launcher_gameplay.render_resolution_in_title +
-                  " | Frame counter=" + diagnostics.launcher_gameplay.frame_counter);
+                  " | Frame counter=" + diagnostics.launcher_gameplay.frame_counter +
+                  " | Classic soundtrack=" + diagnostics.launcher_gameplay.classic_soundtrack);
   lines.push_back("Launcher Graphics: Graphics card=" + diagnostics.launcher_graphics.graphics_card +
                   " | Render resolution=" + diagnostics.launcher_graphics.render_resolution +
                   " | Anti-aliasing=" + diagnostics.launcher_graphics.anti_aliasing +

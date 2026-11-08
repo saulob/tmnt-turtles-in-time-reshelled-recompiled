@@ -117,7 +117,7 @@ void TestSettingsAndLauncherWiring() {
   CHECK(Has(launcher, "#include \"language.h\""));
   CHECK(Count(launcher, "ui.Combo(\"Language\",") == 1);
   CHECK(Has(launcher, "kLanguageSetting"));
-  const size_t gameplay = launcher.find("static void PageGameplay");
+  const size_t gameplay = launcher.find("void PageGameplay(trg::Ui& ui) {");
   const size_t language_combo = launcher.find("ui.Combo(\"Language\",");
   const size_t frame_rate = launcher.find("\"Frame rate in title\"");
   CHECK(gameplay != std::string::npos && gameplay < language_combo && language_combo < frame_rate);

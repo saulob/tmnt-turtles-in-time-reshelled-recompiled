@@ -59,8 +59,8 @@ scan_appdir() {  # appdir label [extra_paths...]
     case "${base,,}" in
       default.xex | default.xexp | tmnt_r.xex | tmnt.bf | data | game | game-install-temp | game-install-backup | user_data | \
         user_data.migrating | content | cache | logs | settings.toml | settings.toml.bak | arcadeinfo.xml | nxeart | 584109d2 | \
-        '$systemupdate' | thumbs.db | desktop.ini) problem "forbidden name: $rel" ;;
-      *.xex | *.xexp | *.bf | *.iso | *.log | *.dmp | *.pdb | *.debug | *.xsh | *.xpso | *.bak | *.tmp | *.sav | *.invalid | \
+        '$systemupdate' | thumbs.db | desktop.ini | snes | snes_soundtrack | soundset.bin) problem "forbidden name: $rel" ;;
+      *.xex | *.xexp | *.bf | *.iso | *.sfc | *.smc | *.swc | *.fig | *.spc | *.rsn | *.wav | *.ogg | *.flac | *.log | *.dmp | *.pdb | *.debug | *.xsh | *.xpso | *.bak | *.tmp | *.sav | *.invalid | \
         *.pyc | *.o | *.obj | *.a | *.lib | *.ilk | *.orig | *.rej | *.rdc | .git* | *~ | settings.toml.*) problem "forbidden file type: $rel" ;;
     esac
     case "${base,,}" in

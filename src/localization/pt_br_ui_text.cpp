@@ -566,7 +566,7 @@ VSync	VSync
 Wait for the current install to finish.	Aguarde a instalação atual terminar.
 Wait for the install to finish.	Aguarde a instalação terminar.
 What other players see: up to 16 letters, digits, - or _.	O que os outros jogadores veem: até 16 letras, dígitos, - ou _.
-Language, on-screen information and player names.	Idioma, informações na tela e nomes dos jogadores.
+Language, on-screen information, the classic soundtrack and player names.	Idioma, informações na tela, a trilha sonora clássica e nomes dos jogadores.
 Where the game data is read from.	De onde os dados do jogo são lidos.
 Window size	Tamanho da janela
 Window, monitor and how the picture fits your screen.	Janela, monitor e como a imagem se ajusta à tela.
@@ -588,6 +588,44 @@ Your launcher choices, as plain text. Loaded after tmnt_turtles_in_time_reshelle
 Your online identity could not be created.	Não foi possível criar sua identidade online.
 Your request is waiting for an answer.	Seu pedido está aguardando resposta.
 Your router may stop some players from connecting to you.	Seu roteador pode impedir que alguns jogadores se conectem a você.
+Classic soundtrack	Trilha sonora clássica
+Plays the SNES soundtrack instead of the Re-Shelled music. Press F9 during gameplay to switch between them	Toca a trilha sonora do SNES no lugar da música do Re-Shelled. Pressione F9 durante o jogo para alternar entre elas
+SNES soundtrack	Trilha sonora SNES
+Import SNES soundtrack	Importar trilha sonora SNES
+Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards.	Sua própria ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time (.sfc, .smc ou .zip). A música é importada neste PC; depois a ROM não é mais necessária.
+Import again...	Importar de novo...
+Import...	Importar...
+Remove SNES soundtrack	Remover trilha sonora SNES
+Deletes the imported music. Your ROM file is not touched.	Apaga a música importada. Seu arquivo de ROM não é alterado.
+Remove...	Remover...
+Remove the imported SNES soundtrack?	Remover a trilha sonora SNES importada?
+Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM	Selecione sua ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time
+SNES ROM	ROM de SNES
+Importing SNES soundtrack...	Importando trilha sonora SNES...
+Could not remove the imported SNES soundtrack.	Não foi possível remover a trilha sonora SNES importada.
+Removed the imported SNES soundtrack.	Trilha sonora SNES importada removida.
+SNES soundtrack: On	Trilha sonora SNES: Ligada
+SNES soundtrack: Off	Trilha sonora SNES: Desligada
+SNES soundtrack: Unavailable	Trilha sonora SNES: Indisponível
+Not imported	Não importada
+Ready	Pronta
+Importing	Importando
+Re-import required	Reimportação necessária
+Invalid ROM	ROM inválida
+Unsupported ROM	ROM não suportada
+Unsupported soundtrack	Trilha sonora não suportada
+Corrupt soundtrack data	Dados da trilha sonora corrompidos
+Import failed	Falha na importação
+The file is not a SNES ROM the importer can read. Choose an unmodified .sfc, .smc or .zip dump.	O arquivo não é uma ROM de SNES que o importador consiga ler. Escolha um dump sem modificações em .sfc, .smc ou .zip.
+This SNES ROM is not Teenage Mutant Ninja Turtles IV: Turtles in Time.	Esta ROM de SNES não é Teenage Mutant Ninja Turtles IV: Turtles in Time.
+The music in this ROM differs from the known USA, Europe and Australia versions.	A música desta ROM é diferente das versões conhecidas dos EUA, da Europa e da Austrália.
+The music data in this ROM is damaged. Try another dump.	Os dados de música desta ROM estão danificados. Tente outro dump.
+The imported music could not be saved. Check that the user data folder can be written.	Não foi possível salvar a música importada. Verifique se a pasta de dados do usuário pode ser gravada.
+SNES soundtrack imported from the USA ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM dos EUA. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Europe ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Europa. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Australia ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Austrália. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from a compatible ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada de uma ROM compatível. Ative a Trilha sonora clássica para usá-la.
+Could not save the Classic soundtrack setting.	Não foi possível salvar a configuração da Trilha sonora clássica.
 )PTBR";
 
 }  // namespace tmnt::localization

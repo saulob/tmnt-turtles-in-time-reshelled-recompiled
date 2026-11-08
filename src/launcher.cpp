@@ -30,6 +30,8 @@
 #include "trg/platform.h"
 
 #include "aspect_ratio.h"
+#include "classic_soundtrack_page.h"
+#include "classic_soundtrack_runtime.h"
 #include "dpi.h"
 #include "game_files.h"
 #include "graphics_adapters.h"
@@ -223,6 +225,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         graphics_adapters_(ListGraphicsAdapters()) {
     dlc_ = ListInstalledDlc(paths_.user_dir);
     ConfigureOnline(paths_.user_dir);
+    classic_ = std::make_unique<ClassicSoundtrackModel>(paths_.user_dir);
+    REXLOG_INFO("Classic soundtrack import: {}", ClassicStatusLabel(classic_->status()));
     header_art_ = LoadLauncherImage(paths_.immediate_drawer, "header-art.png");
     sponsor_icon_ = LoadLauncherImage(paths_.immediate_drawer, "sponsor-heart.png", true);
     trg::SetTranslator(&TranslateLauncherText);
@@ -247,6 +251,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     online_page_.SetOwnerWindow(WindowHandle());
     PollInstall();
     PollDlcTask();
+    PollClassicImport();
     PollUpdate();
     PollOnline();
     TrackPlacement();
@@ -508,7 +513,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
          [this](trg::Ui& ui) { PageDisplay(ui); }},
         {"Graphics", "Render resolution, anti-aliasing and texture filtering.",
          [this](trg::Ui& ui) { PageGraphics(ui); }},
-        {"Gameplay", "Language, on-screen information and player names.", [](trg::Ui& ui) { PageGameplay(ui); }},
+        {"Gameplay", "Language, on-screen information, the classic soundtrack and player names.",
+         [this](trg::Ui& ui) { PageGameplay(ui); }},
         {"Online", "Add friends and see who is online. Play them from the game's own online menus.",
          [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
         {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
@@ -522,7 +528,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
     c.can_play = [this] {
       const bool pressed = play_attempt_.PressedThisCall(ImGui::GetFrameCount());
-      if (install_.running() || dlc_task_.running()) {
+      if (install_.running() || dlc_task_.running() || classic_task_.running()) {
         return trg::PlayCheck{false, "Wait for the install to finish.", 0};
       }
       if (game_files_ != GameFiles::kReady) {
@@ -1127,7 +1133,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
               6);
   }
 
-  static void PageGameplay(trg::Ui& ui) {
+  void PageGameplay(trg::Ui& ui) {
     ui.Combo("Language", kLanguageHelp, kLanguageSetting, kLanguageDefault, LanguageOptions());
     ui.Toggle("Skip intro", "Start directly at the title screen", "tmnt_skip_intro", false, "Off", "On");
     ui.Toggle("Frame rate in title",
@@ -1137,12 +1143,122 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
               "tmnt_show_render_resolution", false, "Off", "On");
     ui.Toggle("Frame counter", "Shows the game's frame rate in the corner. F2 toggles it while playing.",
               "tmnt_show_frame_counter", false, "Hidden", "Shown");
+    ClassicSoundtrackRows(ui);
     if (ui.Section(Tr("Local player names"), true)) {
       ui.Help(kPlayerNamesHelp);
       for (const PlayerNameSetting& player : kPlayerNames) {
         PlayerNameRow(ui, player);
       }
     }
+  }
+
+  void ClassicSoundtrackRows(trg::Ui& ui) {
+    const ClassicSoundtrackStatus status = classic_->status();
+    const bool usable = ClassicCanEnable(status);
+    if (!usable && status != ClassicSoundtrackStatus::kImporting && settings_.GetBool(kClassicSoundtrackSetting, false)) {
+      PersistClassicToggle(false, status);
+    }
+    ui.Info("SNES soundtrack", Tr(ClassicStatusLabel(status)));
+    ui.Row("Import SNES soundtrack",
+           "Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is "
+           "imported on this PC; the ROM is not needed afterwards.");
+    if (!ui.TaskProgress(classic_task_)) {
+      if (ImGui::Button(Tr(usable ? "Import again..." : "Import..."), ImVec2(-FLT_MIN, 0))) {
+        BrowseAndImportClassic();
+      }
+    }
+    if (classic_->last_failure() != classic::ImportFailure::kNone) {
+      DrawFailure(ui, ClassicFailureLabel(classic_->last_failure()), ClassicFailureText(classic_->last_failure()));
+    }
+    ImGui::BeginDisabled(!usable);
+    const bool toggled =
+        ui.Toggle("Classic soundtrack",
+                  "Plays the SNES soundtrack instead of the Re-Shelled music. Press F9 during gameplay to switch between them",
+                  kClassicSoundtrackSetting, false, "Off", "On");
+    ImGui::EndDisabled();
+    if (toggled) {
+      PersistClassicToggle(settings_.GetBool(kClassicSoundtrackSetting, false), status);
+    }
+    if (ClassicCanRemove(status) &&
+        ui.ConfirmRow("Remove SNES soundtrack", "Deletes the imported music. Your ROM file is not touched.", "Remove...",
+                      "Remove the imported SNES soundtrack?", "Remove", "Cancel")) {
+      RemoveClassicSoundtrack();
+    }
+  }
+
+  void PersistClassicToggle(bool requested, ClassicSoundtrackStatus status) {
+    const ClassicSettingStore store{
+        [this](const std::string& value) { return settings_.SaveNow({{kClassicSoundtrackSetting, value}}); },
+        [this] { return trg::TextFileSettings(Utf8(paths_.settings_file)).Get(kClassicSoundtrackSetting); }};
+    const ClassicToggleOutcome outcome = CommitClassicToggle(requested, status, store);
+    settings_.SetBool(kClassicSoundtrackSetting, outcome.value);
+    if (!outcome.persisted) {
+      REXLOG_WARN("Classic soundtrack: could not save the setting to {}", Utf8(paths_.settings_file.filename()));
+      launcher_->SetStatus("Could not save the Classic soundtrack setting.", 8.0);
+      return;
+    }
+    REXLOG_INFO("Classic soundtrack: setting {} saved", outcome.value ? "On" : "Off");
+  }
+
+  void BrowseAndImportClassic() {
+    PollClassicImport();
+    if (classic_task_.running()) {
+      return;
+    }
+    const std::string picked =
+        trg::BrowseForFile(Tr("Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM"),
+                           {{Tr("SNES ROM"), "*.sfc;*.smc;*.zip"}});
+    if (picked.empty()) {
+      if (trg::FileDialogUnavailable()) {
+        launcher_->SetStatus("Could not open the file picker. Install xdg-desktop-portal, zenity, or kdialog.", 8.0);
+      }
+      return;
+    }
+    classic_->BeginImport();
+    classic_outcome_ = std::make_shared<classic::ImportResult>();
+    const bool started = classic_task_.Start(
+        Tr("Importing SNES soundtrack..."),
+        [outcome = classic_outcome_, rom = PathFromUtf8(picked), root = paths_.user_dir](trg::Task&) {
+          *outcome = classic::ImportSoundtrack(rom, root);
+          return outcome->ok ? std::string() : std::string(ClassicFailureLabel(outcome->failure));
+        });
+    if (!started) {
+      classic_outcome_.reset();
+      classic::ImportResult busy;
+      busy.failure = classic::ImportFailure::kImportFailed;
+      classic_->FinishImport(busy);
+    }
+  }
+
+  // Runs every frame so a finished import is picked up whichever page is open.
+  void PollClassicImport() {
+    if (classic_task_.Finish() == trg::Task::State::kIdle) {
+      return;
+    }
+    const std::shared_ptr<classic::ImportResult> outcome = std::move(classic_outcome_);
+    if (!outcome) {
+      return;
+    }
+    classic_->FinishImport(*outcome);
+    if (outcome->ok) {
+      REXLOG_INFO("Classic soundtrack: imported successfully from the {} ROM", outcome->manifest.source_region);
+      launcher_->SetStatus(Tr(ClassicImportedMessage(outcome->manifest.source_region)), 8.0);
+      return;
+    }
+    REXLOG_WARN("Classic soundtrack: import failed: {} ({})", ClassicFailureLabel(outcome->failure), outcome->detail);
+    launcher_->SetStatus(std::string(Tr("Import failed")) + ": " + Tr(std::string(ClassicFailureLabel(outcome->failure))), 8.0);
+  }
+
+  void RemoveClassicSoundtrack() {
+    std::string error;
+    if (!classic_->Remove(error)) {
+      REXLOG_WARN("Classic soundtrack: could not remove the import: {}", error);
+      launcher_->SetStatus("Could not remove the imported SNES soundtrack.", 8.0);
+      return;
+    }
+    PersistClassicToggle(false, classic_->status());
+    REXLOG_INFO("Classic soundtrack: import removed");
+    launcher_->SetStatus("Removed the imported SNES soundtrack.", 6.0);
   }
 
   static void PlayerNameRow(trg::Ui& ui, const PlayerNameSetting& player) {
@@ -1349,6 +1465,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   std::string dlc_removing_name_;
   std::shared_ptr<DlcOutcome> dlc_outcome_;
   trg::Task dlc_task_;
+  std::unique_ptr<ClassicSoundtrackModel> classic_;
+  std::shared_ptr<classic::ImportResult> classic_outcome_;
+  trg::Task classic_task_;
   std::unique_ptr<LauncherAchievements> achievements_;
   bool achievements_tried_ = false;
   std::optional<DlcInfo> dlc_remove_target_;

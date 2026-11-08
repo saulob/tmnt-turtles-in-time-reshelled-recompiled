@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 
+#include "classic_soundtrack_overlay.h"
 #include "corner_overlay.h"
 #include "keybinds.h"
 #include "ping_display.h"
@@ -38,6 +39,29 @@ std::string ReadFile(const std::string& relative) {
 }
 
 bool Has(const std::string& text, const std::string& needle) { return text.find(needle) != std::string::npos; }
+
+void TestF9Ownership() {
+  std::printf("F9: the SNES soundtrack switch is the only owner, gameplay cannot take it, documented\n");
+  CHECK(std::string_view(tmnt::kClassicSoundtrackKey) == "F9");
+  CHECK(tmnt::KeyboardBindingIsReserved(ImGuiKey_F9));
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_F9, false, false, false).empty());
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_F9, true, false, false).empty());
+  CHECK(std::string_view(tmnt::kPingDisplayKey) != tmnt::kClassicSoundtrackKey);
+
+  const std::filesystem::path src = std::filesystem::path(TMNT_ROOT_DIR) / "src";
+  std::size_t owners = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(src)) {
+    const std::string name = entry.path().filename().string();
+    if (!entry.is_regular_file() || (entry.path().extension() != ".cpp" && entry.path().extension() != ".h")) continue;
+    const std::string text = ReadFile("src/" + std::filesystem::relative(entry.path(), src).generic_string());
+    if (name == "keybinds.h") continue;
+    owners += Has(text, "\"F9\"") ? 1 : 0;
+  }
+  CHECK(owners == 1);
+  CHECK(Has(ReadFile("src/classic_soundtrack_overlay.cpp"), "rex::ui::RegisterBind(\"bind_tmnt_classic_soundtrack\", kClassicSoundtrackKey,"));
+  CHECK(Has(ReadFile("docs/input.md"), "**F9**") && Has(ReadFile("docs/launcher.md"), "F7, F9, F10"));
+  CHECK(Has(ReadFile("docs/classic-soundtrack.md"), "**F9**"));
+}
 
 void TestSdkBindsRemoved() {
   std::printf("SDK overlays: unregistered in OnCreateDialogs, not hidden\n");
@@ -119,7 +143,7 @@ void TestPingLayout() {
   CHECK(ping.y0 >= counter.y1);
   CHECK(ping.x1 == counter.x1);
   CHECK(alone.y0 == counter.y0);
-  CHECK(Has(ReadFile("src/ping_display.cpp"), "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter));"));
+  CHECK(Has(ReadFile("src/ping_display.cpp"), "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter, ClassicSoundtrackNoticeVisible()));"));
 }
 
 void TestPingIsReadOnly() {
@@ -153,6 +177,7 @@ void TestDocs() {
 }  // namespace
 
 int main() {
+  TestF9Ownership();
   TestSdkBindsRemoved();
   TestF3Ownership();
   TestGameplayCannotTakeTheKeys();

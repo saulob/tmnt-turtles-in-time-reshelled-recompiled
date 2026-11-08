@@ -46,6 +46,7 @@ tmnt::StartupDiagnostics Sample() {
   diagnostics.launcher_gameplay.frame_rate_in_title = "On";
   diagnostics.launcher_gameplay.render_resolution_in_title = "Off";
   diagnostics.launcher_gameplay.frame_counter = "Hidden";
+  diagnostics.launcher_gameplay.classic_soundtrack = "On";
   diagnostics.launcher_graphics.graphics_card = "Automatic";
   diagnostics.launcher_graphics.render_resolution = "2x (2560x1440)";
   diagnostics.launcher_graphics.anti_aliasing = "Off";
@@ -115,7 +116,7 @@ void TestStartupBlock() {
   CHECK(Has(text, "Launcher Display: Display mode=Borderless Fullscreen | Window size=1280x720 | "
                   "Monitor=Display 1 | Aspect Ratio=16:9 Original | VSync=Off"));
   CHECK(Has(text, "Launcher Gameplay: Language=English | Skip intro=Off | Frame rate in title=On | "
-                  "Render resolution in title=Off | Frame counter=Hidden"));
+                  "Render resolution in title=Off | Frame counter=Hidden | Classic soundtrack=On"));
   CHECK(Has(text, "Launcher Graphics: Graphics card=Automatic | Render resolution=2x (2560x1440) | "
                   "Anti-aliasing=Off | Multisampling=2x MSAA | "
                   "Texture filtering=4x"));

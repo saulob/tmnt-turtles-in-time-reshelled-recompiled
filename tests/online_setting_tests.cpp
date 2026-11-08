@@ -121,7 +121,7 @@ void TestPingDisplayRules() {
   const std::string ping = ReadSource("ping_display.cpp");
   CHECK(Has(ping, "kPingDisplayKey") && !Has(ping, "\"F9\""));
   CHECK(Has(ping, "Online().WorstRtt()"));
-  CHECK(Has(ping, "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter));"));
+  CHECK(Has(ping, "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter, ClassicSoundtrackNoticeVisible()));"));
   CHECK(Has(ReadSource("frame_counter.cpp"), "DrawCornerText(FrameCounterText(stats), FrameCounterSlot());"));
   CHECK(!Has(ping, "AddRect"));
 }
@@ -658,7 +658,7 @@ void TestLauncherGatesPlayOnTheConnectionTest() {
   const std::string settings = ReadSource("settings.cpp");
   CHECK(Has(settings, "      kConnectionTestSetting,\n"));
   CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
-                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  return true;"));
+                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  for (const auto& [key, value] : values) {"));
   CHECK(Has(ReadSource("online_runtime.cpp"), "REXCVAR_DEFINE_STRING(tmnt_online_connection_test, \"\", \"TMNT\","));
 }
 
@@ -814,7 +814,7 @@ void TestEveryLauncherWriteQuotesStrings() {
   CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
                       "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  saved_ = pending_;"));
   CHECK(Has(settings, "file.Set(key, TomlValue(key, value));\n  }\n  if (!file.Save()) {\n    REXLOG_ERROR(\"Cannot write "
-                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  return true;"));
+                      "player settings to {}\", Utf8(player_file_.filename()));\n    return false;\n  }\n  for (const auto& [key, value] : values) {"));
   CHECK(!Has(settings, "file.Set(key, value);"));
   CHECK(Has(settings, "RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired)"));
 }
