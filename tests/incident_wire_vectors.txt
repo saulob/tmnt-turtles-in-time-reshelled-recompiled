@@ -1,0 +1,3 @@
+{"op":"incident.file","seq":1,"description":"The game crashes when the second player joins a match.","launcher_version":"0.1.0","guest":"TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)","platform":"Windows","operating_system":"Windows 11 (build 26200)","runtime":"ReXGlue SDK 0.10.0","log_file":"tmnt_turtles_in_time_reshelled_001.log","log_clipped":"no","log_text":"Runtime configuration:\nRuntime OS: Windows 11\n"}
+{"op":"incident.status","seq":2,"reports":[{"ticket":"TMNT-ABCDEF","receipt":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}
+{"op":"incident.read","seq":3,"ticket":"TMNT-ABCDEF","receipt":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}

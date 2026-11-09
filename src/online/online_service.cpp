@@ -33,6 +33,9 @@ constexpr int kRoomHelloRetries = 5;
 constexpr double kAcceptedInviteSeconds = 60.0;
 constexpr double kSearchIdleSeconds = 10.0;
 constexpr double kIdentityRetrySeconds = 0.25;
+constexpr double kLobbyRefreshSeconds = 30.0;
+constexpr double kLobbyRetrySeconds = 15.0;
+constexpr double kLobbyViewedSeconds = 2.0;
 
 bool Fatal(const std::string& code) {
   return code == "proto" || code == "bad_game" || code == "bad_guest" || code == "unauthorized";
@@ -134,6 +137,9 @@ void OnlineService::Disable() {
   test_probe_.reset();
   retry_at_ = 0;
   retry_delay_ = 1.0;
+  ResetLobbyConnection();
+  lobby_publish_retry_at_ = 0;
+  lobby_viewed_at_ = -1e9;
 }
 
 void OnlineService::Update(double now) {
@@ -175,6 +181,7 @@ void OnlineService::Update(double now) {
     FlushTelemetry(now);
   }
   PumpPartyReport();
+  PumpLobby();
   if (SessionName() != greeted_name_ && !party_ && now - name_since_ >= kNameSettleSeconds) {
     if (channel_) channel_->Close();
     channel_.reset();
@@ -334,6 +341,34 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
         telemetry_inflight_ = {};
       }
       break;
+    case Purpose::kLobbyPublish:
+      lobby_publish_in_flight_ = false;
+      if (!ok) {
+        lobby_publish_retry_at_ = now + kLobbyRetrySeconds;
+        lobby_refused_ = lobby_refused_ || message.code == "bad_request";
+        Log("online lobby publish refused code=" + message.code);
+        break;
+      }
+      lobby_published_ = lobby_publish_sent_;
+      Log(std::string("online lobby visible=") + Flag(lobby_published_));
+      break;
+    case Purpose::kLobbyList:
+      lobby_list_in_flight_ = false;
+      if (!ok || (!message.lobby_unchanged && !message.lobby_players)) {
+        lobby_failed_ = true;
+        lobby_refused_ = lobby_refused_ || (!ok && message.code == "bad_request");
+        Log("online lobby read failed code=" + (ok ? std::string("malformed") : message.code));
+        break;
+      }
+      lobby_failed_ = false;
+      if (message.lobby_unchanged) break;
+      if (!lobby_fetched_ || message.lobby_players->size() != lobby_players_.size()) {
+        Log("online lobby players=" + std::to_string(message.lobby_players->size()));
+      }
+      lobby_players_ = *message.lobby_players;
+      lobby_rev_ = message.lobby_rev;
+      lobby_fetched_ = true;
+      break;
     case Purpose::kPartyLeave:
     case Purpose::kPartyKick:
     case Purpose::kInviteDecline:
@@ -356,6 +391,8 @@ void OnlineService::OnGreeted(const ServerMessage& message, double now) {
   Log(std::string("online signed in") + (was_reconnecting ? " (reconnected)" : "") + " name=" + greeted_name_ +
       " code=" + friend_code_);
   capabilities_ = message.capabilities.value_or(ServiceCapabilities{});
+  Log(std::string("online lobby service supported=") + Flag(capabilities_.public_lobby));
+  ResetLobbyConnection();
   if (was_reconnecting) Emit({"worker_reconnect", 0, {}});
   party_check_ = true;
   Refresh();
@@ -439,6 +476,7 @@ void OnlineService::OnLinkLost(const std::string& why, double now) {
   invites_.clear();
   // A joined party lives on its room, which this link does not carry.
   if (accepted_invite_ && !accepted_invite_->ready) DropAcceptedInviteLocked("link_lost");
+  ResetLobbyConnection();
   for (Friend& f : friends_) {
     f.online = false;
     f.state = FriendState::kOffline;
@@ -879,6 +917,44 @@ void OnlineService::Refresh() {
   Send(Purpose::kRequests, [](int seq) { return EncodeFriendsRequests(seq); });
 }
 
+void OnlineService::NoteLobbyViewed() {
+  Locked lock(*this);
+  if (now_ - lobby_viewed_at_ > kLobbyViewedSeconds) next_lobby_list_ = std::min(next_lobby_list_, now_);
+  lobby_viewed_at_ = now_;
+}
+
+// The list is read only while the Lobby page is shown. Visibility is sent only when it differs from what the service
+// confirmed, so a player who never turns it on sends no Lobby request but the reads.
+void OnlineService::PumpLobby() {
+  if (!capabilities_.public_lobby || lobby_refused_) return;
+  if (settings_.lobby_visible != lobby_published_ && !lobby_publish_in_flight_ && now_ >= lobby_publish_retry_at_) {
+    lobby_publish_in_flight_ = true;
+    lobby_publish_sent_ = settings_.lobby_visible;
+    const bool visible = lobby_publish_sent_;
+    Send(Purpose::kLobbyPublish, [visible](int seq) { return EncodeLobbyPublish(seq, visible); });
+  }
+  const bool viewed = now_ - lobby_viewed_at_ <= kLobbyViewedSeconds;
+  if (viewed && !lobby_list_in_flight_ && now_ >= next_lobby_list_) {
+    lobby_list_in_flight_ = true;
+    next_lobby_list_ = now_ + kLobbyRefreshSeconds;
+    const std::optional<int64_t> held = lobby_fetched_ ? std::optional<int64_t>(lobby_rev_) : std::nullopt;
+    Send(Purpose::kLobbyList, [held](int seq) { return EncodeLobbyList(seq, held); });
+  }
+}
+
+// A new connection starts unlisted and with nothing read; an old list would show players who may be gone.
+void OnlineService::ResetLobbyConnection() {
+  lobby_published_ = false;
+  lobby_publish_in_flight_ = false;
+  lobby_refused_ = false;
+  lobby_list_in_flight_ = false;
+  lobby_fetched_ = false;
+  lobby_failed_ = false;
+  lobby_rev_ = -1;
+  next_lobby_list_ = 0;
+  lobby_players_.clear();
+}
+
 std::vector<ActivePeer> OnlineService::Peers() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<ActivePeer> out;
@@ -935,6 +1011,11 @@ Snapshot OnlineService::snapshot() const {
   s.my_slot = access_ ? access_->slot : 0;
   s.room_state = room_step_ == RoomStep::kOnline ? "online" : party_ ? "connecting" : "none";
   if (session_) s.peers = session_->peers();
+  s.lobby.supported = capabilities_.public_lobby && !lobby_refused_;
+  s.lobby.visible = lobby_published_;
+  s.lobby.fetched = lobby_fetched_;
+  s.lobby.failed = lobby_failed_;
+  s.lobby.players = lobby_players_;
   if (now_ - notice_at_ <= kNoticeSeconds) s.notice = notice_;
   s.testing = testing_;
   s.test = test_;

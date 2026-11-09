@@ -72,6 +72,11 @@ void TestRequestsAreWellFormed() {
   CHECK(EncodePartyCreate(1) == "{\"op\":\"party.create\",\"seq\":1}" && EncodePartyLeave(2) == "{\"op\":\"party.leave\",\"seq\":2}");
   CHECK(EncodePartyKick(3, "ABCD-2345") == "{\"op\":\"party.kick\",\"seq\":3,\"player\":\"ABCD-2345\"}");
   CHECK(EncodeInviteAccept(4, "i1") == "{\"op\":\"invite.accept\",\"seq\":4,\"invite\":\"i1\"}");
+  CHECK(EncodeLobbyPublish(5, true) == "{\"op\":\"lobby.publish\",\"seq\":5,\"visible\":true}");
+  CHECK(EncodeLobbyPublish(5, false) == "{\"op\":\"lobby.publish\",\"seq\":5,\"visible\":false}");
+  CHECK(EncodeLobbyList(6) == "{\"op\":\"lobby.list\",\"seq\":6}");
+  CHECK(EncodeLobbyList(6, int64_t(9)) == "{\"op\":\"lobby.list\",\"seq\":6,\"rev\":9}");
+  CHECK(EncodeLobbyList(6, int64_t(-1)) == "{\"op\":\"lobby.list\",\"seq\":6}");
 }
 
 void TestAnswersDecode() {
@@ -97,6 +102,17 @@ void TestAnswersDecode() {
   CHECK(!DecodeServerMessage("{\"re\":4,\"code\":\"ok\",\"sessions\":[{\"player\":\"A\"}]}")->sessions);
   auto error = DecodeServerMessage("{\"re\":2,\"code\":\"party_full\"}");
   CHECK(error && error->code == "party_full" && !error->access && !error->friends);
+  auto lobby = DecodeServerMessage(
+      "{\"re\":9,\"code\":\"ok\",\"players\":[{\"player\":\"ABCD-2345\",\"name\":\"A\",\"state\":\"party\","
+      "\"platform\":\"Windows\",\"version\":\"0.2.2\",\"guest\":\"base\",\"compatible\":false}],\"rev\":12,\"visible\":true}");
+  CHECK(lobby && lobby->lobby_players && lobby->lobby_players->size() == 1);
+  CHECK(lobby && (*lobby->lobby_players)[0].state == FriendState::kParty && !(*lobby->lobby_players)[0].compatible);
+  CHECK(lobby && lobby->lobby_rev == 12 && lobby->lobby_visible && !lobby->lobby_unchanged);
+  auto unchanged = DecodeServerMessage("{\"re\":10,\"code\":\"ok\",\"unchanged\":true,\"rev\":12,\"visible\":false}");
+  CHECK(unchanged && unchanged->lobby_unchanged && !unchanged->lobby_players && unchanged->lobby_rev == 12 &&
+        unchanged->lobby_visible && !*unchanged->lobby_visible);
+  auto bad_lobby = DecodeServerMessage("{\"re\":10,\"code\":\"ok\",\"players\":[{\"name\":\"A\"}]}");
+  CHECK(bad_lobby && !bad_lobby->lobby_players);
   CHECK(DescribeServiceError("party_full") == "The party is full." && DescribeServiceError("no_party") == "Start a party first.");
 }
 

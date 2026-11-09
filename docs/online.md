@@ -9,10 +9,13 @@ model pass their headless tests here, including a four-client run on loopback ag
 
 ## Playing
 
-1. Launcher > **Online** > **Online play** On. The rest of the page appears only then. **Online name** is what other
-   players see (up to 16 letters, digits, `-` or `_`).
+1. Launcher > **Online** > **Online play** On. The rest of the page appears only then, on three tabs: **Settings**,
+   **Friends** and **Lobby**. **Online name** is what other players see (up to 16 letters, digits, `-` or `_`).
 2. Share **Your friend code** (`XXXX-XXXX`, **Copy** puts it on the clipboard). Paste or type a friend's code under
-   **Friends** and **Send request**; they **Accept** or **Decline** it on their page.
+   **Friends** and **Send request**; they **Accept** or **Decline** it on their page. **Show me in Lobby** on the
+   **Lobby** tab lists your Online name, status, platform and game version for other players of this game; they can send
+   you a friend request from there. The listing belongs to the connection: turn it off, or close Online play, and you
+   leave the Lobby. Connection test sessions are never listed.
 3. **Connection test** > **Run test**. PLAY stays blocked until it reports **Overall usable** (see below).
 4. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
    and the guests **Quick Match** or **Custom Match**, which find only the friends' party.

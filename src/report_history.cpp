@@ -46,8 +46,8 @@ std::string EntryJson(const TrackedReport& report) {
   Member(out, "description", report.description);
   Member(out, "log_file", report.log_file);
   Member(out, "launcher_version", report.launcher_version);
-  Member(out, "game_build", report.game_build);
-  Member(out, "game_id", report.game_id);
+  Member(out, "guest", report.guest);
+  Member(out, "platform", report.platform);
   Member(out, "operating_system", report.operating_system);
   Member(out, "status", report.status);
   out += "\"status_updated_at\":" + std::to_string(report.status_updated_at) + ",";
@@ -77,8 +77,8 @@ TrackedReport EntryOf(const json::Value& entry) {
   report.description = StringOf(entry.Find("description"));
   report.log_file = StringOf(entry.Find("log_file"));
   report.launcher_version = StringOf(entry.Find("launcher_version"));
-  report.game_build = StringOf(entry.Find("game_build"));
-  report.game_id = StringOf(entry.Find("game_id"));
+  report.guest = StringOf(entry.Find("guest"));
+  report.platform = StringOf(entry.Find("platform"));
   report.operating_system = StringOf(entry.Find("operating_system"));
   report.status = StringOf(entry.Find("status"));
   report.status_updated_at = IntOf(entry.Find("status_updated_at"));
@@ -144,7 +144,9 @@ void ReportHistory::Load() {
   for (const json::Value& entry : list->AsArray()) {
     if (!entry.IsObject()) continue;
     TrackedReport report = EntryOf(entry);
-    if (!report.ticket.empty() && !report.receipt.empty() && ReportStatusText(report.status)) reports_.push_back(std::move(report));
+    if (IsIncidentTicket(report.ticket) && IsIncidentReceipt(report.receipt) && ReportStatusText(report.status)) {
+      reports_.push_back(std::move(report));
+    }
   }
   NewestFirst(reports_);
 }

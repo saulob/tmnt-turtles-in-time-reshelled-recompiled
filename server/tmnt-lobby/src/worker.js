@@ -105,9 +105,6 @@ export class TMNTLobby extends DurableObject {
     const [ticket, rest, ...more] = url.pathname.slice('/incidents/'.length).split('/');
     if (!isTicket(ticket) || more.length > 0) return new Response('Not found', { status: 404 });
     if (rest === undefined) {
-      if (request.method === 'DELETE') {
-        return this.hub.deleteIncident(ticket) ? Response.json({ deleted: ticket }) : Response.json({ error: 'not_found' }, { status: 404 });
-      }
       const incident = this.hub.incident(ticket);
       return incident ? Response.json(incident) : Response.json({ error: 'not_found' }, { status: 404 });
     }
@@ -309,12 +306,6 @@ export default {
         incidents: () => read('/incidents'),
         incident: (ticket) => read(`/incidents/${ticket}`),
         setIncidentStatus: (ticket, change) => read(`/incidents/${ticket}/status`, { method: 'POST', body: JSON.stringify(change) }),
-        deleteIncident: async (ticket) => {
-          const response = await lobby().fetch(new Request(`https://lobby.internal/incidents/${ticket}`, { method: 'DELETE' }));
-          if (response.status === 404) return false;
-          if (!response.ok) throw new Error(`lobby answered ${response.status}`);
-          return true;
-        },
       }, (text) => console.log(text));
     }
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {

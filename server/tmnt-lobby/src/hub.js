@@ -6,18 +6,19 @@
 // State lives in SQL tables and in each socket's attachment, so a hibernated Durable Object resumes as if it had never
 // stopped. The same class runs in the development server (local/server.js).
 import { PROTECTION, RateLimiter, checkedCounts } from './abuse.js';
-import { INCIDENT, INCIDENT_LIMITED, IncidentDesk, incidentTicket, readClaim, readClaims, readIncident } from './incidents.js';
+import { INCIDENT, INCIDENT_LIMITED, IncidentDesk, incidentTicket, readClaims, readIncident, readReadClaim } from './incidents.js';
 import { Metrics, SAMPLE_MS, countryCode, platformCategory, sampleBucket, versionCategory } from './metrics.js';
 import { parsePartyReport } from './party.js';
 import { hmacSha256Hex, sha256Hex, toHex } from './sha256.js';
 import {
   BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, PROTOCOL, ProtocolError, compatibleGuests, fail, ipGroup, isInt, isLocalAddress, isObject,
-  joinTokenHash, normalizeFriendCode, parseHello, takeToken,
+  joinTokenHash, normalizeFriendCode, parseHello, parseLobbyPublish, parseLobbyRevision, takeToken,
 } from './protocol.js';
 import { TelemetryStore, isDiag, parseBatch } from './telemetry.js';
 
 const DAY_MS = 24 * 3600 * 1000;
-const SOCIAL_OPS = new Set(['friends.add', 'party.create', 'party.kick', 'invite.send', 'invite.accept', 'pm.host', 'pm.join']);
+const SOCIAL_OPS = new Set(['friends.add', 'party.create', 'party.kick', 'invite.send', 'invite.accept', 'pm.host', 'pm.join',
+  'lobby.publish']);
 const SESSIONLESS_OPS = new Set(['hello', 'incident.status', 'incident.read']);
 const RULE_KEY = /^[a-z_]{1,16}$/;
 const QOS_DATA = /^(?:[0-9a-f]{2}){0,256}$/;
@@ -89,6 +90,8 @@ export class Hub {
       friendAccount: new RateLimiter(PROTECTION.friendAccount),
       telemetryAccount: new RateLimiter(PROTECTION.telemetryAccount),
       incidentStatus: new RateLimiter({ burst: 30, perSecond: 0.5 }),
+      incidentRead: new RateLimiter(PROTECTION.incidentReadAddress),
+      lobbyList: new RateLimiter(PROTECTION.lobbyList),
       partyReportAll: new RateLimiter(PROTECTION.partyReportAll),
       partyReportAccount: new RateLimiter(PROTECTION.partyReportAccount),
       partyReportAddress: new RateLimiter(PROTECTION.partyReportAddress),
@@ -99,6 +102,7 @@ export class Hub {
       try { host.sql.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch { /* already there */ }
     }
     if (!this.meta('salt')) this.setMeta('salt', this.randomHex(16));
+    this.lobbyRev = host.now();
     this.telemetryBucket = null;
     this.telemetryFailures = 0;
     try {
@@ -237,7 +241,8 @@ export class Hub {
           fail('limit', 'slow down');
         }
         att.ri = socket;
-        if (!this.guards.incidentStatus.take(this.ipKey(att.ip), now)) {
+        const guard = msg.op === 'incident.read' ? this.guards.incidentRead : this.guards.incidentStatus;
+        if (!guard.take(this.ipKey(att.ip), now)) {
           this.noteLimit('incident');
           fail('limit', 'slow down');
         }
@@ -289,6 +294,7 @@ export class Hub {
     const att = conn.attachment();
     if (!att?.hello) return;
     this.index = null;
+    if (att.presence && att.lobby === true) this.touchLobby();
     att.hello = false;
     conn.setAttachment(att);
     this.index = null;
@@ -525,6 +531,7 @@ export class Hub {
       online: present.size,
       in_rooms: this.host.sql.get('SELECT COUNT(*) AS n FROM party_members WHERE offline_since IS NULL').n,
       rooms: this.host.sql.get('SELECT COUNT(*) AS n FROM parties').n,
+      lobby_visible: new Set(this.sockets().filter((s) => s.att.presence && s.att.lobby === true).map((s) => s.att.player)).size,
       platform: tally((att) => platformCategory(att.platform)),
       version: tally((att) => versionCategory(att.version)),
       country: tally((att) => countryCode(att.country)),
@@ -532,7 +539,11 @@ export class Hub {
   }
 
   observeLive() {
-    this.track(() => this.metrics.observe(this.liveMetrics()));
+    this.track(() => {
+      const live = this.liveMetrics();
+      this.metrics.observe(live);
+      this.metrics.lobbyVisible(live.lobby_visible);
+    });
   }
 
   // The next 15-minute usage sample, while anyone is connected.
@@ -558,7 +569,8 @@ export class Hub {
   }
 
   incident(ticket) {
-    return this.incidents ? this.incidents.get(ticket) : null;
+    const found = this.incidents ? this.incidents.get(ticket) : null;
+    return found ? { ...found, ...this.incidents.status(ticket) } : null;
   }
 
   setIncidentStatus(ticket, change) {
@@ -567,13 +579,6 @@ export class Hub {
     const saved = this.incidents.setStatus(ticket, change, this.host.now());
     if (saved && saved.player_message !== before?.player_message) this.track(() => this.metrics?.incidentMessage());
     return saved;
-  }
-
-  deleteIncident(ticket) {
-    if (!this.incidents) return false;
-    const removed = this.incidents.remove(ticket);
-    if (removed) this.track(() => this.metrics?.incidentDeleted());
-    return removed;
   }
 
   // One Connection Test beacon (beacon.js); a store that fails throws to the caller, which answers regardless.
@@ -672,6 +677,41 @@ export class Hub {
     return this.host.sql.all('SELECT friend FROM friends WHERE player = ? ORDER BY friend', player).map((r) => r.friend);
   }
 
+  // ---- public Lobby ----
+  // Visibility is part of a present socket's attachment: it ends with the socket and is never written to SQL.
+  lobbyListed(player) {
+    return this.presentSockets(player).some((s) => s.att.lobby === true);
+  }
+
+  touchLobby() {
+    this.lobbyRev += 1;
+  }
+
+  // Visible players other than the viewer, compatible ones first. The rows carry what a launcher shows and what
+  // friends.add needs, never an address, token, endpoint or match.
+  lobbyPlayers(viewer) {
+    const seen = new Set();
+    const candidates = [];
+    for (const { att } of this.sockets()) {
+      if (att.lobby !== true || !att.presence || att.player === viewer.player || seen.has(att.player)) continue;
+      seen.add(att.player);
+      candidates.push({ att, compatible: compatibleGuests(viewer, att) });
+    }
+    const key = (c) => c.att.name.toLowerCase();
+    candidates.sort((a, b) => (b.compatible - a.compatible) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)
+      || (a.att.player < b.att.player ? -1 : 1));
+    return candidates.slice(0, LIMITS.lobbyPlayers).map(({ att, compatible }) => ({
+      player: att.player, name: att.name, state: this.stateOf(att.player), platform: att.platform, version: att.version,
+      guest: att.guest, compatible,
+    }));
+  }
+
+  limitLobbyList(att) {
+    if (this.exempt(att) || this.guards.lobbyList.take(att.player, this.host.now())) return;
+    this.diagnose('lobby_list_limited');
+    fail('limit', 'reading the lobby too fast');
+  }
+
   areFriends(a, b) {
     return Boolean(this.host.sql.get('SELECT 1 AS x FROM friends WHERE player = ? AND friend = ?', a, b));
   }
@@ -681,6 +721,7 @@ export class Hub {
   }
 
   notifyStatus(player) {
+    if (this.lobbyListed(player)) this.touchLobby();
     for (const friend of this.friendsOf(player)) {
       for (const s of this.presentSockets(friend)) {
         this.send(s.conn, { ev: 'friend.status', friend: this.friendView(player, s.att) });
@@ -1059,6 +1100,29 @@ const HANDLERS = {
     return { time: this.host.now() };
   },
 
+  // Shows or hides this connection's player in the public Lobby. Nothing is stored; an unchanged request changes nothing.
+  'lobby.publish'(att, msg) {
+    if (!att.presence) fail('bad_request', 'presence required');
+    const visible = parseLobbyPublish(msg);
+    if ((att.lobby === true) !== visible) {
+      att.lobby = visible;
+      this.touchLobby();
+      this.track(() => this.metrics?.lobbyPublish());
+      this.observeLive();
+    }
+    return { visible };
+  },
+
+  // The visible players. A client that sends the revision it holds hears `unchanged` while the list is still the same.
+  'lobby.list'(att, msg) {
+    const held = parseLobbyRevision(msg);
+    this.limitLobbyList(att);
+    this.track(() => this.metrics?.lobbyListRequest());
+    const visible = att.lobby === true;
+    if (held === this.lobbyRev) return { unchanged: true, rev: this.lobbyRev, visible };
+    return { players: this.lobbyPlayers(att), rev: this.lobbyRev, visible };
+  },
+
   'incident.file'(att, msg) {
     if (!this.incidents) {
       this.track(() => this.metrics?.incidentError());
@@ -1077,7 +1141,9 @@ const HANDLERS = {
       this.diagnose(INCIDENT_LIMITED[refusal] ?? 'incident_limited');
       fail(refusal);
     }
-    const ticket = incidentTicket(crypto.getRandomValues(new Uint8Array(6)));
+    let ticket;
+    do ticket = incidentTicket(crypto.getRandomValues(new Uint8Array(6)));
+    while (this.incidents.taken(ticket));
     const receipt = this.randomHex(32);
     try {
       this.incidents.file(parsed.incident, ticket, att.player, att.ip, now);
@@ -1111,8 +1177,8 @@ const HANDLERS = {
       this.track(() => this.metrics?.incidentError());
       fail('internal');
     }
-    const claim = readClaim(msg);
-    if (!claim) fail('bad_request', 'ticket');
+    const claim = readReadClaim(msg);
+    if (!claim) fail('bad_request', 'receipt');
     const report = this.incidents.report(claim);
     if (!report) fail('not_found');
     this.track(() => this.metrics?.incidentRead());

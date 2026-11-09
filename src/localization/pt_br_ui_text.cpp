@@ -781,6 +781,25 @@ Game ID	ID do jogo
 Operating system	Sistema operacional
 Log shortened to its end	Log reduzido ao trecho final
 Log after privacy filtering	Log depois do filtro de privacidade
+Settings	Configurações
+Lobby	Lobby
+Show me in Lobby	Mostrar-me no Lobby
+Turn on to let other players of this game see your Online name in the Lobby and send you a friend request.	Ative para outros jogadores deste jogo verem seu nome online no Lobby e enviarem um pedido de amizade.
+Other players of this game can see your Online name, status, platform and game version in the Lobby and send you a friend request. Nothing else about you is shown.	Outros jogadores deste jogo podem ver seu nome online, status, plataforma e versão do jogo no Lobby e enviar um pedido de amizade. Nada mais sobre você é mostrado.
+Players in the Lobby	Jogadores no Lobby
+No players are in the Lobby right now.	Nenhum jogador está no Lobby agora.
+Looking for players...	Procurando jogadores...
+Cannot read the Lobby right now.	Não foi possível ler o Lobby agora.
+Could not refresh the Lobby.	Não foi possível atualizar o Lobby.
+The online service does not have the public Lobby yet.	O serviço online ainda não tem o Lobby público.
+Add friend	Adicionar amigo
+Friend request	Pedido de amizade
+Friend	Amigo
+Request sent	Pedido enviado
+Compatible	Compatível
+Incompatible	Incompatível
+The online service cannot take reports yet	O serviço online ainda não consegue receber relatórios
+Direct reports need a newer online service. Your text is kept; try again after the service is updated.	Relatórios diretos precisam de um serviço online mais novo. Seu texto foi mantido; tente de novo depois que o serviço for atualizado.
 )PTBR";
 
 }  // namespace tmnt::localization

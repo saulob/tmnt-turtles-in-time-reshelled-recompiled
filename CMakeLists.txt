@@ -142,10 +142,11 @@ tmnt_prepare_patched_trg_launcher("${_trg_source_dir}" "${_trg_patched_dir}" ${_
 file(READ "${_trg_patched_dir}/src/launcher.cpp" _trg_launcher_source)
 string(FIND "${_trg_launcher_source}" "void Launcher::HandleHotkeys() {" _hotkeys_pos)
 string(SUBSTRING "${_trg_launcher_source}" ${_hotkeys_pos} -1 _hotkeys_source)
-string(FIND "${_hotkeys_source}" "KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)" _ctrl_s_pos)
-string(FIND "${_hotkeys_source}" "io.WantTextInput || ImGui::IsPopupOpen" _text_guard_pos)
-if(_hotkeys_pos EQUAL -1 OR _ctrl_s_pos EQUAL -1 OR _text_guard_pos EQUAL -1 OR _ctrl_s_pos GREATER _text_guard_pos)
-    message(FATAL_ERROR "TRG Launcher: the staged HandleHotkeys does not handle Ctrl+S before the text-input guard (${_trg_patched_dir}/src/launcher.cpp)")
+string(FIND "${_hotkeys_source}" "const bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);" _ctrl_pos)
+string(FIND "${_hotkeys_source}" "if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {" _ctrl_s_pos)
+string(FIND "${_hotkeys_source}" "if (io.WantTextInput) return;" _text_guard_pos)
+if(_hotkeys_pos EQUAL -1 OR _ctrl_pos EQUAL -1 OR _ctrl_s_pos EQUAL -1 OR _text_guard_pos EQUAL -1 OR _ctrl_s_pos GREATER _text_guard_pos)
+    message(FATAL_ERROR "TRG Launcher: the staged HandleHotkeys does not handle Ctrl+S from the left/right key state before the text-input guard (${_trg_patched_dir}/src/launcher.cpp)")
 endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_trg_patched_dir}/src/launcher.cpp")
 
@@ -297,6 +298,7 @@ set(TMNT_SOURCES
     src/online_bridge.cpp
     src/online_page.cpp
     src/online_runtime.cpp
+    src/page_icons.cpp
     src/ping_display.cpp
     src/platform.cpp
     src/player_match.cpp
@@ -337,7 +339,25 @@ foreach(_online_source IN LISTS TMNT_ONLINE_SOURCES)
         list(APPEND TMNT_SOURCES ${_online_source})
     endif()
 endforeach()
+
+# The sidebar's page icons (assets/launcher/icons/*.svg) as a table of byte arrays, page_icon_data.cpp.
+# They are embedded, so the launcher never has to ship or find separate icon files.
+file(GLOB TMNT_PAGE_ICONS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icons/*.svg")
+list(SORT TMNT_PAGE_ICONS)
+set(TMNT_PAGE_ICON_LIST "${CMAKE_CURRENT_BINARY_DIR}/generated/page_icons.txt")
+file(CONFIGURE OUTPUT "${TMNT_PAGE_ICON_LIST}" CONTENT "${TMNT_PAGE_ICONS}")
+set(TMNT_PAGE_ICON_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/page_icon_data.cpp")
+add_custom_command(OUTPUT "${TMNT_PAGE_ICON_SOURCE}"
+    COMMAND ${CMAKE_COMMAND} -DINPUT_LIST=${TMNT_PAGE_ICON_LIST} -DOUTPUT=${TMNT_PAGE_ICON_SOURCE}
+            -DSYMBOL=kPageIconFiles -P "${CMAKE_CURRENT_SOURCE_DIR}/src/embed_files.cmake"
+    DEPENDS "${TMNT_PAGE_ICON_LIST}" ${TMNT_PAGE_ICONS} "${CMAKE_CURRENT_SOURCE_DIR}/src/embed_files.cmake"
+    COMMENT "Embedding the launcher page icons"
+    VERBATIM)
+list(APPEND TMNT_SOURCES "${TMNT_PAGE_ICON_SOURCE}")
+
 set_source_files_properties(src/updater/third_party/miniz/miniz.c PROPERTIES COMPILE_OPTIONS "-w")
+# nanosvg is a single-header third-party implementation; keep its warnings out of the project's own output.
+set_source_files_properties(src/page_icons.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-function;-Wno-unused-variable")
 if(WIN32)
     # Resource 1 is the first icon in the executable: Explorer, and SDL's window class, use it.
     enable_language(RC)
@@ -781,6 +801,22 @@ target_compile_definitions(tmnt_launcher_quit_tests PRIVATE TMNT_SRC_DIR="${CMAK
 add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp)
 target_include_directories(tmnt_launcher_assets_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_assets_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Launcher icon raster size and physical-pixel snapping tests, not part of the default build:
+# cmake --build <dir> --target tmnt_launcher_dpi_tests
+add_executable(tmnt_launcher_dpi_tests EXCLUDE_FROM_ALL tests/launcher_dpi_tests.cpp src/page_icons.cpp
+    "${TMNT_PAGE_ICON_SOURCE}")
+target_include_directories(tmnt_launcher_dpi_tests PRIVATE src "${_trg_patched_dir}/include")
+target_compile_options(tmnt_launcher_dpi_tests PRIVATE -Wall -Wextra)
+
+# Embedded launcher Ctrl+S path, not part of the default build:
+# cmake --build <dir> --target tmnt_launcher_hotkey_tests
+add_executable(tmnt_launcher_hotkey_tests EXCLUDE_FROM_ALL tests/launcher_hotkey_tests.cpp)
+target_include_directories(tmnt_launcher_hotkey_tests PRIVATE src)
+target_compile_definitions(tmnt_launcher_hotkey_tests PRIVATE
+    TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src"
+    TMNT_TRG_PATCHED_DIR="${_trg_patched_dir}")
+target_compile_options(tmnt_launcher_hotkey_tests PRIVATE -Wall -Wextra)
 
 # Window-close lifecycle policy tests, not part of the default build:
 # cmake --build <dir> --target tmnt_lifecycle_tests

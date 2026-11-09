@@ -24,10 +24,10 @@ Both are accepted. The file tail is read (up to 256 KiB), scrubbed, then limited
 | --- | --- |
 | `description` | The player's text, trimmed and scrubbed. |
 | `launcher_version` | The port version (`0.1.0`). |
-| `game_build` | The game identity, for example `TMNT: Turtles in Time Re-Shelled (XBLA)`, or `Not installed`. |
-| `game_version` | The supported XBLA executable version (`0.0.1.3`). |
-| `game_id` | `584109D2` when the supported game files are present; empty otherwise. |
+| `guest` | The game image/build: `TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)`, or `Not installed`. |
+| `platform` | `Windows` or `Linux`. |
 | `operating_system` | Windows version and build, or the Linux distribution. |
+| `runtime` | The ReXGlue SDK version, for example `ReXGlue SDK 0.10.0`. |
 | `log_file` | The selected log's file name only, never its path. |
 | `log_clipped` | `yes` when only the end of the log was sent. |
 | `log_text` | The sanitized log text. |
@@ -90,19 +90,21 @@ WebSocket connection and envelope as the rest of the online service:
 
 The service validates every field and measures sizes itself: 500 description characters, 64 KiB of log text in UTF-8,
 64 characters of metadata. A report is stored as received or refused, never rewritten. The newest 500 reports are kept;
-report statuses and their receipt hashes are kept separately (5000) so a status can outlive its log. Deleting a report
-removes its fields, log, status and receipt hash. The owner's next status check simply leaves it out.
+report statuses and their receipt hashes are kept separately (5000) so a status can outlive its log. When a report is
+removed by retention, the owner's next status check simply leaves it out.
 
 ## Admin
 
-`/admin` on the deployed Worker is the private dashboard. It has **Dashboard** and **Bug reports** tabs. Bug reports need
+`/admin` on the deployed Worker is the private dashboard. It has **Dashboard** and **Bugs** tabs. Bug reports need
 the same `ADMIN_TOKEN` as the dashboard; no new binding, secret or Durable Object migration is required. The tables are
 created when the TMNT lobby object starts.
 
-The Bug reports tab lists report ID, status, submission date, launcher version, game build, OS and description preview.
-Opening a report shows the full description, game facts, sanitized log, status form, fixed version, developer message and
-**Delete report**. **Save status** posts to `/admin/api/incidents/<ticket>/status`; nothing is saved until then. A save
-that changes nothing keeps its timestamp. A new or changed message is what the launcher shows as **New reply**.
+The Bugs tab filters by port version, game image and status. Its table lists report ID, submission date, port, game
+image, platform, operating system, description preview and status. Opening a report shows the full description, facts,
+sanitized log, status meaning, developer message and **Close report**. **Fixed in version** appears only while the
+selected status is **Fixed**; the Worker stores it as empty for every other status, even when a stale value is sent.
+**Save status** posts to `/admin/api/incidents/<ticket>/status`; nothing is saved until then. A save that changes nothing
+keeps its timestamp. A new or changed message is what the launcher shows as **New reply**.
 
 Admin routes, all with `Authorization: Bearer <ADMIN_TOKEN>`:
 

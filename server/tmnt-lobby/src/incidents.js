@@ -6,6 +6,7 @@ import { digestsMatch, sha256Hex } from './sha256.js';
 export const INCIDENT = {
   frameChars: 160 * 1024,
   descriptionChars: 500,
+  descriptionMinChars: 10,
   logBytes: 64 * 1024,
   metadataChars: 64,
   previewChars: 140,
@@ -16,10 +17,8 @@ export const INCIDENT = {
   perDay: 300,
   kept: 500,
   messageChars: 500,
-  statusBatch: 50,
+  statusBatch: 30,
   statusKept: 5000,
-  statusChecksPerMinute: 20,
-  readsPerMinute: 20,
 };
 
 export const INCIDENT_STATUSES = ['new', 'investigating', 'fixed', 'cannot_reproduce', 'duplicate', 'not_a_bug', 'closed'];
@@ -31,12 +30,16 @@ export const INCIDENT_LIMITED = {
   limit: 'incident_limited',
 };
 
+export const INCIDENT_OPS = ['incident.file', 'incident.status', 'incident.read'];
+export const INCIDENT_FILE_PREFIX = '{"op":"incident.file"';
+
 const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const ENVELOPE = new Set(['op', 'seq']);
 const LOG_FILE = /^tmnt_turtles_in_time_reshelled_[0-9]{3,10}(?:\.[0-9]{1,3})?\.log$/;
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/;
-const GAME_ID = /^(?:[0-9A-F]{8})?$/;
+const PLATFORM = /^[A-Za-z0-9 ._+-]{1,16}$/;
+const GUEST_IMAGES = ['TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)', 'Not installed'];
 const TICKET = /^TMNT-[A-HJ-NP-Z2-9]{6}$/;
 const RECEIPT = /^[0-9a-f]{64}$/;
 const STATUS_FIELDS = new Set(['status', 'fixed_version', 'player_message']);
@@ -82,7 +85,8 @@ function text(msg, field, maxChars) {
 function description(msg) {
   const value = msg.description;
   if (typeof value !== 'string' || HAS_FORBIDDEN.test(value) || value.includes('\r')) throw new Refusal('bad_request', 'description');
-  if (!value.trim()) throw new Refusal('bad_request', 'empty description');
+  const length = Array.from(value.trim()).length;
+  if (length < INCIDENT.descriptionMinChars) throw new Refusal('bad_request', 'description too short');
   if (Array.from(value).length > INCIDENT.descriptionChars) throw new Refusal('too_large', 'description');
   return value;
 }
@@ -107,13 +111,18 @@ function yesNo(msg, field) {
   return msg[field];
 }
 
+function oneOf(msg, field, choices) {
+  if (!choices.includes(msg[field])) throw new Refusal('bad_request', field);
+  return msg[field];
+}
+
 const READERS = {
   description,
   launcher_version: (msg) => matching(msg, 'launcher_version', VERSION),
-  game_build: (msg) => text(msg, 'game_build', INCIDENT.metadataChars),
-  game_version: (msg) => text(msg, 'game_version', INCIDENT.metadataChars),
-  game_id: (msg) => matching(msg, 'game_id', GAME_ID),
+  guest: (msg) => oneOf(msg, 'guest', GUEST_IMAGES),
+  platform: (msg) => matching(msg, 'platform', PLATFORM),
   operating_system: (msg) => matching(msg, 'operating_system', /./),
+  runtime: (msg) => text(msg, 'runtime', INCIDENT.metadataChars),
   log_file: (msg) => matching(msg, 'log_file', LOG_FILE),
   log_clipped: (msg) => yesNo(msg, 'log_clipped'),
   log_text: logText,
@@ -142,6 +151,12 @@ export function readClaim(entry) {
   return isTicket(ticket) && typeof receipt === 'string' && RECEIPT.test(receipt) ? { ticket, receipt } : null;
 }
 
+// The claim of an `incident.read` request, or null.
+export function readReadClaim(msg) {
+  if (Object.keys(msg).some((key) => !ENVELOPE.has(key) && key !== 'ticket' && key !== 'receipt')) return null;
+  return readClaim(msg);
+}
+
 // The claims of an `incident.status` request, or null when it is malformed or too long.
 export function readClaims(msg) {
   if (Object.keys(msg).some((key) => !ENVELOPE.has(key) && key !== 'reports')) return null;
@@ -163,7 +178,7 @@ export function readStatusChange(body) {
   return { change: { status, fixed_version: status === 'fixed' ? version : '', player_message: message.trim() } };
 }
 
-const LIST_COLUMNS = `incidents.ticket AS ticket, ms, launcher_version, game_build, game_version, game_id, operating_system,
+const LIST_COLUMNS = `incidents.ticket AS ticket, ms, launcher_version, guest, platform, operating_system, runtime,
   log_file, substr(description, 1, ${INCIDENT.previewChars}) AS preview, COALESCE(t.status, 'new') AS status,
   COALESCE(t.status_ms, ms) AS status_updated_at`;
 
@@ -180,14 +195,34 @@ export class IncidentDesk {
     this.sql = sql;
     this.salt = salt;
     sql.run(`CREATE TABLE IF NOT EXISTS incidents (ticket TEXT PRIMARY KEY, ms INTEGER NOT NULL,
-      launcher_version TEXT NOT NULL, game_build TEXT NOT NULL, game_version TEXT NOT NULL, game_id TEXT NOT NULL,
-      operating_system TEXT NOT NULL, description TEXT NOT NULL, log_file TEXT NOT NULL, log_clipped TEXT NOT NULL,
+      launcher_version TEXT NOT NULL, guest TEXT NOT NULL, platform TEXT NOT NULL, operating_system TEXT NOT NULL,
+      runtime TEXT NOT NULL, description TEXT NOT NULL, log_file TEXT NOT NULL, log_clipped TEXT NOT NULL,
       log_text TEXT NOT NULL)`);
     sql.run(`CREATE TABLE IF NOT EXISTS incident_quota (account_key TEXT NOT NULL, address_key TEXT NOT NULL,
       ms INTEGER NOT NULL)`);
     sql.run(`CREATE TABLE IF NOT EXISTS incident_tracking (ticket TEXT PRIMARY KEY, receipt_hash TEXT NOT NULL,
       submitted_ms INTEGER NOT NULL, status TEXT NOT NULL, status_ms INTEGER NOT NULL, fixed_version TEXT NOT NULL,
       player_message TEXT NOT NULL)`);
+    this.migrate();
+  }
+
+  // Reports from before the canonical schema carry game_build/game_version/game_id instead of guest/platform/runtime.
+  migrate() {
+    const columns = new Set(this.sql.all('PRAGMA table_info(incidents)').map((row) => row.name));
+    if (columns.has('guest')) return;
+    this.sql.run('DROP TABLE IF EXISTS incidents_legacy');
+    this.sql.run('ALTER TABLE incidents RENAME TO incidents_legacy');
+    this.sql.run(`CREATE TABLE incidents (ticket TEXT PRIMARY KEY, ms INTEGER NOT NULL,
+      launcher_version TEXT NOT NULL, guest TEXT NOT NULL, platform TEXT NOT NULL, operating_system TEXT NOT NULL,
+      runtime TEXT NOT NULL, description TEXT NOT NULL, log_file TEXT NOT NULL, log_clipped TEXT NOT NULL,
+      log_text TEXT NOT NULL)`);
+    if (columns.has('game_build')) {
+      this.sql.run(`INSERT INTO incidents (ticket, ms, launcher_version, guest, platform, operating_system, runtime,
+        description, log_file, log_clipped, log_text)
+        SELECT ticket, ms, launcher_version, game_build, 'Windows', operating_system, '', description, log_file,
+        log_clipped, log_text FROM incidents_legacy`);
+    }
+    this.sql.run('DROP TABLE incidents_legacy');
   }
 
   key(kind, value) {
@@ -209,10 +244,10 @@ export class IncidentDesk {
   }
 
   file(incident, ticket, account, address, now) {
-    this.sql.run(`INSERT INTO incidents (ticket, ms, launcher_version, game_build, game_version, game_id, operating_system,
-      description, log_file, log_clipped, log_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ticket, now, incident.launcher_version,
-    incident.game_build, incident.game_version, incident.game_id, incident.operating_system, incident.description, incident.log_file,
-    incident.log_clipped, incident.log_text);
+    this.sql.run(`INSERT INTO incidents (ticket, ms, launcher_version, guest, platform, operating_system, runtime,
+      description, log_file, log_clipped, log_text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, ticket, now,
+    incident.launcher_version, incident.guest, incident.platform, incident.operating_system, incident.runtime,
+    incident.description, incident.log_file, incident.log_clipped, incident.log_text);
     this.sql.run('INSERT INTO incident_quota (account_key, address_key, ms) VALUES (?, ?, ?)', this.key('account', account),
       this.key('address', address), now);
     this.sql.run(`DELETE FROM incidents WHERE rowid IN

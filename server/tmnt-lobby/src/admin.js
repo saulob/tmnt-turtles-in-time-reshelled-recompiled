@@ -67,8 +67,8 @@ function adminRoute(pathname) {
   if (Object.hasOwn(ROUTES, pathname)) return ROUTES[pathname];
   if (!pathname.startsWith(`${INCIDENTS_PATH}/`)) return null;
   const [ticket, rest, ...more] = pathname.slice(INCIDENTS_PATH.length + 1).split('/');
-  if (!isTicket(ticket) || more.length > 0) return null;
-  if (rest === undefined) return { name: 'incident', ticket, methods: ['GET', 'DELETE'] };
+  if (more.length > 0) return null;
+  if (rest === undefined) return { name: 'incident', ticket, methods: ['GET'] };
   if (rest === 'log') return { name: 'incident_log', ticket, methods: ['GET'] };
   if (rest === 'status') return { name: 'incident_status', ticket, methods: ['POST'] };
   return null;
@@ -90,7 +90,7 @@ async function saveIncidentStatus(request, ticket, source) {
 }
 
 // source: { summary(days), session(diag), metricsSummary(), metricsHistory(days), incidents(), incident(ticket),
-// setIncidentStatus(ticket, change), deleteIncident(ticket) }, each a Promise; read only after the token matched.
+// setIncidentStatus(ticket, change) }, each a Promise; read only after the token matched.
 export async function handleAdmin(request, env, source, log = () => {}) {
   if (!adminEnabled(env)) return json({ error: 'not_found' }, 404);
   const url = new URL(request.url);
@@ -107,6 +107,9 @@ export async function handleAdmin(request, env, source, log = () => {}) {
   }
   if (!tokenMatches(request.headers.get('Authorization'), env.ADMIN_TOKEN)) {
     return json({ error: 'unauthorized' }, 401, { 'WWW-Authenticate': 'Bearer' });
+  }
+  if (route.ticket !== undefined && !isTicket(route.ticket)) {
+    return json({ error: 'bad_request', detail: 'invalid report id' }, 400);
   }
   let days = 0;
   let diag = '';
@@ -130,9 +133,6 @@ export async function handleAdmin(request, env, source, log = () => {}) {
     }
     if (route.name === 'incidents') return json(await source.incidents());
     if (route.name === 'incident_status') return await saveIncidentStatus(request, route.ticket, source);
-    if (route.name === 'incident' && request.method === 'DELETE') {
-      return await source.deleteIncident(route.ticket) ? json({ deleted: route.ticket }) : json({ error: 'not_found' }, 404);
-    }
     if (route.name === 'incident') {
       const incident = await source.incident(route.ticket);
       return incident ? json(incident) : json({ error: 'not_found' }, 404);

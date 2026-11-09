@@ -13,6 +13,26 @@ The pre-game launcher is [TRG Launcher](https://github.com/TekRantGaming/trg-lau
   4. **Play** (mouse, Enter or Xbox Start) calls `RequestPlay`, which is the only save: if it fails, the launcher stays open with "Could not save the settings." and nothing starts. On success it shows "Settings saved. Starting game..." at full brightness for 0.4 s, timed with ImGui and without sleeping. The launcher's controls are dimmed and disabled during that time, and its keyboard, gamepad and mouse input is released each frame, so Play, Save, Ctrl+S, Esc and the D-pad do nothing. Then, if the window size, monitor, VSync or graphics card differs from this process's window, the game is relaunched once and this process quits (`StartGame` does not save). Otherwise the pending settings are applied and the runtime starts.
   5. **Relaunched copy**: `--tmnt_skip_launcher=true` skips the launcher, and the window is created natively with the saved settings.
 
+## Layout
+
+The launcher follows the compact TRG layout used by the Dragon's Crown and 13 Sentinels ports. The metrics live in
+[`patches/trg-launcher/0009-launcher-layout.patch`](../patches/trg-launcher/0009-launcher-layout.patch) as
+`trg::layout` constants: a 42 px sidebar row (32 px minimum), 34 px controls, 8 px row padding, 6 px item gaps, a 30 px
+page title and a 60 px footer with a 190 x 42 px PLAY button. Page rows, section breaks, combos, inputs, toggles and the
+footer all read those constants, so the whole launcher stays dense and consistent.
+
+ReXGlue gives the launcher a logical ImGui coordinate space and scales it in the immediate drawer. TRG's
+`render_scale` (set from the font/DIP density) tells it how many physical pixels one coordinate covers, so sidebar icons
+are rasterized at 21 x scale physical pixels, and icon, border and text origins snap to the physical pixel grid. The
+launcher fonts use the shared `kTextBody` size (16 px), matching the newer launchers; the font atlas is still
+rasterized at the display density.
+
+Every sidebar entry has an icon on the left and its label on the right, using the newer launcher's selected-row
+treatment. The SVGs in `assets/launcher/icons` are compiled into the executable (`src/embed_files.cmake` and
+`src/page_icons.cpp`), rasterized at the exact physical pixel size the sidebar asks for and tinted in the theme, so no
+separate icon files are shipped and the texture is never upscaled. The mapping is in `PageIconAssets()`: Play, Display,
+Graphics, Gameplay, Online, Achievements (`trophies.svg`), Controls, Bug Report, About and the optional DLC page.
+
 ## Settings
 
 | File | Written by | Role |
@@ -25,7 +45,7 @@ The pre-game launcher is [TRG Launcher](https://github.com/TekRantGaming/trg-lau
 - Play is blocked, and does not save, while the game files are missing or invalid or an install is running.
 - Reset all settings puts the launcher's values back to the shipped ones, pending until Save or Play.
 - Legacy repair: an unreleased development build wrote `key = on` and `key = off`, which TOML rejects and which made ReXGlue ignore the whole file. Before the file is parsed, each exact bare `on`/`off` value is rewritten as `true`/`false`. Nothing else changes. The original is kept as `settings.toml.bak`. Once the file holds no bare on/off, this does nothing.
-- The dependency is the `third_party/trg-launcher` submodule, pinned to `b384a28` (TRG Launcher 1.1.0). After cloning, run `git submodule update --init third_party/trg-launcher`. The submodule is never modified: CMake copies the clean checkout to `<build>/trg-launcher-patched` at configure time, applies the patches in `patches/trg-launcher` there (hyperlinks, download headers, the release download address allow-list with checked redirects, the Linux file picker fallbacks: portal, zenity, kdialog, and Ctrl+S in text inputs; applied with `git apply --ignore-whitespace`, so the checkout's line endings do not matter), and compiles that copy. It fails when the submodule is at another revision or carries local changes. When the submodule is not checked out, CMake falls back to the checkout named by `TMNT_TRG_LAUNCHER_DIR` (CMake cache or environment), copies it the same way and applies the patches without modifying it. The upstream repository has no LICENSE file.
+- The dependency is the `third_party/trg-launcher` submodule, pinned to `b384a28` (TRG Launcher 1.1.0). After cloning, run `git submodule update --init third_party/trg-launcher`. The submodule is never modified: CMake copies the clean checkout to `<build>/trg-launcher-patched` at configure time, applies the patches in `patches/trg-launcher` there (hyperlinks, sponsor link, action colours, the compact launcher layout, download headers, the release download address allow-list with checked redirects, the Linux file picker fallbacks: portal, zenity, kdialog, Ctrl+S in text inputs and the download watchdog; applied with `git apply --ignore-whitespace`, so the checkout's line endings do not matter), and compiles that copy. It fails when the submodule is at another revision or carries local changes. When the submodule is not checked out, CMake falls back to the checkout named by `TMNT_TRG_LAUNCHER_DIR` (CMake cache or environment), copies it the same way and applies the patches without modifying it. The upstream repository has no LICENSE file.
 
 ## Window
 
@@ -112,6 +132,7 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
 | Online | Online play | `tmnt_online_enabled` |
 | | Online name | `tmnt_online_name` |
+| | Show me in Lobby | `tmnt_online_lobby_visible` |
 | | Connection test | `tmnt_online_connection_test` (the finished test and the configuration it ran for) |
 | | Ping display | `tmnt_online_ping_display` |
 | Controls | Keyboard | `mnk_mode` |
@@ -191,8 +212,9 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 ### Online
 
 Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
+Show me in Lobby (`tmnt_online_lobby_visible`, `false` Off by default: lists this player in the public Lobby while Online play is on),
 Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F3 in game) and the stored Connection test result
-(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, `tmnt_local_profile_user` when a controller presses START, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
+(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, `tmnt_local_profile_user` when a controller presses START, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, the page shows the Settings, Friends and Lobby tabs; PLAY waits for a
 Connection test whose result is Overall usable for the current UDP configuration. Friends and any invite you received are on the
 same page; an invite is accepted in the game, which is also where the party is made, see `docs/online.md`.
 

@@ -1,6 +1,8 @@
 #include "online_page.h"
 
+#include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <string>
 
@@ -45,12 +47,12 @@ void OnlineNameRow(trg::Ui& ui) {
   if (!saved.empty() && shown != saved) ui.Help((Tr("Other players see ") + shown + ".").c_str());
 }
 
-bool AcceptButton(trg::Ui& ui, const char* id) {
+bool AcceptButton(trg::Ui& ui, const char* id, ImVec2 size = ImVec2(0, 0)) {
   const trg::Theme& t = ui.theme();
   trg::PushActionButton(t, ui.scale());
   const float mark = ImGui::GetFontSize() * 0.8f;
   const ImVec2 at = ImGui::GetCursorScreenPos();
-  const bool clicked = ImGui::Button(id);
+  const bool clicked = ImGui::Button(id, size);
   const ImVec2 pad = ImGui::GetStyle().FramePadding;
   const ImVec2 origin(at.x + pad.x, at.y + pad.y + ImGui::GetFontSize() * 0.1f);
   const ImVec2 tick[3] = {ImVec2(origin.x + mark * 0.1f, origin.y + mark * 0.55f),
@@ -86,12 +88,44 @@ void FriendHeading(trg::Ui& ui, const std::string& name, const online::FriendRow
   }
 }
 
+void BeginCard(trg::Ui& ui, const char* id, const ImVec4& background, const ImVec4& border, float border_width,
+               ImGuiChildFlags flags = 0) {
+  const float s = ui.scale();
+  ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f * s);
+  ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, border_width * s);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f * s, 10.0f * s));
+  ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+  ImGui::PushStyleColor(ImGuiCol_Border, border);
+  ImGui::BeginChild(id, ImVec2(-FLT_MIN, 0),
+                    ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY |
+                        flags);
+}
+
+void EndCard() {
+  ImGui::EndChild();
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(3);
+}
+
+// Why the service itself cannot be used right now; empty once it is online.
+std::string ServiceNotice(const online::Snapshot& state) {
+  if (state.connection == online::Connection::kOffline || state.connection == online::Connection::kError) {
+    return state.connection_text.empty() ? Tr(kUnreachable) : TrMessage(state.connection_text);
+  }
+  if (state.connection == online::Connection::kChecking) {
+    return state.connection_text.empty() ? Tr("Connecting...") : TrMessage(state.connection_text);
+  }
+  return {};
+}
+
 }  // namespace
 
 std::vector<std::string> OnlinePage::Tick(trg::SettingsStore& settings) {
   online::UserSettings edited;
   edited.enabled = settings.GetBool(kOnlineEnabledSetting, kDefaultOnlineEnabled);
   edited.name = settings.Get(kOnlineNameSetting, kDefaultOnlineNameValue);
+  edited.lobby_visible = settings.GetBool(kOnlineLobbySetting, kDefaultOnlineLobby);
+  tabs_.TrackOnlinePlay(edited.enabled);
   std::vector<std::string> notices;
   TickOnline(edited);
   for (std::string& notice : Online().TakeNotices()) notices.push_back(std::move(notice));
@@ -130,11 +164,12 @@ void OnlinePage::Draw(trg::Ui& ui) {
   const bool on = ui.settings().GetBool(kOnlineEnabledSetting, kDefaultOnlineEnabled);
   const online::Snapshot state = Online().snapshot();
   const bool usable = !ConnectionTestNeeded(ui.settings(), state.testing, TestConfiguration());
-  for (const OnlineSection section : OnlinePageSections(on, state.incoming.size(), state.invites.size())) {
+  for (const OnlineSection section : OnlinePageSections(on, tabs_.selected(), state.incoming.size(), state.invites.size())) {
     switch (section) {
       case OnlineSection::kOnlinePlay:
         ui.Toggle(kOnlineEnabledLabel, kOnlineEnabledHelp, kOnlineEnabledSetting, kDefaultOnlineEnabled, "Off", "On");
         break;
+      case OnlineSection::kTabs: DrawTabs(ui, state.incoming.size()); break;
       case OnlineSection::kFriendRequests: DrawFriendRequests(ui, state); break;
       case OnlineSection::kPartyInvites: DrawPartyInvites(ui, state, usable); break;
       case OnlineSection::kOnlineName: OnlineNameRow(ui); break;
@@ -144,9 +179,52 @@ void OnlinePage::Draw(trg::Ui& ui) {
         ui.Toggle(kOnlinePingLabel, kOnlinePingHelp, kOnlinePingSetting, kDefaultOnlinePing, "Off", "On");
         break;
       case OnlineSection::kFriends: DrawFriends(ui, state); break;
+      case OnlineSection::kLobby: DrawLobby(ui, state); break;
     }
   }
   ui.EndRows();
+}
+
+// Plain buttons, so keyboard navigation and its highlight work as anywhere else on the page.
+void OnlinePage::DrawTabs(trg::Ui& ui, size_t friend_requests) {
+  ui.Spacer(4);
+  const trg::Theme& t = ui.theme();
+  const float s = ui.scale();
+  const float left = ImGui::GetCursorScreenPos().x;
+  const float width = ImGui::GetContentRegionAvail().x;
+  float bottom = 0.0f;
+  float selected_left = 0.0f;
+  float selected_right = 0.0f;
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * s, 7.0f * s));
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.frame_hot);
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, t.frame_active);
+  for (const OnlineTab tab : kOnlineTabs) {
+    const bool selected = tab == tabs_.selected();
+    if (tab != kOnlineTabs[0]) ImGui::SameLine(0.0f, 0.0f);
+    ImGui::PushID(int(tab));
+    ImGui::PushStyleColor(ImGuiCol_Text, selected ? t.accent : t.dim);
+    if (ImGui::Button(OnlineTabTitle(Tr(OnlineTabLabel(tab)), tab, friend_requests).c_str())) tabs_.Select(tab);
+    ImGui::PopStyleColor();
+    ImGui::PopID();
+    bottom = ImGui::GetItemRectMax().y;
+    if (selected) {
+      selected_left = ImGui::GetItemRectMin().x;
+      selected_right = ImGui::GetItemRectMax().x;
+    }
+  }
+  ImGui::PopStyleColor(3);
+  ImGui::PopStyleVar(3);
+  ImGui::PopFont();
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  const float base = std::floor(bottom);
+  draw->AddRectFilled(ImVec2(left, base - 1.0f), ImVec2(left + width, base), trg::Col(t.border_row));
+  const float thick = std::max(2.0f, std::round(2.0f * s));
+  draw->AddRectFilled(ImVec2(selected_left, base - thick), ImVec2(selected_right, base), trg::Col(t.accent));
+  ui.Spacer(4);
 }
 
 void OnlinePage::DrawFriendRequests(trg::Ui& ui, const online::Snapshot& state) {
@@ -212,14 +290,17 @@ void OnlinePage::DrawPartyInvites(trg::Ui& ui, const online::Snapshot& state, bo
 }
 
 void OnlinePage::DrawFriendCode(trg::Ui& ui, const online::Snapshot& state) {
-  ui.Row("Your friend code", kFriendCodeHelp);
+  ui.RowEmphasized("Your friend code", kFriendCodeHelp);
   if (state.friend_code.empty()) {
+    ImGui::AlignTextToFramePadding();
     ImGui::TextDisabled("%s", state.connection == online::Connection::kOffline ? Tr("Not available right now") : Tr("Connecting..."));
     return;
   }
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
   ImGui::TextUnformatted(state.friend_code.c_str());
+  ImGui::PopFont();
   ImGui::SameLine();
-  if (ImGui::SmallButton(Tr("Copy"))) {
+  if (ImGui::Button(Tr("Copy"), ImVec2(-FLT_MIN, 0))) {
     const auto write = [this](const std::string& text, const FieldLog& log) {
       return WriteClipboardText(owner_window_, text, log);
     };
@@ -304,13 +385,9 @@ void OnlinePage::DrawConnectionTestBody(trg::Ui& ui, const online::Snapshot& sta
 
 void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
   ui.Heading("Friends");
-  if (state.connection == online::Connection::kOffline || state.connection == online::Connection::kError) {
-    ui.Help(state.connection_text.empty() ? kUnreachable : TrMessage(state.connection_text).c_str());
-  } else if (state.connection == online::Connection::kChecking) {
-    ui.Help(state.connection_text.empty() ? "Connecting..." : TrMessage(state.connection_text).c_str());
-  } else if (!state.notice.empty()) {
-    ui.Help(TrMessage(state.notice).c_str());
-  }
+  const std::string notice = ServiceNotice(state);
+  if (!notice.empty()) ui.Help(notice.c_str());
+  else if (!state.notice.empty()) ui.Help(TrMessage(state.notice).c_str());
   ui.Row("Add a friend", "Their friend code, for example ABCD-EFGH.");
   add_field_.Draw(add_code_, sizeof(add_code_), [](const std::string& line) { Online().LogLine(line); });
   const std::string code = online::NormalizeFriendCode(add_code_);
@@ -338,6 +415,62 @@ void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
     ui.Help(kNoFriends);
   }
   ui.EndRows();
+}
+
+void OnlinePage::DrawLobby(trg::Ui& ui, const online::Snapshot& state) {
+  Online().NoteLobbyViewed();
+  const bool visible = ui.settings().GetBool(kOnlineLobbySetting, kDefaultOnlineLobby);
+  ui.Toggle(kOnlineLobbyLabel, visible ? kOnlineLobbyOnHelp : kOnlineLobbyOffHelp, kOnlineLobbySetting,
+            kDefaultOnlineLobby, "Off", "On");
+  ui.Heading("Players in the Lobby");
+  std::string notice = ServiceNotice(state);
+  if (notice.empty()) notice = online::LobbyMessage(state.lobby);
+  if (!notice.empty()) {
+    ui.Help(TrMessage(notice).c_str());
+    return;
+  }
+  if (state.lobby.failed) ui.Help("Could not refresh the Lobby.");
+  if (state.lobby.players.empty()) return;
+  const trg::Theme& t = ui.theme();
+  ui.EndRows();
+  ui.Spacer(4);
+  ImGui::PushID("lobby-list");
+  BeginCard(ui, "##lobby_list", ImVec4(t.panel.x, t.panel.y, t.panel.z, 0.96f), t.border_panel, 1.0f,
+            ImGuiChildFlags_NavFlattened);
+  for (const online::LobbyPlayer& player : state.lobby.players) DrawLobbyPlayer(ui, state, player);
+  ui.EndRows();
+  EndCard();
+  ImGui::PopID();
+}
+
+void OnlinePage::DrawLobbyPlayer(trg::Ui& ui, const online::Snapshot& state, const online::LobbyPlayer& player) {
+  const online::LobbyRowView view = online::DescribeLobbyPlayer(state, player);
+  FriendHeading(ui, player.name, online::FriendRowView{view.status, view.incompatible});
+  ImGui::PushID(("lobby" + player.player).c_str());
+  switch (view.relation) {
+    case online::LobbyRelation::kFriend:
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextDisabled("%s", Tr("Friend"));
+      break;
+    case online::LobbyRelation::kOutgoing:
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextDisabled("%s", Tr("Request sent"));
+      break;
+    case online::LobbyRelation::kIncoming: {
+      const float gap = ImGui::GetStyle().ItemSpacing.x;
+      const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+      if (AcceptButton(ui, Tr("     Accept"), ImVec2(half, 0))) Online().AcceptFriend(player.player);
+      ImGui::SameLine(0.0f, gap);
+      if (ImGui::Button(Tr("Decline"), ImVec2(half, 0))) Online().DeclineFriend(player.player);
+      break;
+    }
+    case online::LobbyRelation::kNone:
+      ImGui::BeginDisabled(!view.can_add);
+      if (ImGui::Button(Tr("Add friend"), ImVec2(-FLT_MIN, 0))) Online().AddFriend(player.player);
+      ImGui::EndDisabled();
+      break;
+  }
+  ImGui::PopID();
 }
 
 }  // namespace tmnt

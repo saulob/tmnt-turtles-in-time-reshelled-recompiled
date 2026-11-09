@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -67,10 +68,10 @@ DraftProblem CheckDraft(std::string_view description, bool has_log);
 // The fields of the installed game and this PC that go with every report.
 struct ReportFacts {
   std::string launcher_version;
-  std::string game_build;
-  std::string game_version;
-  std::string game_id;
+  std::string guest;
+  std::string platform;
   std::string operating_system;
+  std::string runtime;
 };
 
 // "Windows 11 (build 26200)", "Ubuntu 24.04 LTS".
@@ -90,14 +91,20 @@ struct IncidentPackage {
 // The end of `text`, at most `most` bytes, starting on a whole line.
 std::string LastBytes(std::string_view text, size_t most);
 
-// Scrubs the log's text and bounds it. nullopt when the log cannot be read or holds nothing.
+// Scrubs the log's text and bounds it. nullopt when the log cannot be read or holds nothing, or when the scrubbed
+// description is shorter than the minimum.
 std::optional<IncidentPackage> BuildIncidentPackage(std::string_view description, const GameLog& log, const ReportFacts& facts,
                                                     const PrivateFacts& private_facts);
 
 std::string IncidentPreviewText(const IncidentPackage& package);
-std::string IncidentRequestBody(const IncidentPackage& package);
+// The `incident.file` members, with the comma that joins them to the request's op and seq.
+std::string IncidentRequestFields(const IncidentPackage& package);
+// The exact WebSocket messages used in production; tests parse these same strings.
+std::string IncidentFileMessage(int seq, const IncidentPackage& package);
+std::string IncidentStatusMessage(int seq, const std::vector<TrackedReport>& reports);
+std::string IncidentReadMessage(int seq, const TrackedReport& report);
 
-enum class IncidentOutcome { kSent, kRecentLimit, kDailyLimit, kUnreachable, kRefused, kServiceError };
+enum class IncidentOutcome { kSent, kRecentLimit, kDailyLimit, kUnreachable, kRefused, kNotSupported, kServiceError };
 
 // What the service's answer means for the page.
 IncidentOutcome IncidentOutcomeOf(const std::string& code);
@@ -108,18 +115,21 @@ const char* IncidentLimitTitle(IncidentOutcome outcome);
 struct IncidentReceipt {
   IncidentOutcome outcome = IncidentOutcome::kServiceError;
   std::string ticket;
-  // Proves ownership of this one report. Empty from a service without receipts. Never logged.
+  // Proves ownership of this one report. Never logged.
   std::string credential;
   int64_t submitted_at = 0;
 };
 
+bool IsIncidentTicket(std::string_view text);
 bool IsIncidentReceipt(std::string_view text);
 
 // What My reports keeps of a sent report.
 TrackedReport TrackedReportOf(const IncidentPackage& package, const IncidentReceipt& receipt);
 
-// The newest reports in `reports`, as the lookup operation takes them.
+// The newest reports in `reports` as the `incident.status` members, with the comma that joins them to op and seq.
 std::string IncidentStatusRequest(const std::vector<TrackedReport>& reports);
+// The `incident.read` members, with the comma that joins them to op and seq.
+std::string IncidentReadRequest(const TrackedReport& report);
 std::vector<ReportStatus> ReadReportStatuses(std::string_view answer);
 // The stored report as the same fields a preview shows.
 IncidentPackage SentReportOf(std::string_view report_json);
@@ -130,6 +140,7 @@ inline constexpr char kIncidentReadOperation[] = "incident.read";
 
 struct IncidentServiceConfig {
   std::string url;
+  std::function<void(const std::string&)> log;  // never receives a receipt, token or report text
 };
 
 // The current online service address, including the developer TMNT_LOBBY override.

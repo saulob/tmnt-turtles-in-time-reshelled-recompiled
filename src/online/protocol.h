@@ -37,6 +37,17 @@ struct Request {
   std::string name;
 };
 
+// A player who chose to be listed in the public Lobby. `player` is the friend code Add friend sends to; it is never shown.
+struct LobbyPlayer {
+  std::string player;
+  std::string name;
+  FriendState state = FriendState::kOnline;
+  std::string platform;
+  std::string version;
+  std::string guest;
+  bool compatible = true;
+};
+
 // The game's Player Match settings that both sides must agree on, as small named integers.
 using PlayerMatchRules = std::vector<std::pair<std::string, int>>;
 
@@ -138,6 +149,8 @@ struct ServiceCapabilities {
   int relay_max_payload = 0;
   bool snes_features = false;
   bool snes_modes = false;
+  bool public_lobby = false;  // the service has the public Lobby (lobby.publish, lobby.list)
+  bool bug_reports = false;   // the service takes problem reports (incident.file, incident.status, incident.read)
 };
 
 struct PeerInfo {
@@ -204,6 +217,10 @@ struct ServerMessage {
   std::string transport;  // match.transport: "direct" or "relay"
   std::optional<ServiceCapabilities> capabilities;  // hello
   std::optional<MatchSnes> snes;  // match.hello and snes.update answers, match.snes
+  std::optional<std::vector<LobbyPlayer>> lobby_players;  // lobby.list; absent when unchanged
+  bool lobby_unchanged = false;                           // lobby.list: the revision the client sent is still current
+  int64_t lobby_rev = -1;                                 // lobby.list: -1 when the answer carried none
+  std::optional<bool> lobby_visible;                      // lobby.publish and lobby.list: whether this connection is listed
 };
 
 // Nothing for text that is not a known, well-formed server message.
@@ -223,6 +240,9 @@ struct HelloFields {
 
 std::string EncodeHello(int seq, const HelloFields& hello);
 std::string EncodePing(int seq);
+std::string EncodeLobbyPublish(int seq, bool visible);
+// `held_rev` is the revision of the list the client already shows; the service then answers "unchanged" while it stands.
+std::string EncodeLobbyList(int seq, std::optional<int64_t> held_rev = std::nullopt);
 std::string EncodeFriendsList(int seq);
 std::string EncodeFriendsRequests(int seq);
 std::string EncodeFriendsAdd(int seq, const std::string& code);

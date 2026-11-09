@@ -33,6 +33,7 @@ export const LIMITS = {
   ruleFields: 8,
   searchResults: 20,
   matchMaxMs: 4 * 3600 * 1000,
+  lobbyPlayers: 50,
 };
 
 export const BUCKETS = {
@@ -47,7 +48,7 @@ export const BUCKETS = {
   beaconAll: { burst: 60, perSecond: 5 },
 };
 
-export const WORKER_BUILD = '2026-11-09-bugreports1';
+export const WORKER_BUILD = '2026-11-09-lobby1';
 
 // Binary relay frames: magic "SR", version, type, src slot, dst slot, token (u32), sequence (u32), payload length (u16),
 // payload.
@@ -75,6 +76,8 @@ export const CAPABILITIES = {
   max_party: MAX_PARTY,
   snes_features: true,
   snes_modes: true,
+  public_lobby: true,
+  bug_reports: true,
 };
 
 // SNES gameplay mechanics only: the soundtrack is each player's own and is never negotiated.
@@ -330,4 +333,16 @@ export const isLocalAddress = (ip) => ip === '::1' || ipv4Kind(ip) === 'loopback
 
 export function compatibleGuests(a, b) {
   return Boolean(a && b) && a.guest === b.guest && a.build === b.build;
+}
+
+export function parseLobbyPublish(message) {
+  if (typeof message.visible !== 'boolean') fail('bad_request', 'visible expected');
+  return message.visible;
+}
+
+// The revision the client already holds, if it sent one.
+export function parseLobbyRevision(message) {
+  if (message.rev === undefined) return null;
+  if (!Number.isSafeInteger(message.rev) || message.rev < 0) fail('bad_request', 'rev expected');
+  return message.rev;
 }

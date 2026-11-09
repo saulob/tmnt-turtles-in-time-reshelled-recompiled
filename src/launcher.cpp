@@ -49,6 +49,7 @@
 #include "active_log.h"
 #include "online_page.h"
 #include "online_runtime.h"
+#include "page_icons.h"
 #include "platform.h"
 #include "player_names.h"
 #include "port_version.h"
@@ -283,7 +284,12 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       io.ClearInputKeys();
       io.ClearInputMouse();
     }
+    if (!starting_ && (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl)) &&
+        ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY ctrl_s detected");
+    }
     ImGui::BeginDisabled(starting_);
+    launcher_->config().render_scale = g_font_density;
     const trg::Result result = launcher_->Frame();
     ImGui::EndDisabled();
     if (result == trg::Result::kNone && !starting_) {
@@ -491,6 +497,44 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     }
   }
 
+  // One page entry with its sidebar icon; the icon is rendered at the exact pixel size the sidebar asks for and
+  // cached for the life of the launcher.
+  trg::Page MakePage(LauncherPage page, std::string name, std::string blurb,
+                     std::function<void(trg::Ui&)> draw, std::function<bool()> needs_attention = nullptr) {
+    trg::Page result;
+    result.name = std::move(name);
+    result.blurb = std::move(blurb);
+    result.draw = std::move(draw);
+    result.needs_attention = std::move(needs_attention);
+    result.icon = [this, page](int pixels) { return PageIconTexture(page, pixels); };
+    return result;
+  }
+
+  struct PageIconSlot {
+    bool tried = false;
+    std::unique_ptr<rex::ui::ImmediateTexture> texture;
+  };
+
+  ImTextureID PageIconTexture(LauncherPage page, int physical_pixels) {
+    if (!paths_.immediate_drawer || physical_pixels <= 0) {
+      return ImTextureID{};
+    }
+    PageIconSlot& slot = page_icons_[std::make_pair(page, physical_pixels)];
+    if (!slot.tried) {
+      slot.tried = true;
+      const std::vector<uint8_t> rgba = RenderPageIcon(page, physical_pixels);
+      if (!rgba.empty()) {
+        slot.texture = paths_.immediate_drawer->CreateTexture(uint32_t(physical_pixels), uint32_t(physical_pixels),
+                                                              rex::ui::ImmediateTextureFilter::kLinear, false,
+                                                              rgba.data());
+      }
+      if (!slot.texture) {
+        REXLOG_WARN("Launcher sidebar icon unavailable: page {} at {} px", static_cast<int>(page), physical_pixels);
+      }
+    }
+    return slot.texture ? reinterpret_cast<ImTextureID>(slot.texture.get()) : ImTextureID{};
+  }
+
   trg::LauncherConfig MakeConfig() {
     trg::LauncherConfig c;
     c.settings = &settings_;
@@ -498,10 +542,18 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         [this](std::string_view key, const std::string& value) { return settings_.SaveNow({{std::string(key), value}}); });
     // PLAY saves in RequestPlay, so a failed save keeps the launcher open.
     c.save_on_play = false;
+    c.on_save = [] {
+      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY save dispatched");
+      return true;
+    };
+    c.on_save_result = [](bool ok) {
+      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY save result={}", ok ? "success" : "failure");
+    };
     c.theme = LauncherTheme();
     c.note = "Play applies the changes. Save keeps them without starting.";
     c.hints = "Enter  Play     Alt+F4  Quit     Ctrl+S  Save";
     c.fonts = g_fonts;
+    c.render_scale = g_font_density;
     c.branding.title = "TURTLES IN TIME RE-SHELLED";
     c.branding.subtitle_segments = {
         {"PC PORT   \xC2\xB7   ", ""},
@@ -516,29 +568,35 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     c.sponsor = {"Sponsor on GitHub", kSponsorUrl,
                  sponsor_icon_ ? reinterpret_cast<ImTextureID>(sponsor_icon_.get()) : ImTextureID{}};
     c.pages = {
-        {"Play", "Check the game files and start playing.", [this](trg::Ui& ui) { PagePlay(ui); },
-         [this] { return game_files_ != GameFiles::kReady; }},
-        {"Display", "Window, monitor and how the picture fits your screen.",
-         [this](trg::Ui& ui) { PageDisplay(ui); }},
-        {"Graphics", "Render resolution, anti-aliasing and texture filtering.",
-         [this](trg::Ui& ui) { PageGraphics(ui); }},
-        {"Gameplay", "Language, on-screen information, Quick Play stages and player names.",
-         [this](trg::Ui& ui) { PageGameplay(ui); }},
-        {"SNES", "Features based on the original SNES version", [this](trg::Ui& ui) { PageSnes(ui); }},
-        {"Cheats", "Optional gameplay modifiers", [](trg::Ui& ui) { PageCheats(ui); }},
-        {"Online", "Add friends and see who is online. Play them from the game's own online menus.",
-         [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
-        {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
-        {"Controls", "Controller and keyboard.", [](trg::Ui& ui) { PageControls(ui); }},
-        {"Bug Report", "Report a problem and send it with one game log.",
-         [this](trg::Ui& ui) { incident_page_->Draw(ui, CurrentReportFacts()); },
-         [this] { return incident_page_->HasReportUpdates(); }},
-        {"About", "About this port, and where your files and settings live.",
-         [this](trg::Ui& ui) { PageAbout(ui); }},
+        MakePage(LauncherPage::kPlay, "Play", "Check the game files and start playing.",
+                 [this](trg::Ui& ui) { PagePlay(ui); }, [this] { return game_files_ != GameFiles::kReady; }),
+        MakePage(LauncherPage::kDisplay, "Display", "Window, monitor and how the picture fits your screen.",
+                 [this](trg::Ui& ui) { PageDisplay(ui); }),
+        MakePage(LauncherPage::kGraphics, "Graphics", "Render resolution, anti-aliasing and texture filtering.",
+                 [this](trg::Ui& ui) { PageGraphics(ui); }),
+        MakePage(LauncherPage::kGameplay, "Gameplay",
+                 "Language, on-screen information, Quick Play stages and player names.",
+                 [this](trg::Ui& ui) { PageGameplay(ui); }),
+        MakePage(LauncherPage::kSnes, "SNES", "Features based on the original SNES version",
+                 [this](trg::Ui& ui) { PageSnes(ui); }),
+        MakePage(LauncherPage::kCheats, "Cheats", "Optional gameplay modifiers",
+                 [](trg::Ui& ui) { PageCheats(ui); }),
+        MakePage(LauncherPage::kOnline, "Online",
+                 "Add friends and see who is online. Play them from the game's own online menus.",
+                 [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }),
+        MakePage(LauncherPage::kAchievements, "Achievements", "Your achievements on this PC.",
+                 [this](trg::Ui& ui) { PageAchievements(ui); }),
+        MakePage(LauncherPage::kControls, "Controls", "Controller and keyboard.",
+                 [](trg::Ui& ui) { PageControls(ui); }),
+        MakePage(LauncherPage::kBugReport, "Bug Report", "Report a problem and send it with one game log.",
+                 [this](trg::Ui& ui) { incident_page_->Draw(ui, CurrentReportFacts()); },
+                 [this] { return incident_page_->HasReportUpdates(); }),
+        MakePage(LauncherPage::kAbout, "About", "About this port, and where your files and settings live.",
+                 [this](trg::Ui& ui) { PageAbout(ui); }),
     };
     if (kShowDlcPage) {
-      c.pages.insert(c.pages.begin() + 1,
-                     trg::Page{"DLC", "Optional downloadable content", [this](trg::Ui& ui) { PageDlc(ui); }});
+      c.pages.insert(c.pages.begin() + 1, MakePage(LauncherPage::kDlc, "DLC", "Optional downloadable content",
+                                                   [this](trg::Ui& ui) { PageDlc(ui); }));
     }
     c.can_play = [this] {
       const bool pressed = play_attempt_.PressedThisCall(ImGui::GetFrameCount());
@@ -736,14 +794,14 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         "Install optional downloadable content from your own Xbox 360 packages.\n"
         "No DLC files are included with this port.\n"
         "Installed packages are stored separately from the game files.");
-    ui.Spacer(8);
+    ui.Spacer(6);
     const bool busy = dlc_task_.running();
     for (const DlcInfo& dlc : dlc_) {
       if (dlc.verified && DrawDlcCard(ui, dlc.display_name, &dlc, busy)) {
         RequestDlcRemoval(dlc);
       }
     }
-    ui.Spacer(6);
+    ui.Spacer(4);
     if (!dlc_removing_name_.empty()) {
       ui.Help((Tr("Removing ") + dlc_removing_name_ + "...").c_str());
     } else if (!ui.TaskProgress(dlc_task_) && ui.AccentButton("Install DLC...")) {
@@ -759,24 +817,24 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   bool DrawDlcCard(trg::Ui& ui, const std::string& title, const DlcInfo* installed, bool busy) {
     const trg::Theme& t = ui.theme();
     const float s = ui.scale();
-    const float height = 66 * s;
-    const float pad = 18 * s;
+    const float height = 56 * s;
+    const float pad = 14 * s;
     const float width = ImGui::GetContentRegionAvail().x;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImGui::Dummy(ImVec2(width, height));
     const ImVec2 next = ImGui::GetCursorScreenPos();
     dl->AddRectFilled(origin, ImVec2(origin.x + width, origin.y + height),
-                      ImGui::GetColorU32(ImVec4(t.frame.x, t.frame.y, t.frame.z, 0.5f)), 10 * s);
+                      ImGui::GetColorU32(ImVec4(t.frame.x, t.frame.y, t.frame.z, 0.5f)), 8 * s);
 
     ImGui::PushFont(ui.fonts().semibold, 0.0f);
     const float title_h = ImGui::GetTextLineHeight();
-    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(origin.x + pad, origin.y + 12 * s),
+    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(origin.x + pad, origin.y + 9 * s),
                 ImGui::GetColorU32(t.text), title.c_str());
     ImGui::PopFont();
 
     ImGui::PushFont(ui.fonts().regular, ui.fonts().size * 0.84f);
-    const float status_y = origin.y + 12 * s + title_h + 2 * s;
+    const float status_y = origin.y + 9 * s + title_h + 1 * s;
     if (installed) {
       const ImU32 green = ImGui::GetColorU32(t.good_dot);
       dl->AddCircleFilled(ImVec2(origin.x + pad + 4 * s, status_y + ImGui::GetFontSize() * 0.5f), 4 * s, green);
@@ -790,7 +848,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 
     bool remove_clicked = false;
     if (installed) {
-      const float button_w = 120 * s;
+      const float button_w = 104 * s;
       const float button_h = ImGui::GetFrameHeight();
       ImGui::SetCursorScreenPos(ImVec2(origin.x + width - pad - button_w, origin.y + (height - button_h) * 0.5f));
       ImGui::PushID(installed->content_id.c_str());
@@ -823,8 +881,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     const float s = ui.scale();
     const trg::Theme& t = ui.theme();
     ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(520 * s, vp->Size.x - 40 * s), 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24 * s, 20 * s));
+    ImGui::SetNextWindowSize(ImVec2(std::min(440 * s, vp->Size.x - 40 * s), 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18 * s, 14 * s));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, t.panel);
     ImGui::PushStyleColor(ImGuiCol_Border, t.warn);
     const bool open = ImGui::BeginPopupModal(kId, nullptr,
@@ -841,19 +899,19 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     ImGui::PushFont(ui.fonts().semibold, ui.fonts().size * 1.1f);
     ImGui::TextUnformatted((Tr("Remove ") + target.display_name + Tr(" DLC")).c_str());
     ImGui::PopFont();
-    ImGui::Dummy(ImVec2(0, 6 * s));
+    ImGui::Dummy(ImVec2(0, 4 * s));
     ImGui::PushStyleColor(ImGuiCol_Text, t.dim);
     ImGui::PushTextWrapPos(0.0f);
     ImGui::TextUnformatted(Tr("This removes the installed DLC files from this PC.\nYou can install the package again later."));
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
-    ImGui::Dummy(ImVec2(0, 14 * s));
+    ImGui::Dummy(ImVec2(0, 10 * s));
 
-    bool cancel = ImGui::Button(Tr("Cancel"), ImVec2(150 * s, 0));
+    bool cancel = ImGui::Button(Tr("Cancel"), ImVec2(120 * s, 0));
     ImGui::SetItemDefaultFocus();
     ImGui::SameLine();
     PushDangerButton(t);
-    const bool remove = ImGui::Button(Tr("Remove"), ImVec2(150 * s, 0));
+    const bool remove = ImGui::Button(Tr("Remove"), ImVec2(120 * s, 0));
     ImGui::PopStyleColor(4);
 
     cancel |= ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false) ||
@@ -1487,8 +1545,14 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   ReportFacts CurrentReportFacts() const {
     static const std::string operating_system = OperatingSystemText();
     const bool ready = game_files_ == GameFiles::kReady;
-    return {PortVersion(), ready ? "TMNT: Turtles in Time Re-Shelled (XBLA)" : "Not installed", "0.0.1.3",
-            ready ? "584109D2" : "", operating_system};
+    return {PortVersion(),
+            ready ? "TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)" : "Not installed",
+#if defined(_WIN32)
+            "Windows",
+#else
+            "Linux",
+#endif
+            operating_system, "ReXGlue SDK " REXGLUE_VERSION_STRING};
   }
 
   void PageAbout(trg::Ui& ui) {
@@ -1589,6 +1653,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   OnlinePage online_page_;
   PlayAttemptDetector play_attempt_;
   int online_page_index_ = 0;
+  std::map<std::pair<LauncherPage, int>, PageIconSlot> page_icons_;
   bool skip_finish_save_ = false;
 };
 
@@ -1597,6 +1662,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
 void LoadLauncherFonts(ImFontAtlas* atlas, float density) {
   // Latin-1 plus General Punctuation.
   static const ImWchar kRanges[] = {0x0020, 0x00FF, 0x2010, 0x205E, 0};
+  g_fonts.size = trg::layout::kTextBody;
   density = ValidDpiScale(density);
   g_font_density = density;
   ImFontConfig config;

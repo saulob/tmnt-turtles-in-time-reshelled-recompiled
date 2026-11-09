@@ -63,6 +63,7 @@ void TestOnlineDefaultsToOff() {
   CHECK(!kDefaultOnlinePing);
   CHECK(std::string_view(kOnlineEnabledSetting) == "tmnt_online_enabled");
   CHECK(std::string_view(kOnlineNameSetting) == "tmnt_online_name");
+  CHECK(std::string_view(kOnlineLobbySetting) == "tmnt_online_lobby_visible");
   CHECK(std::string_view(kOnlinePingSetting) == "tmnt_online_ping_display");
   CHECK(std::string_view(kDefaultOnlineNameValue) == "Player");
   const std::string runtime = ReadSource("online_runtime.cpp");
@@ -97,6 +98,7 @@ void TestSettingsReachTheRuntime() {
   const std::string settings = ReadSource("settings.cpp");
   CHECK(Has(settings, "      kOnlineEnabledSetting,\n"));
   CHECK(Has(settings, "      kOnlineNameSetting,\n"));
+  CHECK(Has(settings, "      kOnlineLobbySetting,\n"));
   CHECK(Has(settings, "      kOnlinePingSetting,\n"));
 }
 
@@ -162,32 +164,37 @@ void TestNoDebugOverlayText() {
 }
 
 void TestOnlinePageSections() {
-  CHECK(OnlinePageSections(false, 3) == std::vector<OnlineSection>{OnlineSection::kOnlinePlay});
-  const std::vector<OnlineSection> on = OnlinePageSections(true, 0);
-  CHECK((on == std::vector<OnlineSection>{OnlineSection::kOnlinePlay, OnlineSection::kOnlineName,
-                                          OnlineSection::kFriendCode, OnlineSection::kConnectionTest,
-                                          OnlineSection::kPingDisplay, OnlineSection::kFriends}));
-  const std::vector<OnlineSection> with_requests = OnlinePageSections(true, 2);
-  CHECK(with_requests.size() == 7 && with_requests[1] == OnlineSection::kFriendRequests);
-  const std::vector<OnlineSection> with_invites = OnlinePageSections(true, 0, 1);
-  CHECK(with_invites.size() == 7 && with_invites[1] == OnlineSection::kPartyInvites);
-  const std::vector<OnlineSection> with_both = OnlinePageSections(true, 1, 1);
-  CHECK(with_both.size() == 8 && with_both[1] == OnlineSection::kFriendRequests &&
-        with_both[2] == OnlineSection::kPartyInvites && with_both[7] == OnlineSection::kFriends);
+  CHECK(OnlinePageSections(false, OnlineTab::kSettings, 3) == std::vector<OnlineSection>{OnlineSection::kOnlinePlay});
+  const std::vector<OnlineSection> settings = OnlinePageSections(true, OnlineTab::kSettings, 0);
+  CHECK((settings == std::vector<OnlineSection>{OnlineSection::kOnlinePlay, OnlineSection::kTabs,
+                                                OnlineSection::kOnlineName, OnlineSection::kFriendCode,
+                                                OnlineSection::kConnectionTest, OnlineSection::kPingDisplay}));
+  const std::vector<OnlineSection> friends = OnlinePageSections(true, OnlineTab::kFriends, 0);
+  CHECK((friends == std::vector<OnlineSection>{OnlineSection::kOnlinePlay, OnlineSection::kTabs,
+                                               OnlineSection::kFriends}));
+  const std::vector<OnlineSection> with_requests = OnlinePageSections(true, OnlineTab::kFriends, 2);
+  CHECK(with_requests.size() == 4 && with_requests[2] == OnlineSection::kFriendRequests);
+  const std::vector<OnlineSection> with_invites = OnlinePageSections(true, OnlineTab::kFriends, 0, 1);
+  CHECK(with_invites.size() == 4 && with_invites[2] == OnlineSection::kPartyInvites);
+  const std::vector<OnlineSection> with_both = OnlinePageSections(true, OnlineTab::kFriends, 1, 1);
+  CHECK(with_both.size() == 5 && with_both[2] == OnlineSection::kFriendRequests &&
+        with_both[3] == OnlineSection::kPartyInvites && with_both[4] == OnlineSection::kFriends);
+  const std::vector<OnlineSection> lobby = OnlinePageSections(true, OnlineTab::kLobby, 0);
+  CHECK((lobby == std::vector<OnlineSection>{OnlineSection::kOnlinePlay, OnlineSection::kTabs, OnlineSection::kLobby}));
 }
 
 void TestLauncherHasAnOnlinePageWithoutTechnicalControls() {
   const std::string launcher = ReadSource("launcher.cpp");
-  CHECK(Has(launcher, "{\"Online\", "));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kOnline, \"Online\","));
   CHECK(Has(launcher, "online_page_.Draw(ui)"));
   CHECK(Has(launcher, "online_page_.Tick(settings_)"));
   CHECK(Has(launcher, "online_page_.NeedsAttention()"));
-  const std::string page = ReadSource("online_page.cpp");
+  const std::string page = ReadSource("online_page.cpp") + ReadSource("online_setting.h");
   for (const char* shown : {"Add a friend", "Send request", "Accept", "Decline", "Run test", "Your friend code", "Copy",
-                            "Remove"}) {
+                            "Remove", "Show me in Lobby", "Players in the Lobby"}) {
     CHECK(Has(page, shown));
   }
-  for (const char* hidden : {"7001", "7002", "wss://", "workers.dev", "token", "Lobby", "lobby", "IP address",
+  for (const char* hidden : {"7001", "7002", "wss://", "workers.dev", "token", "IP address",
                              "Challenge", "challenge", "Disconnect", "wants to play", "Waiting for"}) {
     CHECK(!Has(page, hidden));
   }
@@ -322,7 +329,9 @@ void TestOnlinePageWording() {
                             "\"Their friend code, for example ABCD-EFGH.\"", "\"XXXX-XXXX\"",
                             "\"New friend request\"", "\"     Accept\"", "\"Decline\"",
                             "\"Your request is waiting for an answer.\"", "\"Cancel request\"", "\"Remove\"",
-                            "\"No friends yet. Add someone with their friend code.\""}) {
+                            "\"No friends yet. Add someone with their friend code.\"",
+                            "OnlineTabTitle(Tr(OnlineTabLabel(tab)), tab, friend_requests)",
+                            "\"Players in the Lobby\"", "\"Add friend\"", "\"Request sent\""}) {
     CHECK(Has(page + ReadSource("friend_code_field.cpp"), shown));
   }
   CHECK(!Has(page, "Join Friends Room") && !Has(page, "room"));

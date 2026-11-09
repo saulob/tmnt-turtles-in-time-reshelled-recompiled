@@ -39,7 +39,6 @@ export function startLobbyServer({ host: address = '127.0.0.1', port = 8791, db 
     incidents: async () => hub.incidentList(),
     incident: async (ticket) => hub.incident(ticket),
     setIncidentStatus: async (ticket, change) => hub.setIncidentStatus(ticket, change),
-    deleteIncident: async (ticket) => hub.deleteIncident(ticket),
   };
 
   async function send(res, response) {

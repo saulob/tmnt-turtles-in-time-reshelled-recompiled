@@ -96,6 +96,12 @@ std::string FriendJson(const char* player, const char* name, bool online, const 
          guest + "\",\"compatible\":" + (compatible ? "true" : "false") + "}";
 }
 
+std::string LobbyJson(const char* player, const char* name, const char* state = "online", bool compatible = true) {
+  return std::string("{\"player\":\"") + player + "\",\"name\":\"" + name + "\",\"state\":\"" + state +
+         "\",\"platform\":\"Windows\",\"version\":\"0.2.2\",\"guest\":\"base\",\"compatible\":" +
+         (compatible ? "true" : "false") + "}";
+}
+
 struct Rig {
   std::vector<std::shared_ptr<ChannelState>> channels;
   std::vector<std::string> logs;
@@ -228,11 +234,23 @@ struct Rig {
 
   void Enable(const char* name = "Saulo") { service->Apply({true, name}); }
 
+  void EnableLobby(const char* name = "Saulo", bool visible = false) {
+    service->Apply({true, name, visible});
+  }
+
   void SignIn(const char* name = "Saulo") {
     Enable(name);
     Tick();
     Event(ChannelEvent::Kind::kOpen);
     Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"");
+  }
+
+  void SignInLobby(const char* name = "Saulo") {
+    Enable(name);
+    Tick();
+    Event(ChannelEvent::Kind::kOpen);
+    Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"," +
+                       "\"capabilities\":{\"protocol_version\":4,\"public_lobby\":true,\"bug_reports\":true}");
   }
 
   void SignInWithFriends() {
@@ -1854,6 +1872,66 @@ void TestEveryReportedReasonIsAKnownCode() {
   }
 }
 
+void TestLobbyIsReadOnlyWhileItsPageIsShown() {
+  Rig rig;
+  rig.SignInLobby();
+  CHECK(rig.service->snapshot().lobby.supported);
+  rig.Tick(30.0);
+  CHECK(rig.Count("lobby.list") == 0);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB") + "],\"rev\":7,\"visible\":false");
+  const Snapshot after = rig.service->snapshot();
+  CHECK(after.lobby.fetched && after.lobby.players.size() == 1 && !after.lobby.failed);
+  CHECK(after.lobby.players[0].name == "SauloB" && after.lobby.players[0].compatible);
+  CHECK(after.lobby.players[0].state == FriendState::kOnline);
+
+  rig.Tick(60.0);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 2);
+  rig.Reply("lobby.list", "\"unchanged\":true,\"rev\":7,\"visible\":false");
+  CHECK(rig.service->snapshot().lobby.players.size() == 1);
+}
+
+void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
+  Rig rig;
+  rig.SignInLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":3,\"visible\":false");
+  rig.EnableLobby("Saulo", true);
+  rig.Tick(0.1);
+  const std::string publish = rig.LastRequest("lobby.publish");
+  CHECK(Contains(publish, "\"visible\":true"));
+  rig.Feed("{\"re\":" + std::to_string(SeqOf(publish)) + ",\"code\":\"ok\",\"visible\":true}");
+  CHECK(rig.service->snapshot().lobby.visible);
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":4,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.players.empty());
+
+  rig.Event(ChannelEvent::Kind::kClosed, "closed");
+  const Snapshot lost = rig.service->snapshot();
+  CHECK(!lost.lobby.visible && !lost.lobby.fetched && lost.lobby.players.empty());
+}
+
+void TestLobbyPlayerRowsDriveTheFriendActions() {
+  Rig rig;
+  rig.SignInLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB", "online", false) + "," +
+                              LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":false");
+  const Snapshot state = rig.service->snapshot();
+  const LobbyRowView a = DescribeLobbyPlayer(state, state.lobby.players[0]);
+  const LobbyRowView b = DescribeLobbyPlayer(state, state.lobby.players[1]);
+  CHECK(a.incompatible && a.can_add && a.relation == LobbyRelation::kNone);
+  CHECK(!b.incompatible && b.can_add);
+  CHECK(Contains(a.status, "Windows") && Contains(a.status, "Base"));
+  CHECK(LobbyMessage(state.lobby).empty());
+}
+
 void TestOnlineOffCreatesNoPartyOrRoom() {
   Rig rig;
   CHECK(!rig.service->CreateParty() && !rig.service->InviteToParty("BBBB-2222") && !rig.service->AcceptPartyInvite("i"));
@@ -2272,6 +2350,9 @@ int main() {
   TestConnectionTestSendsOneBeaconWithoutSecrets();
   TestConnectionTestBeaconNeedsNoSessionOrConnection();
   TestEveryReportedReasonIsAKnownCode();
+  TestLobbyIsReadOnlyWhileItsPageIsShown();
+  TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection();
+  TestLobbyPlayerRowsDriveTheFriendActions();
   TestOnlineOffCreatesNoPartyOrRoom();
   TestTheRoomHelloAnnouncesOnlyTheGameplayMechanics();
   TestEachMatchLocksItsOwnTableInTheSameParty();

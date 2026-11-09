@@ -63,6 +63,16 @@ struct ServiceConfig {
 struct UserSettings {
   bool enabled = false;
   std::string name = kDefaultOnlineName;
+  bool lobby_visible = false;  // list this player in the public Lobby
+};
+
+// The public Lobby as the Online page shows it. Its failures stay here: they never change Snapshot::connection.
+struct LobbySnapshot {
+  bool supported = false;  // the service has the public Lobby
+  bool visible = false;    // the service confirmed this player is listed
+  bool fetched = false;
+  bool failed = false;     // the last read failed
+  std::vector<LobbyPlayer> players;
 };
 
 // The game-session advertisement this player is making or looking for, driven by the game's own menus.
@@ -84,6 +94,7 @@ struct Snapshot {
   std::vector<Request> outgoing;  // friend requests still waiting
   std::vector<Invite> invites;    // friends' invitations to their party, oldest first
   PlayerMatchSnapshot player_match;
+  LobbySnapshot lobby;
   std::optional<Party> party;
   int my_slot = 0;
   std::string room_state;  // none, connecting, online
@@ -132,6 +143,8 @@ class OnlineService {
   void AcceptFriend(const std::string& player);
   void DeclineFriend(const std::string& player);  // also withdraws an outgoing request
   void RemoveFriend(const std::string& player);
+  // Called on every frame the Lobby page is shown: the list is read while that goes on, and not otherwise.
+  void NoteLobbyViewed();
 
   // The party: the host starts one, invites friends, and everyone who accepts joins the same hidden match.
   bool CreateParty();
@@ -226,7 +239,7 @@ class OnlineService {
   enum class Purpose {
     kHello, kFriends, kRequests, kAdd, kAccept, kDecline, kRemove, kPlayerMatchHost, kPlayerMatchCancel,
     kPlayerMatchSearch, kPlayerMatchJoin, kPartyCreate, kPartyLeave, kPartyKick, kInviteSend, kInviteAccept,
-    kInviteDecline, kRoomHello, kTelemetry, kPartyReport
+    kInviteDecline, kRoomHello, kTelemetry, kPartyReport, kLobbyPublish, kLobbyList
   };
   struct Pending {
     Purpose purpose = Purpose::kHello;
@@ -301,6 +314,8 @@ class OnlineService {
   bool InMatchLocked() const;
   void CheckSnesLock();
   void ResetSnes();
+  void PumpLobby();
+  void ResetLobbyConnection();
 
   class Locked;
 
@@ -361,6 +376,19 @@ class OnlineService {
   std::string notice_;
   double notice_at_ = 0;
   std::vector<std::string> notices_;
+
+  bool lobby_published_ = false;  // what the service confirmed on this connection
+  bool lobby_publish_sent_ = false;
+  bool lobby_publish_in_flight_ = false;
+  double lobby_publish_retry_at_ = 0;
+  bool lobby_refused_ = false;  // the service answered a Lobby request as an operation it does not know
+  bool lobby_list_in_flight_ = false;
+  bool lobby_fetched_ = false;
+  bool lobby_failed_ = false;
+  int64_t lobby_rev_ = -1;
+  double lobby_viewed_at_ = -1e9;
+  double next_lobby_list_ = 0;
+  std::vector<LobbyPlayer> lobby_players_;
 
   std::optional<PartyAccess> access_;
   std::optional<Party> party_;

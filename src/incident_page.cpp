@@ -13,6 +13,8 @@
 #include "platform.h"
 #include "trg/platform.h"
 
+#include <rex/logging.h>
+
 namespace tmnt {
 namespace {
 
@@ -139,7 +141,8 @@ bool DrawLogFacts(trg::Ui& ui, const GameLog& log) {
 
 }  // namespace
 
-IncidentPage::IncidentPage(Places places) : places_(std::move(places)), my_reports_(places_.user_dir / kReportHistoryFile) {}
+IncidentPage::IncidentPage(Places places)
+    : places_(std::move(places)), my_reports_(MyReports(places_.user_dir / kReportHistoryFile)) {}
 
 void IncidentPage::Draw(trg::Ui& ui, const ReportFacts& facts) {
   if (!logs_found_) FindLogs();
@@ -227,10 +230,12 @@ void IncidentPage::TogglePreview(const ReportFacts& facts) {
 
 void IncidentPage::Send(trg::Ui& ui, const ReportFacts& facts) {
   (void)ui;
+  REXLOG_INFO("DEBUG_SAULO INCIDENT button pressed");
   if (!AcceptDraft()) return;
   std::shared_ptr<const IncidentPackage> package = previewed_ ? previewed_ : BuildPackage(facts);
   if (!package) return;
-  const IncidentServiceConfig config = IncidentServiceFromEnvironment();
+  IncidentServiceConfig config = IncidentServiceFromEnvironment();
+  config.log = [](const std::string& line) { REXLOG_INFO("{}", line); };
   result_.reset();
   delivery_ = std::make_shared<Delivery>();
   delivery_->package = package;
@@ -357,6 +362,10 @@ void IncidentPage::DrawResult(trg::Ui& ui) {
     case IncidentOutcome::kRefused:
       ui.StatusCard(trg::Status::kAttention, "The report was not accepted",
                     "Change the description or choose another log, then send it again.");
+      break;
+    case IncidentOutcome::kNotSupported:
+      ui.StatusCard(trg::Status::kAttention, "The online service cannot take reports yet",
+                    "Direct reports need a newer online service. Your text is kept; try again after the service is updated.");
       break;
     case IncidentOutcome::kServiceError:
       ui.StatusCard(trg::Status::kAttention, "The online service could not take the report",

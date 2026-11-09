@@ -29,6 +29,8 @@ REXCVAR_DEFINE_BOOL(tmnt_online_enabled, tmnt::kDefaultOnlineEnabled, "TMNT",
                     "Online play: friends, and the game's online matches with them over the internet");
 REXCVAR_DEFINE_STRING(tmnt_online_name, tmnt::kDefaultOnlineNameValue, "TMNT",
                       "Name other players see during online play");
+REXCVAR_DEFINE_BOOL(tmnt_online_lobby_visible, tmnt::kDefaultOnlineLobby, "TMNT",
+                    "Lists this player in the public online Lobby while Online play is on");
 REXCVAR_DEFINE_BOOL(tmnt_online_ping_display, tmnt::kDefaultOnlinePing, "TMNT",
                     "Shows the round trip to the other player during an online match");
 REXCVAR_DEFINE_STRING(tmnt_online_connection_test, "", "TMNT",
@@ -119,6 +121,7 @@ online::UserSettings SavedSettings() {
   online::UserSettings settings;
   settings.enabled = REXCVAR_GET(tmnt_online_enabled);
   settings.name = REXCVAR_GET(tmnt_online_name);
+  settings.lobby_visible = REXCVAR_GET(tmnt_online_lobby_visible);
   return settings;
 }
 

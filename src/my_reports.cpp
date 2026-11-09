@@ -197,7 +197,8 @@ void DrawFacts(trg::Ui& ui, const TrackedReport& report) {
   Fact(ui, "Submitted", DateText(report.submitted_at));
   Fact(ui, "Description", report.description);
   Fact(ui, "Selected log", report.log_file);
-  Fact(ui, "Game build", report.game_build);
+  Fact(ui, "Game image", report.guest);
+  Fact(ui, "Platform", report.platform);
   Fact(ui, "Launcher version", report.launcher_version);
   Fact(ui, "Status", status ? Tr(status) : report.status);
   Fact(ui, "Status updated", DateText(report.status_updated_at));

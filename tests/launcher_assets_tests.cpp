@@ -82,12 +82,51 @@ void TestWiring() {
   CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/sponsor-heart.png"));
 }
 
+void TestSidebarIcons() {
+  std::printf("every page has an embedded sidebar icon\n");
+  const std::string source_dir = TMNT_SRC_DIR;
+  const std::string launcher = ReadFile(source_dir + "/launcher.cpp");
+  CHECK(Has(launcher, "#include \"page_icons.h\""));
+  CHECK(Has(launcher, "result.icon = [this, page](int pixels) { return PageIconTexture(page, pixels); };"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kPlay"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kDisplay"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kGraphics"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kGameplay"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kOnline"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kAchievements"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kControls"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kBugReport"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kAbout"));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kDlc"));
+
+  const std::string icons = ReadFile(source_dir + "/page_icons.cpp");
+  CHECK(Has(icons, "{LauncherPage::kPlay, \"play.svg\""));
+  CHECK(Has(icons, "{LauncherPage::kAchievements, \"trophies.svg\""));
+  CHECK(Has(icons, "{LauncherPage::kDlc, \"dlc.svg\""));
+
+  for (const char* file :
+       {"play.svg", "display.svg", "graphics.svg", "gameplay.svg", "online.svg", "controls.svg", "trophies.svg",
+        "bug-report.svg", "about.svg", "dlc.svg"}) {
+    CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/icons/" + file));
+  }
+  const std::string cmake = ReadFile(source_dir + "/../CMakeLists.txt");
+  CHECK(Has(cmake, "src/page_icons.cpp"));
+  CHECK(Has(cmake, "src/embed_files.cmake"));
+  CHECK(Has(cmake, "assets/launcher/icons/*.svg"));
+  CHECK(Has(launcher, "c.render_scale = g_font_density;"));
+  CHECK(Has(launcher, "launcher_->config().render_scale = g_font_density;"));
+  CHECK(Has(launcher, "g_fonts.size = trg::layout::kTextBody;"));
+  CHECK(Has(launcher, "page_icons_[std::make_pair(page, physical_pixels)]"));
+  CHECK(Has(launcher, "CreateTexture(uint32_t(physical_pixels), uint32_t(physical_pixels)"));
+}
+
 }  // namespace
 
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   TestPathResolution();
   TestWiring();
+  TestSidebarIcons();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

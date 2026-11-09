@@ -14,6 +14,7 @@
 #include "incident_report.h"
 #include "log_scrubber.h"
 #include "report_history.h"
+#include "updater/json.h"
 
 namespace fs = std::filesystem;
 using namespace tmnt;
@@ -83,7 +84,33 @@ PrivateFacts Facts() {
 std::string Scrub(std::string_view text) { return ScrubText(text, Facts()); }
 bool Has(const std::string& text, std::string_view part) { return text.find(part) != std::string::npos; }
 
-ReportFacts SampleFacts() { return {"0.1.0", "TMNT: Turtles in Time Re-Shelled (XBLA)", "0.0.1.3", "584109D2", "Windows 11 (build 26200)"}; }
+std::vector<std::string> ReadMessages(const fs::path& path) {
+  std::vector<std::string> messages;
+  std::ifstream in(path, std::ios::binary);
+  for (std::string line; std::getline(in, line);) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (!line.empty()) messages.push_back(line);
+  }
+  return messages;
+}
+
+ReportFacts SampleFacts() {
+  return {"0.1.0", "TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)", "Windows",
+          "Windows 11 (build 26200)", "ReXGlue SDK 0.10.0"};
+}
+
+std::vector<std::string> WireMessages() {
+  TempFolder temp;
+  const fs::path file = WriteLog(temp.path, LogName(1), "Runtime configuration:\nRuntime OS: Windows 11\n", 0);
+  const GameLog log{file, LogName(1), std::time(nullptr), fs::file_size(file), LogActivity::kGameplay, LogRole::kLastGameplay};
+  const std::optional<IncidentPackage> package =
+      BuildIncidentPackage("The game crashes when the second player joins a match.", log, SampleFacts(), Facts());
+  if (!package) return {};
+  TrackedReport tracked;
+  tracked.ticket = "TMNT-ABCDEF";
+  tracked.receipt = std::string(64, 'a');
+  return {IncidentFileMessage(1, *package), IncidentStatusMessage(2, {tracked}), IncidentReadMessage(3, tracked)};
+}
 
 void TestNewestFiveFirst() {
   TempFolder temp;
@@ -208,21 +235,41 @@ void TestPackageAndRequest() {
   if (!package) return;
   CHECK(package->Value("description") == "The game crashes");
   CHECK(package->Value("launcher_version") == "0.1.0");
-  CHECK(package->Value("game_id") == "584109D2");
+  CHECK(package->Value("guest") == "TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)");
+  CHECK(package->Value("platform") == "Windows");
+  CHECK(package->Value("operating_system") == "Windows 11 (build 26200)");
+  CHECK(package->Value("runtime") == "ReXGlue SDK 0.10.0");
   CHECK(package->Value("log_file") == LogName(1));
   CHECK(package->Value("log_clipped") == "no");
   CHECK(Has(package->Value("log_text"), "Runtime configuration:"));
   const std::string preview = IncidentPreviewText(*package);
   CHECK(Has(preview, "Description:"));
   CHECK(Has(preview, "Log after privacy filtering:"));
-  const std::string request = IncidentRequestBody(*package);
-  CHECK(request.starts_with("{"));
-  CHECK(Has(request, "\"description\":\"The game crashes\""));
+  const std::string fields = IncidentRequestFields(*package);
+  CHECK(fields.starts_with(",\"description\":\"The game crashes\""));
+  CHECK(Has(fields, "\"guest\":\"TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)\""));
+  CHECK(Has(fields, "\"runtime\":\"ReXGlue SDK 0.10.0\""));
+  const std::string request = IncidentFileMessage(1, *package);
+  CHECK(request.starts_with("{\"op\":\"incident.file\",\"seq\":1,"));
+  const std::optional<trg::update::json::Value> parsed = trg::update::json::Parse(request);
+  CHECK(parsed.has_value());
+  if (parsed && parsed->IsObject()) {
+    const auto& object = parsed->AsObject();
+    CHECK(object.size() == 11);
+    CHECK(parsed->Find("op") && parsed->Find("op")->AsString() == "incident.file");
+    CHECK(parsed->Find("seq") && parsed->Find("seq")->IsNumber());
+    const char* keys[] = {"description", "launcher_version", "guest", "platform", "operating_system",
+                          "runtime", "log_file", "log_clipped", "log_text"};
+    for (const char* key : keys) CHECK(object.contains(key));
+    const trg::update::json::Value* description = parsed->Find("description");
+    CHECK(description && description->IsString() && description->AsString() == "The game crashes");
+    CHECK(object.find("game_build") == object.end());
+  }
   CHECK(Has(request, "\\n"));
   CHECK(!Has(request, "log_clipped\":\"yes"));
 
-  const std::optional<IncidentPackage> missing = BuildIncidentPackage("text", log, SampleFacts(), Facts());
-  CHECK(missing.has_value());
+  const std::optional<IncidentPackage> short_description = BuildIncidentPackage("  short  ", log, SampleFacts(), Facts());
+  CHECK(!short_description.has_value());
   CHECK(IsIncidentReceipt(std::string(64, 'a')));
   CHECK(!IsIncidentReceipt(std::string(63, 'a')));
   CHECK(!IsIncidentReceipt(std::string(64, 'A')));
@@ -234,13 +281,50 @@ void TestPackageAndRequest() {
   CHECK(IncidentOutcomeOf("weird") == IncidentOutcome::kServiceError);
 }
 
+void TestWireVectors() {
+  const fs::path path = fs::path(TMNT_SOURCE_DIR) / "tests" / "incident_wire_vectors.txt";
+  const std::vector<std::string> messages = WireMessages();
+  CHECK(messages.size() == 3);
+  if (messages.size() != 3) return;
+  if (std::getenv("TMNT_WRITE_INCIDENT_VECTORS")) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    for (const std::string& message : messages) out << message << '\n';
+  }
+  CHECK(ReadMessages(path) == messages);
+  const char* operations[] = {"incident.file", "incident.status", "incident.read"};
+  for (size_t i = 0; i < messages.size(); ++i) {
+    const std::optional<trg::update::json::Value> parsed = trg::update::json::Parse(messages[i]);
+    CHECK(parsed.has_value());
+    if (!parsed || !parsed->IsObject()) continue;
+    const trg::update::json::Value* op = parsed->Find("op");
+    CHECK(op && op->IsString() && op->AsString() == operations[i]);
+    CHECK(parsed->Find("seq") && parsed->Find("seq")->IsNumber());
+  }
+  if (const std::optional<trg::update::json::Value> file = trg::update::json::Parse(messages[0]);
+      file && file->IsObject()) {
+    CHECK(file->AsObject().size() == 11);
+  }
+  if (const std::optional<trg::update::json::Value> status = trg::update::json::Parse(messages[1]);
+      status && status->IsObject()) {
+    CHECK(status->AsObject().size() == 3);
+    const trg::update::json::Value* reports = status->Find("reports");
+    CHECK(reports && reports->IsArray() && reports->AsArray().size() == 1);
+  }
+  if (const std::optional<trg::update::json::Value> read = trg::update::json::Parse(messages[2]);
+      read && read->IsObject()) {
+    CHECK(read->AsObject().size() == 4);
+    CHECK(read->Find("ticket") && read->Find("ticket")->AsString() == "TMNT-ABCDEF");
+    CHECK(read->Find("receipt") && read->Find("receipt")->AsString() == std::string(64, 'a'));
+  }
+}
+
 void TestClipping() {
   TempFolder temp;
   std::string text = kGameplaySession;
   while (text.size() < 300 * 1024) text += "a long diagnostic line with 0123456789\n";
   const fs::path file = WriteLog(temp.path, LogName(9), text, 0);
   const GameLog log{file, LogName(9), std::time(nullptr), fs::file_size(file), LogActivity::kGameplay, LogRole::kLastGameplay};
-  const std::optional<IncidentPackage> package = BuildIncidentPackage("Large log", log, SampleFacts(), Facts());
+  const std::optional<IncidentPackage> package = BuildIncidentPackage("Large log to shorten", log, SampleFacts(), Facts());
   CHECK(package.has_value());
   if (!package) return;
   CHECK(package->Value("log_clipped") == "yes");
@@ -264,9 +348,30 @@ void TestStatusParsing() {
   tracked.ticket = "TMNT-ABCDEF";
   tracked.receipt = std::string(64, 'a');
   tracked.submitted_at = 1;
-  const std::string request = IncidentStatusRequest({tracked});
-  CHECK(Has(request, "\"reports\":["));
-  CHECK(Has(request, "\"receipt\":\"" + std::string(64, 'a') + "\""));
+  const std::string status_envelope = IncidentStatusMessage(1, {tracked});
+  CHECK(Has(status_envelope, "\"reports\":["));
+  CHECK(Has(status_envelope, "\"receipt\":\"" + std::string(64, 'a') + "\""));
+  const std::optional<trg::update::json::Value> status_parsed = trg::update::json::Parse(status_envelope);
+  CHECK(status_parsed.has_value());
+  if (status_parsed && status_parsed->IsObject()) {
+    CHECK(status_parsed->AsObject().size() == 3);
+    const trg::update::json::Value* op = status_parsed->Find("op");
+    CHECK(op && op->AsString() == "incident.status");
+    const trg::update::json::Value* reports = status_parsed->Find("reports");
+    CHECK(reports && reports->IsArray() && reports->AsArray().size() == 1);
+  }
+  const std::string read_envelope = IncidentReadMessage(1, tracked);
+  const std::optional<trg::update::json::Value> read_parsed = trg::update::json::Parse(read_envelope);
+  CHECK(read_parsed.has_value());
+  if (read_parsed && read_parsed->IsObject()) {
+    CHECK(read_parsed->AsObject().size() == 4);
+    const trg::update::json::Value* op = read_parsed->Find("op");
+    CHECK(op && op->AsString() == "incident.read");
+    const trg::update::json::Value* ticket = read_parsed->Find("ticket");
+    CHECK(ticket && ticket->IsString() && ticket->AsString() == "TMNT-ABCDEF");
+    const trg::update::json::Value* receipt = read_parsed->Find("receipt");
+    CHECK(receipt && receipt->AsString() == std::string(64, 'a'));
+  }
 }
 
 TrackedReport SampleReport(const std::string& ticket, int64_t submitted, const std::string& status, const std::string& message) {
@@ -341,6 +446,7 @@ int main() {
   TestLastBytes();
   TestScrubber();
   TestPackageAndRequest();
+  TestWireVectors();
   TestClipping();
   TestStatusParsing();
   TestHistory();

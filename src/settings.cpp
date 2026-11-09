@@ -118,6 +118,7 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_language",
       kOnlineEnabledSetting,
       kOnlineNameSetting,
+      kOnlineLobbySetting,
       kOnlinePingSetting,
       kConnectionTestSetting,
       "resolution_scale",

@@ -1,0 +1,41 @@
+diff --git a/include/trg/launcher.h b/include/trg/launcher.h
+index 9bf8b9f..a1119a8 100644
+--- a/include/trg/launcher.h
++++ b/include/trg/launcher.h
+@@ -225,6 +225,7 @@ struct LauncherConfig {
+   // Physical pixels per ImGui coordinate when the host renders in a logical coordinate space.
+   // 1 when the host's ImGui coordinates are already physical.
+   float render_scale = 1.0f;
++  std::function<void(bool)> on_save_result;  // after Save(), with the combined result
+ };
+ 
+ // --------------------------------------------------------------------- ui ---
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 92539a9..70f6093 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -1112,6 +1112,7 @@ void Launcher::DropFile(const std::string& path) {
+ bool Launcher::Save() {
+   bool ok = config_.settings && config_.settings->Save();
+   if (config_.on_save) ok = config_.on_save() && ok;
++  if (config_.on_save_result) config_.on_save_result(ok);
+   SetStatus(ok ? "Settings saved." : "Could not save the settings.", ok ? 3.0 : 6.0);
+   return ok;
+ }
+@@ -1517,11 +1518,14 @@ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+ 
+ void Launcher::HandleHotkeys() {
+   const ImGuiIO& io = ImGui::GetIO();
+-  if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
++  if (capturing_key() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
++  // ReXGlue sends left/right Ctrl key events, not ImGuiMod_Ctrl, so io.KeyCtrl stays false.
++  const bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
++  if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+     Save();
+     return;
+   }
+-  if (capturing_key() || io.WantTextInput || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
++  if (io.WantTextInput) return;
+   if (ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false)) {
+     want_play_ = true;
+   } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {

@@ -1,0 +1,363 @@
+diff --git a/include/trg/launcher.h b/include/trg/launcher.h
+index 30ad4e5..9bf8b9f 100644
+--- a/include/trg/launcher.h
++++ b/include/trg/launcher.h
+@@ -222,6 +222,9 @@ struct LauncherConfig {
+   std::string hints = "Enter  Play        Esc  Quit        Ctrl+S  Save";
+   std::string note = "Settings are saved when you press Play.";
+   bool save_on_play = true;
++  // Physical pixels per ImGui coordinate when the host renders in a logical coordinate space.
++  // 1 when the host's ImGui coordinates are already physical.
++  float render_scale = 1.0f;
+ };
+ 
+ // --------------------------------------------------------------------- ui ---
+@@ -320,6 +323,7 @@ class Ui {
+ 
+   Launcher* launcher_ = nullptr;
+   float scale_ = 1.0f;
++  float render_scale_ = 1.0f;
+   bool in_rows_ = false;
+   int rows_id_ = 0;
+   float row_top_ = 0.0f;
+@@ -376,6 +380,7 @@ class Launcher {
+   LauncherConfig config_;
+   Ui ui_;
+   float s_ = 1.0f;
++  float render_scale_ = 1.0f;
+   PageNavigation navigation_;
+   bool want_play_ = false, want_quit_ = false;
+   std::string status_;
+diff --git a/include/trg/layout.h b/include/trg/layout.h
+index 3c61359..71b071b 100644
+--- a/include/trg/layout.h
++++ b/include/trg/layout.h
+@@ -93,13 +93,40 @@ inline float PassiveLineThickness(float scale) { return std::max(1.0f, std::floo
+ // The panel drawn over a border softens one pixel of it.
+ inline float PanelBorderWidth(float scale) { return LineThickness(scale) + 1.0f; }
+ 
++// A host that renders ImGui in a logical coordinate space supplies render_scale (physical pixels per
++// coordinate) so that strokes and icon origins snap to the pixels the renderer will actually use.
++inline float SnapDown(float value, float pixel_scale) {
++  return pixel_scale > 0.0f ? std::floor(value * pixel_scale) / pixel_scale : value;
++}
++inline float SnapUp(float value, float pixel_scale) {
++  return pixel_scale > 0.0f ? std::ceil(value * pixel_scale) / pixel_scale : value;
++}
++inline float SnapNearest(float value, float pixel_scale) {
++  return pixel_scale > 0.0f ? std::floor(value * pixel_scale + 0.5f) / pixel_scale : value;
++}
++inline float PixelLineThickness(float scale, float pixel_scale) {
++  return LineThickness(scale * pixel_scale) / pixel_scale;
++}
++inline float PixelPassiveLineThickness(float scale, float pixel_scale) {
++  return PassiveLineThickness(scale * pixel_scale) / pixel_scale;
++}
++inline float PixelPanelBorderWidth(float scale, float pixel_scale) {
++  return PanelBorderWidth(scale * pixel_scale) / pixel_scale;
++}
++// The reference's unrounded minimum stroke: 1 physical pixel, or `scale` physical pixels if larger.
++inline float PixelMaxLineWidth(float scale, float pixel_scale) {
++  return std::max(1.0f, scale * pixel_scale) / pixel_scale;
++}
++
+ // A page's width with room for its scrollbar, so that the bar appearing moves nothing.
+ inline float StableContentWidth(float body_width, float scrollbar_size) { return body_width - scrollbar_size; }
+ 
+ inline constexpr float SidebarLabelX() { return kSidebarIconInset + kSidebarIcon + kSidebarIconGap; }
+ 
+ // Where to place a line so that the point `visual_center` below its top lands on `center`.
+-inline float CenteredTop(float center, float visual_center) { return std::floor(center - visual_center + 0.5f); }
++inline float CenteredTop(float center, float visual_center, float pixel_scale = 1.0f) {
++  return SnapNearest(center - visual_center, pixel_scale);
++}
+ 
+ struct KeyHint {
+   std::string_view key;  // empty when the text has no key
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 9589741..92539a9 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -141,30 +141,33 @@ float CapCenter(ImFont* font, float size) {
+ 
+ // Draws the shortcuts as keycaps and labels centred on `at.y`, or only measures them without `dl`.
+ float DrawKeyHints(ImDrawList* dl, const std::vector<layout::KeyHint>& hints, const Fonts& fonts, const Theme& t,
+-                   ImVec2 at, float s) {
++                   ImVec2 at, float s, float pixel_scale) {
+   const float size = layout::kTextFooter * s;
+   const float cap_h = layout::kKeycapHeight * s, padding = layout::kKeycapPadding * s;
+-  const float cap_top = std::floor(at.y - cap_h * 0.5f);
+-  const float key_top = layout::CenteredTop(at.y, CapCenter(fonts.semibold, size));
+-  const float action_top = layout::CenteredTop(at.y, CapCenter(fonts.regular, size));
++  const float cap_top = layout::SnapDown(at.y - cap_h * 0.5f, pixel_scale);
++  const float key_top = layout::CenteredTop(at.y, CapCenter(fonts.semibold, size), pixel_scale);
++  const float action_top = layout::CenteredTop(at.y, CapCenter(fonts.regular, size), pixel_scale);
+   float x = at.x;
+   for (const layout::KeyHint& hint : hints) {
+     const char* key_end = hint.key.data() + hint.key.size();
+     const char* action_end = hint.action.data() + hint.action.size();
+     if (!hint.key.empty()) {
+       const float text_w = fonts.semibold->CalcTextSizeA(size, FLT_MAX, 0.0f, hint.key.data(), key_end).x;
+-      const float cap_w = std::floor(text_w + padding * 2);
++      const float cap_w = layout::SnapDown(text_w + padding * 2, pixel_scale);
+       if (dl) {
+-        const ImVec2 min(std::floor(x), cap_top), max(min.x + cap_w, cap_top + cap_h);
++        const ImVec2 min(layout::SnapDown(x, pixel_scale), cap_top), max(min.x + cap_w, cap_top + cap_h);
+         const float rounding = layout::kKeycapRounding * s;
+         dl->AddRectFilled(min, max, Col(t.frame, 0.7f), rounding);
+-        dl->AddRect(min, max, Col(t.frame_hot), rounding, 0, layout::LineThickness(s));
+-        dl->AddText(fonts.semibold, size, ImVec2(min.x + (cap_w - text_w) * 0.5f, key_top), Col(t.text),
++        dl->AddRect(min, max, Col(t.frame_hot), rounding, 0, layout::PixelLineThickness(s, pixel_scale));
++        dl->AddText(fonts.semibold, size,
++                    ImVec2(layout::SnapNearest(min.x + (cap_w - text_w) * 0.5f, pixel_scale), key_top), Col(t.text),
+                     hint.key.data(), key_end);
+       }
+       x += cap_w + layout::kKeycapGap * s;
+     }
+-    if (dl) dl->AddText(fonts.regular, size, ImVec2(x, action_top), Col(t.text, 0.85f), hint.action.data(), action_end);
++    if (dl)
++      dl->AddText(fonts.regular, size, ImVec2(layout::SnapDown(x, pixel_scale), action_top), Col(t.text, 0.85f),
++                  hint.action.data(), action_end);
+     x += fonts.regular->CalcTextSizeA(size, FLT_MAX, 0.0f, hint.action.data(), action_end).x;
+     x += layout::kKeyHintGap * s;
+   }
+@@ -451,9 +454,12 @@ void Ui::DrawRowLines() {
+   row_lines_.push_back(ImGui::GetItemRectMax().y);
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+   const ImU32 color = Col(theme().border_row);
++  const float pixel_scale = render_scale_ > 0.0f ? render_scale_ : 1.0f;
++  const float thickness = 1.0f / pixel_scale;
+   for (const float y : row_lines_) {
+-    const float top = std::floor(y);
+-    dl->AddRectFilled(ImVec2(row_left_, top), ImVec2(row_right_, top + 1.0f), color);
++    const float top = layout::SnapDown(y, pixel_scale);
++    dl->AddRectFilled(ImVec2(layout::SnapDown(row_left_, pixel_scale), top),
++                      ImVec2(layout::SnapUp(row_right_, pixel_scale), top + thickness), color);
+   }
+ }
+ 
+@@ -849,18 +855,22 @@ void Ui::SponsorCard(const char* message, const char* note) {
+   const float link_size = layout::kTextHelp * s;
+   const float h = std::max(message_h + paragraph_gap + note_h, button.y + link_gap + link_size) + pad * 2;
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+-  const float line = layout::PanelBorderWidth(s);
+-  const ImVec2 outer(std::floor(p.x), std::floor(p.y)), outer_end(std::floor(p.x + w), std::floor(p.y + h));
++  const float pixel_scale = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f) * render_scale_;
++  const float line = layout::PixelPanelBorderWidth(s, pixel_scale);
++  const ImVec2 outer(layout::SnapDown(p.x, pixel_scale), layout::SnapDown(p.y, pixel_scale));
++  const ImVec2 outer_end(layout::SnapUp(p.x + w, pixel_scale), layout::SnapUp(p.y + h, pixel_scale));
+   const ImVec2 inner(outer.x + line, outer.y + line), inner_end(outer_end.x - line, outer_end.y - line);
+   dl->AddRectFilled(outer, outer_end, Col(t.border_panel), 12 * s);
+   dl->AddRectFilled(inner, inner_end, Col(t.panel), 12 * s - line);
+   dl->AddRectFilled(inner, inner_end, Col(t.frame, 0.35f), 12 * s - line);
+ 
+   if (has_heart) {
+-    const ImVec2 min(std::floor(p.x + pad), std::floor(p.y + (h - block) * 0.5f));
++    const ImVec2 min(layout::SnapDown(p.x + pad, pixel_scale),
++                     layout::SnapDown(p.y + (h - block) * 0.5f, pixel_scale));
+     dl->AddRectFilled(min, ImVec2(min.x + block, min.y + block), Col(kSponsorPink), 10 * s);
+-    const float heart = std::floor(layout::kSupportIconHeart * s);
+-    const ImVec2 heart_min(std::floor(min.x + (block - heart) * 0.5f), std::floor(min.y + (block - heart) * 0.5f));
++    const float heart = layout::SnapDown(layout::kSupportIconHeart * s, pixel_scale);
++    const ImVec2 heart_min(layout::SnapNearest(min.x + (block - heart) * 0.5f, pixel_scale),
++                           layout::SnapNearest(min.y + (block - heart) * 0.5f, pixel_scale));
+     dl->AddImage(ImTextureRef(sponsor.icon), heart_min, ImVec2(heart_min.x + heart, heart_min.y + heart));
+   }
+ 
+@@ -1118,6 +1128,8 @@ Result Launcher::Frame() {
+   ImGui::PushFont(fonts.regular, fonts.size);
+   s_ = ImGui::GetFontSize() / fonts.size;
+   ui_.scale_ = s_;
++  render_scale_ = config_.render_scale > 0.0f ? config_.render_scale : 1.0f;
++  ui_.render_scale_ = render_scale_;
+   ApplyTheme(config_.theme, s_, fonts.size);
+ 
+   const ImGuiViewport* vp = ImGui::GetMainViewport();
+@@ -1259,8 +1271,9 @@ void Launcher::DrawSidebar(ImVec2 size) {
+   const float pad = layout::kSidebarPadding * s_;
+   const float item_h = layout::SidebarRowFor(int(config_.pages.size()), size.y / s_) * s_;
+   const float framebuffer = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f);
+-  const int icon_pixels = int(layout::kSidebarIcon * s_ * framebuffer + 0.5f);
+-  const float icon_size = float(icon_pixels) / framebuffer;
++  const float pixel_scale = framebuffer * render_scale_;
++  const int icon_pixels = int(layout::kSidebarIcon * s_ * pixel_scale + 0.5f);
++  const float icon_size = float(icon_pixels) / pixel_scale;
+   ImGui::SetCursorPos(ImVec2(pad, pad));
+   ImGui::PushFont(config_.fonts.semibold, layout::kTextSidebar);
+   const float cap_center = CapCenter(config_.fonts.semibold, ImGui::GetFontSize());
+@@ -1273,37 +1286,43 @@ void Launcher::DrawSidebar(ImVec2 size) {
+     const ImVec2 item(size.x - pad * 2, item_h);
+     if (ImGui::InvisibleButton("##page", item)) GoToPage(i);
+     const bool hot = ImGui::IsItemHovered();
+-    const float center_y = std::floor(pos.y + item_h * 0.5f);
++    const float center_y = layout::SnapDown(pos.y + item_h * 0.5f, pixel_scale);
++    const ImVec2 row_min(layout::SnapDown(pos.x, pixel_scale), layout::SnapDown(pos.y, pixel_scale));
++    const ImVec2 row_max(layout::SnapUp(pos.x + item.x, pixel_scale), layout::SnapUp(pos.y + item.y, pixel_scale));
+     ImDrawList* dl = ImGui::GetWindowDrawList();
+     if (selected) {
+-      dl->AddRectFilled(pos, ImVec2(pos.x + item.x, pos.y + item.y),
++      dl->AddRectFilled(row_min, row_max,
+                         Col(ImGui::IsItemActive() ? t.action_active : hot ? t.action_hot : t.action), 8 * s_);
+-      dl->AddRect(pos, ImVec2(pos.x + item.x, pos.y + item.y), Col(t.action_edge), 8 * s_, 0, std::max(s_, 1.0f));
++      dl->AddRect(row_min, row_max, Col(t.action_edge), 8 * s_, 0,
++                  layout::PixelMaxLineWidth(s_, pixel_scale));
+     } else if (hot) {
+-      dl->AddRectFilled(pos, ImVec2(pos.x + item.x, pos.y + item.y), Col(t.frame), 8 * s_);
++      dl->AddRectFilled(row_min, row_max, Col(t.frame), 8 * s_);
+     }
+     const ImTextureID icon = page.icon ? page.icon(icon_pixels) : ImTextureID{};
+     if (icon != ImTextureID{}) {
+       // On the pixel grid, so the image stays one texel per pixel.
+-      const ImVec2 min(std::floor((pos.x + layout::kSidebarIconInset * s_) * framebuffer) / framebuffer,
+-                       layout::CenteredTop(center_y, icon_size * 0.5f));
++      const ImVec2 min(layout::SnapDown(pos.x + layout::kSidebarIconInset * s_, pixel_scale),
++                       layout::CenteredTop(center_y, icon_size * 0.5f, pixel_scale));
+       dl->AddImage(ImTextureRef(icon), min, ImVec2(min.x + icon_size, min.y + icon_size), ImVec2(0, 0), ImVec2(1, 1),
+                    Col(selected ? t.on_action : hot ? t.text : t.dim));
+     }
+-    dl->AddText(ImVec2(pos.x + layout::SidebarLabelX() * s_, layout::CenteredTop(center_y, cap_center)),
++    dl->AddText(ImVec2(layout::SnapDown(pos.x + layout::SidebarLabelX() * s_, pixel_scale),
++                       layout::CenteredTop(center_y, cap_center, pixel_scale)),
+                 Col(selected ? t.on_action : t.text), T(page.name.c_str()));
+     const int badge = page.badge ? page.badge() : 0;
+     if (badge > 0) {
+       const std::string count = badge > 99 ? "99+" : std::to_string(badge);
+       const ImVec2 text = ImGui::CalcTextSize(count.c_str());
+       const float pill_h = text.y + 4 * s_, pill_w = std::max(pill_h, text.x + 12 * s_);
+-      const ImVec2 min(pos.x + item.x - 12 * s_ - pill_w, pos.y + (item_h - pill_h) * 0.5f);
++      const ImVec2 min(layout::SnapDown(pos.x + item.x - 12 * s_ - pill_w, pixel_scale),
++                       layout::SnapDown(pos.y + (item_h - pill_h) * 0.5f, pixel_scale));
+       dl->AddRectFilled(min, ImVec2(min.x + pill_w, min.y + pill_h), Col(selected ? t.on_action : t.accent), pill_h * 0.5f);
+       dl->AddText(ImVec2(min.x + (pill_w - text.x) * 0.5f, min.y + 2 * s_), Col(selected ? t.action : t.on_accent),
+                   count.c_str());
+     } else if (page.needs_attention && page.needs_attention()) {
+-      dl->AddCircleFilled(ImVec2(pos.x + item.x - 18 * s_, pos.y + item_h * 0.5f), 4.5f * s_,
+-                          Col(selected ? t.on_action : t.warn_dot));
++      dl->AddCircleFilled(ImVec2(layout::SnapNearest(pos.x + item.x - 18 * s_, pixel_scale),
++                                 layout::SnapNearest(pos.y + item_h * 0.5f, pixel_scale)),
++                          4.5f * s_, Col(selected ? t.on_action : t.warn_dot));
+     }
+     ImGui::PopID();
+     ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + item_h + layout::kSidebarGap * s_));
+@@ -1366,10 +1385,13 @@ void Launcher::DrawContent(ImVec2 size) {
+ 
+ // Filled behind the panel: on SDL's software renderer a stroked rounded rectangle loses whole sides.
+ void Launcher::OutlinePanel(ImVec2 size) {
+-  const float line = layout::PanelBorderWidth(s_);
+-  const ImVec2 min = ImGui::GetCursorScreenPos();
+-  const ImVec2 outer(std::floor(min.x) - line, std::floor(min.y) - line);
+-  const ImVec2 outer_end(std::floor(min.x) + std::floor(size.x) + line, std::floor(min.y) + std::floor(size.y) + line);
++  const float pixel_scale = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f) * render_scale_;
++  const float line = layout::PixelPanelBorderWidth(s_, pixel_scale);
++  const ImVec2 cursor = ImGui::GetCursorScreenPos();
++  const ImVec2 min(layout::SnapDown(cursor.x, pixel_scale), layout::SnapDown(cursor.y, pixel_scale));
++  const ImVec2 outer(min.x - line, min.y - line);
++  const ImVec2 outer_end(layout::SnapUp(min.x + size.x, pixel_scale) + line,
++                         layout::SnapUp(min.y + size.y, pixel_scale) + line);
+   ImGui::GetWindowDrawList()->AddRectFilled(outer, outer_end, Col(config_.theme.border_panel),
+                                             ImGui::GetStyle().ChildRounding + line);
+ }
+@@ -1380,14 +1402,15 @@ void Launcher::DrawFooter(ImVec2 origin, float w, float h) {
+   const float play_w = layout::kPlayWidth * s_, play_h = layout::kPlayHeight * s_;
+   const float gap = layout::kFooterGap * s_;
+   const float cy = origin.y + h * 0.5f;
++  const float pixel_scale = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f) * render_scale_;
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+   const Fonts& fonts = config_.fonts;
+   const float help_size = layout::kTextFooter * s_;
+   const std::vector<layout::KeyHint> hints = layout::ParseKeyHints(T(config_.hints.c_str()));
+   const std::vector<std::string_view> note = layout::SplitSentences(T(config_.note.c_str()));
+-  const float hints_w = DrawKeyHints(nullptr, hints, fonts, t, ImVec2(origin.x, cy), s_);
++  const float hints_w = DrawKeyHints(nullptr, hints, fonts, t, ImVec2(origin.x, cy), s_, render_scale_);
+   const float separator_gap = layout::kFooterSeparatorGap * s_;
+-  const float help_x = std::floor(origin.x + hints_w + separator_gap * 2);
++  const float help_x = layout::SnapDown(origin.x + hints_w + separator_gap * 2, pixel_scale);
+   float note_w = 0.0f;
+   for (const std::string_view line : note)
+     note_w = std::max(note_w, fonts.regular->CalcTextSizeA(help_size, FLT_MAX, 0.0f, line.data(), line.data() + line.size()).x);
+@@ -1400,10 +1423,11 @@ void Launcher::DrawFooter(ImVec2 origin, float w, float h) {
+     ImFont* font = config_.fonts.semibold;
+     const float font_size = ImGui::GetFontSize();
+     const ImVec2 size(SponsorButtonWidth(sponsor, font, font_size, s_), bh);
+-    const float x = quit_x - gap - size.x;
++    const float x = layout::SnapDown(quit_x - gap - size.x, pixel_scale);
+     if (x >= help_x + note_w + gap) {
+       left_end = x;
+-      if (SponsorButton("##sponsor_footer", sponsor, ImVec2(x, cy - size.y * 0.5f), size, font, font_size, s_)) {
++      if (SponsorButton("##sponsor_footer", sponsor,
++                        ImVec2(x, layout::SnapNearest(cy - size.y * 0.5f, pixel_scale)), size, font, font_size, s_)) {
+         OpenUrl(sponsor.url);
+       }
+     }
+@@ -1414,41 +1438,51 @@ void Launcher::DrawFooter(ImVec2 origin, float w, float h) {
+   const float status_w = show_status ? fonts.semibold->CalcTextSizeA(help_size, FLT_MAX, 0.0f, status_.c_str()).x : 0.0f;
+   const bool status_only = show_status && help_x + status_w + gap > left_end;
+   if (!status_only) {
+-    DrawKeyHints(dl, hints, fonts, t, ImVec2(origin.x, cy), s_);
++    DrawKeyHints(dl, hints, fonts, t, ImVec2(origin.x, cy), s_, render_scale_);
+     if (!hints.empty()) {
+-      const float x = std::floor(origin.x + hints_w + separator_gap), half = layout::kFooterSeparator * s_ * 0.5f;
+-      dl->AddLine(ImVec2(x, cy - half), ImVec2(x, cy + half), Col(t.border_row), layout::PassiveLineThickness(s_));
++      const float x = layout::SnapDown(origin.x + hints_w + separator_gap, pixel_scale),
++                  half = layout::kFooterSeparator * s_ * 0.5f;
++      dl->AddLine(ImVec2(x, layout::SnapNearest(cy - half, pixel_scale)),
++                  ImVec2(x, layout::SnapNearest(cy + half, pixel_scale)), Col(t.border_row),
++                  layout::PixelPassiveLineThickness(s_, pixel_scale));
+     }
+   }
+   if (show_status) {
+     dl->AddText(fonts.semibold, help_size,
+-                ImVec2(status_only ? origin.x : help_x, layout::CenteredTop(cy, CapCenter(fonts.semibold, help_size))),
++                ImVec2(status_only ? layout::SnapDown(origin.x, pixel_scale) : help_x,
++                       layout::CenteredTop(cy, CapCenter(fonts.semibold, help_size), pixel_scale)),
+                 Col(t.accent), status_.c_str());
+   } else {
+     const float cap_center = CapCenter(fonts.regular, help_size);
+     const float step = layout::kFooterHelpLine * s_;
+     float line_y = cy - step * 0.5f * float(note.size() - 1);
+     for (const std::string_view line : note) {
+-      dl->AddText(fonts.regular, help_size, ImVec2(help_x, layout::CenteredTop(line_y, cap_center)), Col(t.dim),
+-                  line.data(), line.data() + line.size());
++      dl->AddText(fonts.regular, help_size,
++                  ImVec2(help_x, layout::CenteredTop(line_y, cap_center, pixel_scale)), Col(t.dim), line.data(),
++                  line.data() + line.size());
+       line_y += step;
+     }
+   }
+ 
+-  ImGui::SetCursorScreenPos(ImVec2(quit_x, cy - bh * 0.5f));
++  ImGui::SetCursorScreenPos(ImVec2(layout::SnapDown(quit_x, pixel_scale),
++                                   layout::SnapNearest(cy - bh * 0.5f, pixel_scale)));
+   ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12 * s_);
+   if (ImGui::Button(T("Quit"), ImVec2(bw, bh))) want_quit_ = true;
+   ImGui::SameLine(0, gap);
+   if (ImGui::Button(T("Save"), ImVec2(bw, bh))) Save();
+   ImGui::PopStyleVar();
+   const PlayCheck check = config_.can_play ? config_.can_play() : PlayCheck{};
+-  ImGui::SetCursorScreenPos(ImVec2(right - play_w, cy - play_h * 0.5f));
++  ImGui::SetCursorScreenPos(ImVec2(layout::SnapDown(right - play_w, pixel_scale),
++                                   layout::SnapNearest(cy - play_h * 0.5f, pixel_scale)));
+   DrawPlayButton(ImVec2(play_w, play_h), check.ok);
+ }
+ 
+ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+   const Theme& t = config_.theme;
+-  const ImVec2 p = ImGui::GetCursorScreenPos();
++  const float pixel_scale = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f) * render_scale_;
++  ImVec2 p = ImGui::GetCursorScreenPos();
++  p = ImVec2(layout::SnapDown(p.x, pixel_scale), layout::SnapDown(p.y, pixel_scale));
++  ImGui::SetCursorScreenPos(p);
+   // Still clickable when the game cannot start: that explains why.
+   const bool clicked = ImGui::InvisibleButton("##play", size);
+   const bool hot = ImGui::IsItemHovered();
+@@ -1465,7 +1499,9 @@ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+   }
+   dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y),
+                     can_play ? Col(held ? t.action_active : hot ? t.action_hot : t.action) : Col(hot ? t.frame_hot : t.frame), r);
+-  if (can_play) dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), Col(t.action_edge), r, 0, std::max(s_, 1.0f));
++  if (can_play)
++    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), Col(t.action_edge), r, 0,
++                layout::PixelMaxLineWidth(s_, pixel_scale));
+   const float fs = 20 * s_;
+   const char* play = T("PLAY");
+   const ImVec2 ts = config_.fonts.bold->CalcTextSizeA(fs, FLT_MAX, 0, play);

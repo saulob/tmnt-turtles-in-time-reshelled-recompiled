@@ -21,13 +21,16 @@ const VALUES_PER_DIMENSION_PER_DAY = 64;
 const CLEANUP_ROWS = 500;
 const INCIDENT_COLUMNS = ['incidents_filed', 'incidents_rejected', 'incident_status_checks', 'incident_reads',
   'incident_messages', 'incidents_deleted', 'incident_errors'];
-const COUNTERS = new Set(['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...INCIDENT_COLUMNS]);
+const LOBBY_COLUMNS = ['lobby_list_requests', 'lobby_publishes', 'lobby_visible_peak'];
+const COUNTERS = new Set(['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...INCIDENT_COLUMNS,
+  'lobby_list_requests', 'lobby_publishes']);
 
 const ROOM_COLUMNS = ['rooms_closed', 'rooms_with_guest', 'rooms_relayed', 'party_total'];
 const DAY_COLUMNS = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', 'peak_online', 'peak_in_rooms',
-  'peak_rooms', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS];
-const SUMMED = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS];
-const PEAKS = ['peak_online', 'peak_in_rooms', 'peak_rooms'];
+  'peak_rooms', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS, ...LOBBY_COLUMNS];
+const SUMMED = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS,
+  'lobby_list_requests', 'lobby_publishes'];
+const PEAKS = ['peak_online', 'peak_in_rooms', 'peak_rooms', 'lobby_visible_peak'];
 
 export const METRICS_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS metrics_daily (day TEXT PRIMARY KEY, sessions INTEGER NOT NULL DEFAULT 0,
@@ -39,7 +42,9 @@ export const METRICS_SCHEMA = [
      incidents_filed INTEGER NOT NULL DEFAULT 0, incidents_rejected INTEGER NOT NULL DEFAULT 0,
      incident_status_checks INTEGER NOT NULL DEFAULT 0, incident_reads INTEGER NOT NULL DEFAULT 0,
      incident_messages INTEGER NOT NULL DEFAULT 0, incidents_deleted INTEGER NOT NULL DEFAULT 0,
-     incident_errors INTEGER NOT NULL DEFAULT 0)`,
+     incident_errors INTEGER NOT NULL DEFAULT 0,
+     lobby_list_requests INTEGER NOT NULL DEFAULT 0, lobby_publishes INTEGER NOT NULL DEFAULT 0,
+     lobby_visible_peak INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS metrics_daily_dimensions (day TEXT NOT NULL, dimension TEXT NOT NULL, value TEXT NOT NULL,
      count INTEGER NOT NULL, PRIMARY KEY (day, dimension, value))`,
   `CREATE TABLE IF NOT EXISTS metrics_samples (bucket INTEGER PRIMARY KEY, online INTEGER NOT NULL,
@@ -83,11 +88,12 @@ export class Metrics {
     this.now = now;
     for (const statement of METRICS_SCHEMA) sql.run(statement);
     const have = new Set(sql.all('PRAGMA table_info(metrics_daily)').map((c) => c.name));
-    for (const column of [...ROOM_COLUMNS, ...INCIDENT_COLUMNS]) {
+    for (const column of [...ROOM_COLUMNS, ...INCIDENT_COLUMNS, ...LOBBY_COLUMNS]) {
       if (!have.has(column)) sql.run(`ALTER TABLE metrics_daily ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     }
     this.peaks = null;
     this.sample = null;
+    this.lobbyPeak = null;
   }
 
   incidentFiled() {
@@ -117,6 +123,28 @@ export class Metrics {
 
   incidentError() {
     this.count('incident_errors');
+  }
+
+  lobbyListRequest() {
+    this.count('lobby_list_requests');
+  }
+
+  lobbyPublish() {
+    this.count('lobby_publishes');
+  }
+
+  // The most players listed in the public Lobby at once today; writes only what grew and nothing for an empty Lobby.
+  lobbyVisible(count) {
+    if (!Number.isInteger(count) || count <= 0) return;
+    const day = metricsDay(this.now());
+    if (this.lobbyPeak?.day !== day) {
+      const row = this.sql.get('SELECT lobby_visible_peak FROM metrics_daily WHERE day = ?', day);
+      this.lobbyPeak = { day, count: row?.lobby_visible_peak ?? 0 };
+    }
+    if (count <= this.lobbyPeak.count) return;
+    this.sql.run(`INSERT INTO metrics_daily (day, lobby_visible_peak) VALUES (?, ?)
+      ON CONFLICT(day) DO UPDATE SET lobby_visible_peak = MAX(lobby_visible_peak, excluded.lobby_visible_peak)`, day, count);
+    this.lobbyPeak.count = count;
   }
 
   count(column, day = metricsDay(this.now())) {
@@ -297,7 +325,7 @@ const emptyDay = () => Object.fromEntries(DAY_COLUMNS.map((c) => [c, 0]));
 export const percentChange = (current, previous) => (previous > 0 ? Math.round(1000 * (current - previous) / previous) / 10 : null);
 
 export const COMPARED = ['unique_players', 'sessions', 'rooms_created', 'room_joins', 'rooms_with_guest',
-  'peak_online', 'peak_in_rooms', 'incidents_filed', 'incidents_rejected'];
+  'peak_online', 'peak_in_rooms', 'incidents_filed', 'incidents_rejected', 'lobby_list_requests', 'lobby_publishes'];
 
 export function compare(current, previous) {
   return Object.fromEntries(COMPARED.map((c) => [c, { current: current[c], previous: previous[c],

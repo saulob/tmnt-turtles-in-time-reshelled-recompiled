@@ -10,7 +10,7 @@
 
 namespace tmnt {
 
-inline constexpr size_t kMostTrackedReports = 50;
+inline constexpr size_t kMostTrackedReports = 30;
 inline constexpr char kReportHistoryFile[] = "bug_reports.json";
 
 struct ReportStatus {
@@ -28,8 +28,8 @@ struct TrackedReport {
   std::string description;
   std::string log_file;
   std::string launcher_version;
-  std::string game_build;
-  std::string game_id;
+  std::string guest;
+  std::string platform;
   std::string operating_system;
   std::string status = "new";
   int64_t status_updated_at = 0;

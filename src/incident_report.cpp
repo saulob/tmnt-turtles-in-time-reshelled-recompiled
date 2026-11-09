@@ -53,6 +53,7 @@ constexpr std::string_view kLauncherClosedMark = "Launcher closed";
 constexpr char kDescriptionKey[] = "description";
 constexpr char kLogTextKey[] = "log_text";
 constexpr size_t kReceiptHexDigits = 64;
+constexpr size_t kMostMetadataCharacters = 64;
 
 struct FieldName {
   std::string_view key;
@@ -61,10 +62,10 @@ struct FieldName {
 constexpr FieldName kFieldNames[] = {
     {kDescriptionKey, "Description"},
     {"launcher_version", "Launcher version"},
-    {"game_build", "Game build"},
-    {"game_version", "Game version"},
-    {"game_id", "Game ID"},
+    {"guest", "Game image"},
+    {"platform", "Platform"},
     {"operating_system", "Operating system"},
+    {"runtime", "Runtime"},
     {"log_file", "Selected log"},
     {"log_clipped", "Log shortened to its end"},
     {kLogTextKey, "Log after privacy filtering"},
@@ -76,7 +77,34 @@ IncidentReceipt NotSent(IncidentOutcome outcome) {
   return receipt;
 }
 
+void Say(const IncidentServiceConfig& config, const std::string& line) {
+  if (config.log) config.log(line);
+}
+
+std::string EndpointHost(std::string_view url) {
+  const size_t scheme = url.find("://");
+  const std::string_view rest = scheme == std::string_view::npos ? url : url.substr(scheme + 3);
+  const size_t end = rest.find_first_of(":/?#");
+  const std::string host(rest.substr(0, end));
+  return host.empty() ? "unknown" : host;
+}
+
+std::string RequestKeys(const IncidentPackage& package) {
+  std::string keys;
+  for (const IncidentField& field : package.fields) {
+    if (!keys.empty()) keys += ',';
+    keys += field.key;
+  }
+  return keys;
+}
+
+std::string WorkerBuild(const json::Value* capabilities) {
+  const json::Value* build = capabilities ? capabilities->Find("worker_build") : nullptr;
+  return build && build->IsString() ? build->AsString() : std::string("unknown");
+}
+
 std::string StringOf(const json::Value* value) { return value && value->IsString() ? value->AsString() : std::string(); }
+bool BoolOf(const json::Value* value, bool fallback) { return value && value->IsBool() ? value->AsBool() : fallback; }
 int64_t Int64Of(const json::Value* value) {
   const auto number = value && value->IsNumber() ? value->AsInt64() : std::nullopt;
   return number ? *number : 0;
@@ -181,6 +209,12 @@ std::string TrimmedDescription(std::string_view text) {
   return std::string(text.substr(first, text.find_last_not_of(kSpace) - first + 1));
 }
 
+// A metadata field the service accepts: no more than its limit, no spaces at either end.
+std::string Clamped(std::string text) {
+  text.resize(BytesOfCharacters(text, kMostMetadataCharacters));
+  return TrimmedDescription(text);
+}
+
 #ifdef _WIN32
 std::string WindowsVersionText() {
   // GetVersionEx answers with the version the manifest declares, not the running one.
@@ -246,11 +280,16 @@ class ServiceSession {
   }
 
   std::optional<json::Value> Call(std::string_view op, std::string_view fields, std::string* code) {
+    const int seq = TakeSeq();
+    return CallRaw(Envelope(op, seq, fields), seq, code);
+  }
+
+  std::optional<json::Value> CallRaw(const std::string& message, int seq, std::string* code) {
     if (!socket_) {
       if (code) *code = "unreachable";
       return std::nullopt;
     }
-    if (!socket_->send_text(Envelope(op, next_seq_++, fields))) {
+    if (!socket_->send_text(message)) {
       if (code) *code = "unreachable";
       return std::nullopt;
     }
@@ -264,13 +303,16 @@ class ServiceSession {
       }
       const std::optional<json::Value> root = json::Parse(text);
       if (!root || !root->IsObject()) continue;
-      if (!root->Find("re")) continue;  // an event sent while waiting
+      const json::Value* re = root->Find("re");
+      if (!re || !re->IsNumber() || re->AsInt64().value_or(-1) != seq) continue;  // an event sent while waiting
       if (code) *code = StringOf(root->Find("code"));
       return root;
     }
     if (code) *code = "timeout";
     return std::nullopt;
   }
+
+  int TakeSeq() { return next_seq_++; }
 
   void Close() {
     if (socket_) socket_->close();
@@ -464,12 +506,20 @@ std::optional<IncidentPackage> BuildIncidentPackage(std::string_view description
   if (text.find_first_not_of(" \t\n") == std::string::npos) return std::nullopt;
   const bool clipped = offset > 0 || text.size() < scrubbed.size();
 
-  std::string summary = ScrubText(TrimmedDescription(description), private_facts);
+  std::string summary = TrimmedDescription(ScrubText(TrimmedDescription(description), private_facts));
   summary.resize(BytesOfCharacters(summary, kMostDescriptionCharacters));
-  if (summary.empty()) return std::nullopt;
+  summary = TrimmedDescription(summary);
+  if (CountCharacters(summary) < kFewestDescriptionCharacters) return std::nullopt;
 
-  std::string values[] = {std::move(summary), facts.launcher_version, facts.game_build, facts.game_version, facts.game_id,
-                          facts.operating_system, log.name, clipped ? "yes" : "no", std::move(text)};
+  std::string values[] = {std::move(summary),
+                          Clamped(facts.launcher_version),
+                          Clamped(facts.guest),
+                          Clamped(facts.platform),
+                          Clamped(facts.operating_system),
+                          Clamped(facts.runtime),
+                          log.name,
+                          clipped ? "yes" : "no",
+                          std::move(text)};
   IncidentPackage package;
   for (size_t i = 0; i < std::size(kFieldNames); ++i) {
     package.fields.push_back({kFieldNames[i].key, kFieldNames[i].label, std::move(values[i])});
@@ -496,7 +546,7 @@ std::string IncidentPreviewText(const IncidentPackage& package) {
   return out;
 }
 
-std::string IncidentRequestBody(const IncidentPackage& package) { return "{" + JoinedValues(package) + "}"; }
+std::string IncidentRequestFields(const IncidentPackage& package) { return "," + JoinedValues(package); }
 
 IncidentOutcome IncidentOutcomeOf(const std::string& code) {
   if (code == "ok") return IncidentOutcome::kSent;
@@ -513,6 +563,14 @@ const char* IncidentLimitTitle(IncidentOutcome outcome) {
   return nullptr;
 }
 
+bool IsIncidentTicket(std::string_view text) {
+  constexpr std::string_view kPrefix = "TMNT-";
+  constexpr std::string_view kAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  if (!text.starts_with(kPrefix) || text.size() != kPrefix.size() + 6) return false;
+  return std::all_of(text.begin() + kPrefix.size(), text.end(),
+                     [&](char c) { return kAlphabet.find(c) != std::string_view::npos; });
+}
+
 bool IsIncidentReceipt(std::string_view text) {
   return text.size() == kReceiptHexDigits &&
          std::all_of(text.begin(), text.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
@@ -527,8 +585,8 @@ TrackedReport TrackedReportOf(const IncidentPackage& package, const IncidentRece
   report.description = package.Value(kDescriptionKey);
   report.log_file = package.Value("log_file");
   report.launcher_version = package.Value("launcher_version");
-  report.game_build = package.Value("game_build");
-  report.game_id = package.Value("game_id");
+  report.guest = package.Value("guest");
+  report.platform = package.Value("platform");
   report.operating_system = package.Value("operating_system");
   return report;
 }
@@ -539,7 +597,23 @@ std::string IncidentStatusRequest(const std::vector<TrackedReport>& reports) {
     if (!list.empty()) list += ',';
     list += "{\"ticket\":" + JsonQuote(reports[i].ticket) + ",\"receipt\":" + JsonQuote(reports[i].receipt) + "}";
   }
-  return "{\"reports\":[" + list + "]}";
+  return ",\"reports\":[" + list + "]";
+}
+
+std::string IncidentReadRequest(const TrackedReport& report) {
+  return ",\"ticket\":" + JsonQuote(report.ticket) + ",\"receipt\":" + JsonQuote(report.receipt);
+}
+
+std::string IncidentFileMessage(int seq, const IncidentPackage& package) {
+  return Envelope(kIncidentOperation, seq, IncidentRequestFields(package));
+}
+
+std::string IncidentStatusMessage(int seq, const std::vector<TrackedReport>& reports) {
+  return Envelope(kIncidentStatusOperation, seq, IncidentStatusRequest(reports));
+}
+
+std::string IncidentReadMessage(int seq, const TrackedReport& report) {
+  return Envelope(kIncidentReadOperation, seq, IncidentReadRequest(report));
 }
 
 std::vector<ReportStatus> ReadReportStatuses(std::string_view answer) {
@@ -555,36 +629,68 @@ IncidentServiceConfig IncidentServiceFromEnvironment() {
 }
 
 IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path& user_dir, const IncidentPackage& package) {
+  Say(config, "DEBUG_SAULO INCIDENT endpoint=" + EndpointHost(config.url));
   const online::Identity identity = online::LoadOrCreateIdentity(user_dir);
   if (!identity.ok()) {
-    std::printf("Bug report: no online identity (%s)\n", identity.error.c_str());
+    Say(config, "Bug report: no online identity (" + identity.error + ")");
     return {};
   }
   ServiceSession session;
   std::string error, code;
   if (!session.Connect(config.url, &error)) {
-    std::printf("Bug report: no session: %s\n", error.c_str());
+    Say(config, "Bug report: no session: " + error);
     return NotSent(IncidentOutcome::kUnreachable);
   }
-  if (!session.Call("hello", HelloBody(identity), &code)) {
-    std::printf("Bug report: no session: %s\n", code.c_str());
+  const std::optional<json::Value> greeted = session.Call("hello", HelloBody(identity), &code);
+  if (!greeted) {
+    Say(config, "Bug report: no session: " + code);
     return NotSent(IncidentOutcomeOf(code));
   }
   if (code != "ok") {
-    std::printf("Bug report: session refused (%s)\n", code.c_str());
+    Say(config, "Bug report: session refused (" + code + ")");
     return NotSent(IncidentOutcomeOf(code));
   }
-  const std::optional<json::Value> answer = session.Call(kIncidentOperation, JoinedValues(package), &code);
+  const json::Value* capabilities = greeted->Find("capabilities");
+  const bool supported = capabilities && capabilities->IsObject() && BoolOf(capabilities->Find("bug_reports"), false);
+  Say(config, "DEBUG_SAULO INCIDENT hello bug_reports=" + std::string(supported ? "1" : "0") +
+                  " worker_build=" + WorkerBuild(capabilities));
+  if (!supported) {
+    Say(config, "Bug report: the service takes no reports");
+    session.Close();
+    return NotSent(IncidentOutcome::kNotSupported);
+  }
+  const int seq = session.TakeSeq();
+  const std::string message = IncidentFileMessage(seq, package);
+  const std::optional<json::Value> parsed = json::Parse(message);
+  const bool valid = parsed && parsed->IsObject();
+  Say(config, "DEBUG_SAULO INCIDENT request op=incident.file seq=" + std::to_string(seq) +
+                  " bytes=" + std::to_string(message.size()) + " json_valid=" + (valid ? "1" : "0"));
+  Say(config, "DEBUG_SAULO INCIDENT request keys=" + RequestKeys(package));
+  if (!valid) {
+    Say(config, "Bug report: the report request was not valid JSON");
+    session.Close();
+    return NotSent(IncidentOutcome::kServiceError);
+  }
+  const std::optional<json::Value> answer = session.CallRaw(message, seq, &code);
   session.Close();
-  if (!answer) {
-    std::printf("Bug report: not accepted (%s)\n", code.c_str());
+  Say(config, "DEBUG_SAULO INCIDENT response code=" + code + " seq=" + std::to_string(seq));
+  if (!answer || code != "ok") {
+    Say(config, "Bug report: not accepted (" + code + ")");
     return NotSent(IncidentOutcomeOf(code));
   }
   const std::string ticket = StringOf(answer->Find("ticket"));
-  if (ticket.empty()) return {};
+  if (!IsIncidentTicket(ticket)) {
+    Say(config, "Bug report: the service sent no valid report id");
+    return NotSent(IncidentOutcome::kServiceError);
+  }
   const std::string receipt = StringOf(answer->Find("receipt"));
-  std::printf("Bug report: sent as %s\n", ticket.c_str());
-  return {IncidentOutcome::kSent, ticket, IsIncidentReceipt(receipt) ? receipt : std::string(), Int64Of(answer->Find("submitted_at"))};
+  if (!IsIncidentReceipt(receipt)) {
+    Say(config, "Bug report: the service sent no valid receipt");
+    return NotSent(IncidentOutcome::kServiceError);
+  }
+  Say(config, "DEBUG_SAULO INCIDENT ticket=" + ticket);
+  Say(config, "Bug report: sent as " + ticket);
+  return {IncidentOutcome::kSent, ticket, receipt, Int64Of(answer->Find("submitted_at"))};
 }
 
 std::optional<std::vector<ReportStatus>> FetchReportStatuses(const IncidentServiceConfig& config,
@@ -592,9 +698,10 @@ std::optional<std::vector<ReportStatus>> FetchReportStatuses(const IncidentServi
   ServiceSession session;
   std::string error, code;
   if (!session.Connect(config.url, &error)) return std::nullopt;
-  const std::optional<json::Value> answer = session.Call(kIncidentStatusOperation, IncidentStatusRequest(reports), &code);
+  const int seq = session.TakeSeq();
+  const std::optional<json::Value> answer = session.CallRaw(IncidentStatusMessage(seq, reports), seq, &code);
   session.Close();
-  if (!answer) return std::nullopt;
+  if (!answer || code != "ok") return std::nullopt;
   const json::Value* list = answer->Find("reports");
   if (!list || !list->IsArray()) return std::nullopt;
   return StatusesOf(*answer);
@@ -604,10 +711,10 @@ std::optional<IncidentPackage> FetchSentReport(const IncidentServiceConfig& conf
   ServiceSession session;
   std::string error, code;
   if (!session.Connect(config.url, &error)) return std::nullopt;
-  const std::string body = "{\"ticket\":" + JsonQuote(report.ticket) + ",\"receipt\":" + JsonQuote(report.receipt) + "}";
-  const std::optional<json::Value> answer = session.Call(kIncidentReadOperation, body, &code);
+  const int seq = session.TakeSeq();
+  const std::optional<json::Value> answer = session.CallRaw(IncidentReadMessage(seq, report), seq, &code);
   session.Close();
-  if (!answer) return std::nullopt;
+  if (!answer || code != "ok") return std::nullopt;
   const json::Value* report_json = answer->Find("report");
   if (!report_json || !report_json->IsObject()) return std::nullopt;
   return ReportOf(report_json);
