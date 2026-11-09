@@ -116,6 +116,8 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Ping display | `tmnt_online_ping_display` |
 | Controls | Keyboard | `mnk_mode` |
 | | Keyboard controls | `keybind_*` (one per action), reset by Keyboard defaults |
+| Achievements | (read-only) | (see below) |
+| Bug Report | Report a problem with one sanitized game log | (see [bug-reports.md](bug-reports.md)) |
 | About | Detailed logging | `detailed_logging` |
 
 ### Graphics
@@ -196,7 +198,7 @@ same page; an invite is accepted in the game, which is also where the party is m
 
 ### Page order
 
-The sidebar order is Play, Display, Graphics, Gameplay, Cheats, Online, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
+The sidebar order is Play, Display, Graphics, Gameplay, Cheats, Online, Achievements, Controls, Bug Report, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12. Bug Report sends a problem description and one sanitized log to the TMNT online service; see [bug-reports.md](bug-reports.md).
 
 The Hard Corps launcher also had Skip intro and a Frame rate choice with visual interpolation. Those were implemented with hooks into the Hard Corps engine and are not part of this project.
 
@@ -221,7 +223,8 @@ The launcher asks `https://api.github.com/repos/saulob/tmnt-turtles-in-time-resh
 
 - **Version**: `project(tmnt_turtles_in_time_reshelled VERSION x.y.z)` in `CMakeLists.txt` is the only source. It feeds the launcher subtitle, About, the updater, the Windows resource and the package names.
 - **Assets**: `TurtlesInTimeReshelled-v<version>-windows-x64.zip` and `.sha256`; on Linux `TurtlesInTimeReshelledRecompiled-v<version>-x86_64.AppImage` and `.sha256`. The ZIP holds the files at its root; a single wrapper folder is also accepted.
-- **Trust**: the GitHub asset digest, otherwise the `.sha256` asset (checked against its own digest when GitHub provides one). The size is checked before extraction and no update installs without a trusted SHA-256. Requests and every redirect stay on GitHub's HTTPS hosts (`patches/trg-launcher/0003`).
+- **Trust**: the GitHub asset digest, otherwise the `.sha256` asset (checked against its own digest when GitHub provides one). The size is checked before extraction and no update installs without a trusted SHA-256. Requests and every redirect stay on GitHub's HTTPS hosts (`patches/trg-launcher/0003` and `0010`).
+- **Network**: a stalled download is aborted after the receive timeout or the total limit, a short body is treated as interrupted, and a failed transfer removes its `.part` file and leaves the installed files untouched. Retrying starts a fresh download instead of reusing a partial one. Errors name the step (release metadata, checksum or update package).
 - **Windows**: the ZIP is extracted into a staging folder (miniz; absolute, drive, UNC, `..`, reserved-name, symlink and protected entries are refused), a manifest of release-owned files is written, and the running launcher copies `trg-updater.exe` to `%TEMP%\trg-update-*` and exits. The helper waits for the launcher, backs up and replaces the manifest files, verifies them, restarts the installed `tmnt_turtles_in_time_reshelled.exe` with `--tmnt_launcher=true` (other arguments kept, skip-launcher arguments removed) and rolls back on failure. `trg-updater.log` in that folder records the run and is kept after a failure. The helper is a static MSYS2 CLANG64 build (`tools/build-updater.ps1`) that imports Windows system DLLs only. The update replaces the files named in the manifest, never what is not in it. A release that predates updater support can be the target; the running build supplies the helper.
 - **Linux**: only the AppImage the program was started from is replaced (sibling temporary file, fsync, backup, atomic rename, restart, rollback).
 - **Never touched**: `game`, `game-install-temp`, `game-install-backup`, `user_data`, `user_data.migrating`, `logs`, `cache`, `content`, saves, `settings.toml`, `default.xex`, `TMNT_r.xex`, `TMNT.bf`, Xbox packages and any `.xex`, `.log`, `.sav`, `.bak`, `.tmp` or `.pdb` file. `tmnt_turtles_in_time_reshelled.toml` next to the program is release-owned (defaults); the player's choices live in `user_data/settings.toml`, which is protected.

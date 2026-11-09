@@ -142,8 +142,8 @@ tmnt_prepare_patched_trg_launcher("${_trg_source_dir}" "${_trg_patched_dir}" ${_
 file(READ "${_trg_patched_dir}/src/launcher.cpp" _trg_launcher_source)
 string(FIND "${_trg_launcher_source}" "void Launcher::HandleHotkeys() {" _hotkeys_pos)
 string(SUBSTRING "${_trg_launcher_source}" ${_hotkeys_pos} -1 _hotkeys_source)
-string(FIND "${_hotkeys_source}" "ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)" _ctrl_s_pos)
-string(FIND "${_hotkeys_source}" "io.WantTextInput) return;" _text_guard_pos)
+string(FIND "${_hotkeys_source}" "KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)" _ctrl_s_pos)
+string(FIND "${_hotkeys_source}" "io.WantTextInput || ImGui::IsPopupOpen" _text_guard_pos)
 if(_hotkeys_pos EQUAL -1 OR _ctrl_s_pos EQUAL -1 OR _text_guard_pos EQUAL -1 OR _ctrl_s_pos GREATER _text_guard_pos)
     message(FATAL_ERROR "TRG Launcher: the staged HandleHotkeys does not handle Ctrl+S before the text-input guard (${_trg_patched_dir}/src/launcher.cpp)")
 endif()
@@ -269,6 +269,9 @@ set(TMNT_SOURCES
     src/graphics_adapters.cpp
     src/guest_functions.cpp
     src/imgui_gamepad.cpp
+    src/incident_json.cpp
+    src/incident_page.cpp
+    src/incident_report.cpp
     src/invite_ui.cpp
     src/input_summary.cpp
     src/launcher.cpp
@@ -287,7 +290,9 @@ set(TMNT_SOURCES
     src/fire_movie_patch.cpp
     src/log_filter.cpp
     src/log_path.cpp
+    src/log_scrubber.cpp
     src/modal_dialog.cpp
+    src/my_reports.cpp
     src/notice_dialog.cpp
     src/online_bridge.cpp
     src/online_page.cpp
@@ -300,6 +305,7 @@ set(TMNT_SOURCES
     src/player_match_net.cpp
     src/player_match_net_hook.cpp
     src/port_version.cpp
+    src/report_history.cpp
     src/session_log.cpp
     src/settings.cpp
     src/stfs.cpp
@@ -1092,6 +1098,24 @@ add_executable(tmnt_localization_tests EXCLUDE_FROM_ALL tests/localization_tests
 target_include_directories(tmnt_localization_tests PRIVATE src)
 target_compile_definitions(tmnt_localization_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_options(tmnt_localization_tests PRIVATE -Wall -Wextra)
+
+add_executable(tmnt_incident_tests EXCLUDE_FROM_ALL tests/incident_tests.cpp
+    src/incident_json.cpp src/incident_report.cpp src/log_scrubber.cpp src/report_history.cpp
+    src/online/identity.cpp src/online/random.cpp src/online/websocket.cpp
+    src/localization/game_text.cpp src/localization/pt_br_game_text.cpp
+    src/localization/ui_text.cpp src/localization/pt_br_ui_text.cpp
+    src/port_version.cpp src/updater/json.cpp src/updater/sha256.cpp src/updater/update_paths.cpp)
+target_include_directories(tmnt_incident_tests PRIVATE src)
+target_compile_definitions(tmnt_incident_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ${TMNT_VERSION_DEFINITIONS})
+target_compile_options(tmnt_incident_tests PRIVATE -Wall -Wextra)
+if(WIN32)
+    target_sources(tmnt_incident_tests PRIVATE src/online/websocket_win.cpp)
+    target_link_libraries(tmnt_incident_tests PRIVATE winhttp ws2_32 bcrypt)
+else()
+    target_sources(tmnt_incident_tests PRIVATE src/online/websocket_posix.cpp)
+    target_link_libraries(tmnt_incident_tests PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)
 target_include_directories(tmnt_search_ticket_tests PRIVATE src)

@@ -20,6 +20,7 @@ This is a native PC port, not an emulator: the game's own PowerPC code is transl
 
 - **Native static recompilation**: the game's own code, not an emulator. Native Windows x64 build, plus an experimental Linux / Steam Deck AppImage.
 - **TRG launcher** with a game package installer, display, graphics, gameplay and online settings, and a self-updater that installs nothing until you choose it.
+- **Bug reports** with a preview of the sanitized log, report IDs, My reports history, status tracking and developer replies ([docs/bug-reports.md](docs/bug-reports.md)).
 - **Online multiplayer for up to four players**, through this port's own online service (not Xbox Live): friends by friend code, invites from your lobby, and peers that connect over Direct UDP with a Relay fallback for any pair that cannot.
 - **Offline achievements**, saved on your PC with the game's own names, icons and gamerscore.
 - **Languages**: the game's original English, French, German, Italian and Spanish, plus an unofficial **Português Brasil** translation of the game text and the launcher.
@@ -114,6 +115,7 @@ The TRG launcher opens before the game. Settings are saved to `user_data\setting
 | Online | Online play, Connection test, friends, invites |
 | Achievements | Your achievements on this PC |
 | Controls | Keyboard on/off and bindings |
+| Bug Report | A problem description and one sanitized game log, with My reports and developer replies |
 | About | Versions, folders, Open logs folder, Detailed logging, Sponsor |
 
 Hold **Shift** while starting to show a launcher that was turned off. See [docs/launcher.md](docs/launcher.md).

@@ -239,6 +239,12 @@ Headless tests (implementation tests, not part of any manual procedure): `node -
 `server/tmnt-lobby`, and `tools\test.ps1 -CppTests <build>`, which also runs the C++ online tests, including a
 four-client run, against an isolated test server.
 
+## Bug reports
+
+The launcher's Bug Report page uses the same Worker and WebSocket envelope as the online service. It works with Online
+Play off and needs no account beyond the installation's existing online identity. Reports, receipts, privacy filtering,
+status tracking, My reports and the admin dashboard are documented in [bug-reports.md](bug-reports.md).
+
 ## What is not covered
 
 - More than one online player per PC: one controller carries the online profile.

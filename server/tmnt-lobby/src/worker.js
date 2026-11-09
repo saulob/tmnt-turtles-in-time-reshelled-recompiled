@@ -6,6 +6,7 @@
 import { DurableObject } from 'cloudflare:workers';
 
 import { handleAdmin, isAdminPath } from './admin.js';
+import { isTicket, readStatusChange } from './incidents.js';
 import { BEACON_PATH, BeaconGate, beaconQuery, handleBeacon, parseBeacon } from './beacon.js';
 import { COUNTRY_HEADER, handleUpgrade, limitedCount } from './edge.js';
 import { Hub } from './hub.js';
@@ -84,6 +85,8 @@ export class TMNTLobby extends DurableObject {
   }
 
   async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/incidents')) return this.incidentRoute(request);
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return this.telemetryRoute(request);
     this.hub.edgeLimited(limitedCount(request.headers));
     const first = this.hub.admit(request.headers.get('CF-Connecting-IP') ?? '', request.headers.get(COUNTRY_HEADER) ?? '');
@@ -92,6 +95,37 @@ export class TMNTLobby extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment(first);
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  // The report routes of the Worker's admin page (admin.js), which have checked the token already. Player operations
+  // never reach here: they arrive on the lobby WebSocket.
+  async incidentRoute(request) {
+    const url = new URL(request.url);
+    if (url.pathname === '/incidents') return Response.json(this.hub.incidentList());
+    const [ticket, rest, ...more] = url.pathname.slice('/incidents/'.length).split('/');
+    if (!isTicket(ticket) || more.length > 0) return new Response('Not found', { status: 404 });
+    if (rest === undefined) {
+      if (request.method === 'DELETE') {
+        return this.hub.deleteIncident(ticket) ? Response.json({ deleted: ticket }) : Response.json({ error: 'not_found' }, { status: 404 });
+      }
+      const incident = this.hub.incident(ticket);
+      return incident ? Response.json(incident) : Response.json({ error: 'not_found' }, { status: 404 });
+    }
+    if (rest === 'status' && request.method === 'POST') {
+      const text = await request.text();
+      if (text.length > 8 * 1024) return Response.json({ error: 'too_large' }, { status: 413 });
+      let body = null;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return Response.json({ error: 'bad_request' }, { status: 400 });
+      }
+      const { change, detail } = readStatusChange(body);
+      if (!change) return Response.json({ error: 'bad_request', detail }, { status: 400 });
+      const saved = this.hub.setIncidentStatus(ticket, change);
+      return saved ? Response.json(saved) : Response.json({ error: 'not_found' }, { status: 404 });
+    }
+    return new Response('Not found', { status: 404 });
   }
 
   // The telemetry reads of the Worker's admin routes (admin.js), which have checked the token already, and the Connection
@@ -261,8 +295,8 @@ export default {
       });
     }
     if (isAdminPath(url.pathname)) {
-      const read = async (path) => {
-        const response = await lobby().fetch(new Request(`https://lobby.internal${path}`));
+      const read = async (path, init) => {
+        const response = await lobby().fetch(new Request(`https://lobby.internal${path}`, init));
         if (response.status === 404) return null;
         if (!response.ok) throw new Error(`lobby answered ${response.status}`);
         return response.json();
@@ -272,6 +306,15 @@ export default {
         session: (diag) => read(`/telemetry/session?diag=${diag}`),
         metricsSummary: () => read('/metrics/summary'),
         metricsHistory: (days) => read(`/metrics/history?days=${days}`),
+        incidents: () => read('/incidents'),
+        incident: (ticket) => read(`/incidents/${ticket}`),
+        setIncidentStatus: (ticket, change) => read(`/incidents/${ticket}/status`, { method: 'POST', body: JSON.stringify(change) }),
+        deleteIncident: async (ticket) => {
+          const response = await lobby().fetch(new Request(`https://lobby.internal/incidents/${ticket}`, { method: 'DELETE' }));
+          if (response.status === 404) return false;
+          if (!response.ok) throw new Error(`lobby answered ${response.status}`);
+          return true;
+        },
       }, (text) => console.log(text));
     }
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {

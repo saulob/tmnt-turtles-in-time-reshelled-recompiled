@@ -48,6 +48,14 @@ export const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart
 
 export const sha256Hex = (text) => toHex(sha256(new TextEncoder().encode(text)));
 
+// Constant-time comparison of two hex digests of the same length.
+export function digestsMatch(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // RFC 2104; the hub's handlers are synchronous, so crypto.subtle is out of reach.
 export function hmacSha256Hex(key, text) {
   const encoder = new TextEncoder();

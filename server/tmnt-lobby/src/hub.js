@@ -6,6 +6,7 @@
 // State lives in SQL tables and in each socket's attachment, so a hibernated Durable Object resumes as if it had never
 // stopped. The same class runs in the development server (local/server.js).
 import { PROTECTION, RateLimiter, checkedCounts } from './abuse.js';
+import { INCIDENT, INCIDENT_LIMITED, IncidentDesk, incidentTicket, readClaim, readClaims, readIncident } from './incidents.js';
 import { Metrics, SAMPLE_MS, countryCode, platformCategory, sampleBucket, versionCategory } from './metrics.js';
 import { parsePartyReport } from './party.js';
 import { hmacSha256Hex, sha256Hex, toHex } from './sha256.js';
@@ -17,6 +18,7 @@ import { TelemetryStore, isDiag, parseBatch } from './telemetry.js';
 
 const DAY_MS = 24 * 3600 * 1000;
 const SOCIAL_OPS = new Set(['friends.add', 'party.create', 'party.kick', 'invite.send', 'invite.accept', 'pm.host', 'pm.join']);
+const SESSIONLESS_OPS = new Set(['hello', 'incident.status', 'incident.read']);
 const RULE_KEY = /^[a-z_]{1,16}$/;
 const QOS_DATA = /^(?:[0-9a-f]{2}){0,256}$/;
 const MEMBER_STATES = ['joined', 'connecting', 'connected', 'disconnected'];
@@ -86,6 +88,7 @@ export class Hub {
       inviteAddress: new RateLimiter(PROTECTION.inviteAddress),
       friendAccount: new RateLimiter(PROTECTION.friendAccount),
       telemetryAccount: new RateLimiter(PROTECTION.telemetryAccount),
+      incidentStatus: new RateLimiter({ burst: 30, perSecond: 0.5 }),
       partyReportAll: new RateLimiter(PROTECTION.partyReportAll),
       partyReportAccount: new RateLimiter(PROTECTION.partyReportAccount),
       partyReportAddress: new RateLimiter(PROTECTION.partyReportAddress),
@@ -110,6 +113,12 @@ export class Hub {
     } catch (error) {
       this.telemetryFailed(error);
       this.metrics = null;
+    }
+    try {
+      this.incidents = new IncidentDesk(host.sql, this.meta('salt'));
+    } catch (error) {
+      this.telemetryFailed(error);
+      this.incidents = null;
     }
     if (this.telemetry) this.telemetry.onAbuse = (entries) => this.track(() => this.metrics.addAbuse(entries));
     this.reconcile();
@@ -172,8 +181,13 @@ export class Hub {
     this.keepDeferred = false;
     try {
       if (typeof text !== 'string') fail('bad_request', 'text frames only');
-      if (text.length > LIMITS.telemetryFrameBytes ||
-          (text.length > LIMITS.frameBytes && !text.includes('"op":"telemetry.batch"'))) {
+      const reportFrame = text.includes('"op":"incident.file"');
+      const telemetryFrame = text.includes('"op":"telemetry.batch"');
+      if (text.length > LIMITS.incidentFrameBytes ||
+          (text.length > LIMITS.telemetryFrameBytes && !reportFrame && !telemetryFrame)) {
+        fail('too_large');
+      }
+      if (!reportFrame && !telemetryFrame && text.length > LIMITS.frameBytes) {
         fail('too_large');
       }
       let msg;
@@ -184,7 +198,13 @@ export class Hub {
       }
       if (!isObject(msg) || typeof msg.op !== 'string' || !isInt(msg.seq, 0, 0x7fffffff)) fail('bad_request', 'envelope');
       seq = msg.seq;
-      if (text.length > LIMITS.frameBytes && msg.op !== 'telemetry.batch') fail('too_large');
+      if (msg.op === 'incident.file') {
+        if (text.length > LIMITS.incidentFrameBytes) fail('too_large');
+      } else if (msg.op === 'telemetry.batch') {
+        if (text.length > LIMITS.telemetryFrameBytes) fail('too_large');
+      } else if (text.length > LIMITS.frameBytes) {
+        fail('too_large');
+      }
       const now = this.host.now();
       const any = takeToken(att.ra, BUCKETS.any, now);
       if (!any) {
@@ -209,8 +229,21 @@ export class Hub {
         }
         att.rq = search;
       }
+      // Status checks and report reads take no account, so they are limited per socket and per address.
+      if (msg.op === 'incident.status' || msg.op === 'incident.read') {
+        const socket = takeToken(att.ri, BUCKETS.incidentStatus, now);
+        if (!socket) {
+          this.noteLimit('incident');
+          fail('limit', 'slow down');
+        }
+        att.ri = socket;
+        if (!this.guards.incidentStatus.take(this.ipKey(att.ip), now)) {
+          this.noteLimit('incident');
+          fail('limit', 'slow down');
+        }
+      }
       if (!Object.hasOwn(HANDLERS, msg.op)) fail('bad_request', 'unknown op');
-      if (msg.op !== 'hello' && !att.hello) fail('no_session');
+      if (!SESSIONLESS_OPS.has(msg.op) && !att.hello) fail('no_session');
       this.index = null;
       const body = HANDLERS[msg.op].call(this, att, msg, conn, text) ?? {};
       conn.setAttachment(att);
@@ -508,11 +541,39 @@ export class Hub {
   }
 
   metricsSummary() {
-    return this.metrics.summary(this.liveMetrics());
+    return { ...this.metrics.summary(this.liveMetrics()), incidents: this.incidentMetrics() };
   }
 
   metricsHistory(days) {
     return { ...this.metrics.history(days), player_key: this.metricsSecret ? 'secret' : 'salt' };
+  }
+
+  // ---- bug reports (incidents.js); admin reads after the edge checked the token ----
+  incidentMetrics() {
+    return this.incidents ? this.incidents.summary() : { total: 0, by_status: {}, tracked: 0 };
+  }
+
+  incidentList() {
+    return this.incidents ? this.incidents.list() : { incidents: [], kept: INCIDENT.kept };
+  }
+
+  incident(ticket) {
+    return this.incidents ? this.incidents.get(ticket) : null;
+  }
+
+  setIncidentStatus(ticket, change) {
+    if (!this.incidents) return null;
+    const before = this.incidents.status(ticket);
+    const saved = this.incidents.setStatus(ticket, change, this.host.now());
+    if (saved && saved.player_message !== before?.player_message) this.track(() => this.metrics?.incidentMessage());
+    return saved;
+  }
+
+  deleteIncident(ticket) {
+    if (!this.incidents) return false;
+    const removed = this.incidents.remove(ticket);
+    if (removed) this.track(() => this.metrics?.incidentDeleted());
+    return removed;
   }
 
   // One Connection Test beacon (beacon.js); a store that fails throws to the caller, which answers regardless.
@@ -996,6 +1057,66 @@ const HANDLERS = {
 
   ping() {
     return { time: this.host.now() };
+  },
+
+  'incident.file'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const parsed = readIncident(msg);
+    if (parsed.code) {
+      this.track(() => this.metrics?.incidentRejected(parsed.code));
+      this.diagnose(parsed.code === 'too_large' ? 'incident_limited' : 'incident_rejected');
+      fail(parsed.code, parsed.detail);
+    }
+    const now = this.host.now();
+    const refusal = this.incidents.refusal(att.player, att.ip, now);
+    if (refusal) {
+      this.track(() => this.metrics?.incidentRejected(refusal));
+      this.diagnose(INCIDENT_LIMITED[refusal] ?? 'incident_limited');
+      fail(refusal);
+    }
+    const ticket = incidentTicket(crypto.getRandomValues(new Uint8Array(6)));
+    const receipt = this.randomHex(32);
+    try {
+      this.incidents.file(parsed.incident, ticket, att.player, att.ip, now);
+      this.incidents.track(ticket, receipt, now);
+    } catch (error) {
+      this.host.log(`incident: could not store ${ticket}: ${error?.message ?? error}`);
+      this.incidents.remove(ticket);
+      this.track(() => this.metrics?.incidentRejected('storage'));
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    this.track(() => this.metrics?.incidentFiled());
+    this.diagnose('incident_filed');
+    return { ticket, receipt, submitted_at: now };
+  },
+
+  'incident.status'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const claims = readClaims(msg);
+    if (!claims) fail('bad_request', 'reports');
+    const statuses = this.incidents.statuses(claims);
+    this.track(() => this.metrics?.incidentStatusCheck());
+    return { reports: statuses };
+  },
+
+  'incident.read'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const claim = readClaim(msg);
+    if (!claim) fail('bad_request', 'ticket');
+    const report = this.incidents.report(claim);
+    if (!report) fail('not_found');
+    this.track(() => this.metrics?.incidentRead());
+    return { report };
   },
 
   'friends.list'(att) {

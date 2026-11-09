@@ -1,0 +1,1272 @@
+diff --git a/include/trg/launcher.h b/include/trg/launcher.h
+index 879becd..30ad4e5 100644
+--- a/include/trg/launcher.h
++++ b/include/trg/launcher.h
+@@ -21,15 +21,19 @@
+ // its own SDL2 + OpenGL 3 window before the game starts.
+ #pragma once
+ 
++#include <algorithm>
+ #include <functional>
+ #include <memory>
+ #include <optional>
+ #include <string>
+ #include <string_view>
++#include <utility>
+ #include <vector>
+ 
+ #include <imgui.h>
+ 
++#include "trg/layout.h"
++#include "trg/page_navigation.h"
+ #include "trg/settings.h"
+ 
+ #if !defined(IMGUI_VERSION_NUM) || IMGUI_VERSION_NUM < 19200
+@@ -67,6 +71,8 @@ struct Theme {
+   ImVec4 link;          // hyperlinks, slider grabs, check marks, keyboard focus
+   ImVec4 text;
+   ImVec4 dim;           // help text, hints
++  ImVec4 border_row = ImVec4(layout::kRowBorder[0], layout::kRowBorder[1], layout::kRowBorder[2], 1.0f);
++  ImVec4 border_panel = ImVec4(layout::kPanelBorder[0], layout::kPanelBorder[1], layout::kPanelBorder[2], 1.0f);
+   ImVec4 good;          // "Ready to play" card
+   ImVec4 warn;          // "Game files needed" card
+   ImVec4 good_dot;
+@@ -83,7 +89,7 @@ struct Theme {
+   Theme WithAccent(ImVec4 accent) const;
+   // The same theme with interactive controls in their own colour. Hover,
+   // pressed and text-on-action colours are derived from `fill`.
+-  Theme WithAction(ImVec4 fill, ImVec4 edge, ImVec4 link) const;
++  Theme WithAction(ImVec4 fill, ImVec4 edge, ImVec4 link_colour) const;
+ };
+ 
+ ImU32 Col(const ImVec4& c, float alpha_mul = 1.0f);
+@@ -134,11 +140,15 @@ struct Branding {
+ };
+ 
+ // ------------------------------------------------------------------ pages ---
++
+ struct Page {
+   std::string name;   // sidebar entry and page title
+   std::string blurb;  // one line under the title
+   std::function<void(Ui&)> draw;
+   std::function<bool()> needs_attention;  // shows a dot in the sidebar (e.g. game not installed)
++  std::function<int()> badge;             // a count in the sidebar instead of the dot; 0 hides it
++  // White image of that many pixels square for the sidebar to tint; none hides the icon.
++  std::function<ImTextureID(int pixels)> icon = nullptr;
+ };
+ 
+ struct Option {
+@@ -156,7 +166,7 @@ struct PlayCheck {
+ // the player should know about (King Kong warns about frame rates above 30).
+ struct PromptButton {
+   std::string label;
+-  bool accent = false;           // drawn in the action colour (the recommended choice)
++  bool accent = false;           // drawn in the accent colour (the recommended choice)
+   bool play = true;              // start the game after `action`; false just closes the pop-up
+   std::function<void()> action;  // runs first, e.g. to change a setting
+ };
+@@ -243,6 +253,8 @@ class Ui {
+ 
+   // -- other rows
+   void Info(const char* label, const char* text);
++  // Short label and value pairs in two columns.
++  void InfoGrid(const std::vector<std::pair<std::string, std::string>>& items);
+   bool ButtonRow(const char* label, const char* help, const char* button, bool accent = false);
+   // A button that asks first; true when confirmed.
+   bool ConfirmRow(const char* label, const char* help, const char* button, const char* question,
+@@ -259,6 +271,12 @@ class Ui {
+   // -- building blocks
+   // Starts a row; draw the control after it (it gets the right-hand column).
+   void Row(const char* label, const char* help = nullptr);
++  // A row the player has to find: the label is larger and in the accent colour.
++  void RowEmphasized(const char* label, const char* help = nullptr);
++  // Row in two steps, for extra lines under the help text: RowLeft leaves the
++  // cursor in the label column, RowControl moves it to the control column.
++  void RowLeft(const char* label, const char* help = nullptr);
++  void RowControl();
+   void EndRows();
+   int Segmented(const char* id, const std::vector<std::string>& labels, int selected);
+   bool AccentButton(const char* label, ImVec2 size = ImVec2(-FLT_MIN, 0));
+@@ -271,7 +289,7 @@ class Ui {
+   void Heading(const char* text);
+   void Paragraph(const char* text);  // dim, wrapped
+   void Help(const char* text);       // small, dim, wrapped
+-  void Link(const char* text, const std::string& url);  // small hyperlink
++  void Link(const char* text, const std::string& url);  // small, dim hyperlink
+   // A panel with two paragraphs, the sponsor button and its URL; nothing without a sponsor url.
+   void SponsorCard(const char* message, const char* note);
+   void Spacer(float height = 8.0f);
+@@ -290,6 +308,12 @@ class Ui {
+   friend class Launcher;
+   void BeginPage();
+   void EndPage();
++  void BeginRow();
++  void BeginRowLines();
++  void AddRowLine();
++  void DrawRowLines();
++  void RowLabel(const char* label, const char* help, float label_size = layout::kTextLabel,
++                const ImVec4* label_color = nullptr);
+   void LeaveRows() {
+     if (in_rows_) EndRows();
+   }
+@@ -298,6 +322,9 @@ class Ui {
+   float scale_ = 1.0f;
+   bool in_rows_ = false;
+   int rows_id_ = 0;
++  float row_top_ = 0.0f;
++  float row_left_ = 0.0f, row_right_ = 0.0f;
++  std::vector<float> row_lines_;
+   std::string capturing_;  // id of the key binding waiting for a key
+   int capture_frame_ = 0;
+ };
+@@ -317,9 +344,10 @@ class Launcher {
+ 
+   bool Save();  // settings + on_save, with a status line
+   void SetStatus(std::string text, double seconds = 4.0);
++  // Applied when the next frame starts, so that a frame never mixes two pages.
+   void GoToPage(int index);
+   int FindPage(std::string_view name) const;
+-  int page() const { return page_; }
++  int page() const { return navigation_.current(); }
+   void RequestPlay() { want_play_ = true; }
+   // Shows a pop-up over the launcher (the same one before_play uses).
+   void ShowPrompt(PlayPrompt prompt);
+@@ -338,6 +366,7 @@ class Launcher {
+   void DrawHeader(ImVec2 origin, float w, float h);
+   void DrawSidebar(ImVec2 size);
+   void DrawContent(ImVec2 size);
++  void OutlinePanel(ImVec2 size);
+   void DrawFooter(ImVec2 origin, float w, float h);
+   void DrawPlayButton(ImVec2 size, bool can_play);
+   void HandleHotkeys();
+@@ -347,7 +376,7 @@ class Launcher {
+   LauncherConfig config_;
+   Ui ui_;
+   float s_ = 1.0f;
+-  int page_ = 0;
++  PageNavigation navigation_;
+   bool want_play_ = false, want_quit_ = false;
+   std::string status_;
+   double status_until_ = 0.0;
+diff --git a/include/trg/layout.h b/include/trg/layout.h
+new file mode 100644
+index 0000000..3c61359
+--- /dev/null
++++ b/include/trg/layout.h
+@@ -0,0 +1,145 @@
++// The launcher's metrics, with no dependency on Dear ImGui.
++#pragma once
++
++#include <algorithm>
++#include <cmath>
++#include <cstddef>
++#include <string_view>
++#include <vector>
++
++namespace trg {
++
++// ----------------------------------------------------------------- layout ---
++// Logical pixels: geometry is multiplied by Ui::scale(), and PushFont applies
++// the display scale to text sizes itself.
++namespace layout {
++inline constexpr float kTextBody = 16.0f;  // buttons, combos, Fonts::size
++inline constexpr float kTextLabel = 17.0f;
++inline constexpr float kTextHelp = 15.0f;
++inline constexpr float kTextSection = 19.0f;
++inline constexpr float kTextPage = 30.0f;
++inline constexpr float kTextSidebar = 17.0f;
++inline constexpr float kTextFooter = 15.0f;
++
++// Opaque, so that a line keeps its contrast on the page, on a panel and on a card.
++inline constexpr float kRowBorder[3] = {46.0f / 255.0f, 59.0f / 255.0f, 84.0f / 255.0f};
++inline constexpr float kPanelBorder[3] = {58.0f / 255.0f, 74.0f / 255.0f, 102.0f / 255.0f};
++
++inline constexpr float kControlHeight = 34.0f;
++inline constexpr float kItemGap = 6.0f;
++inline constexpr float kRowPadding = 8.0f;  // above and below a row's content
++inline constexpr float kLabelGap = 3.0f;    // between a row's label and help text
++inline constexpr float kInfoGridPadding = 5.0f;
++inline constexpr float kSectionGap = 10.0f;  // added above a section title, on top of the item spacing
++
++inline constexpr float kMargin = 14.0f;
++inline constexpr float kBodyGap = 6.0f;  // between the header and the panels
++inline constexpr float kContentPadding = 18.0f;
++inline constexpr float kContentTop = 12.0f;
++inline constexpr float kContentBottom = 6.0f;
++
++inline constexpr float kSidebarPadding = 6.0f;
++inline constexpr float kSidebarRow = 42.0f;
++inline constexpr float kSidebarRowMin = 32.0f;
++inline constexpr float kSidebarIcon = 21.0f;
++inline constexpr float kSidebarIconInset = 12.0f;  // from the row's left edge
++inline constexpr float kSidebarIconGap = 11.0f;    // between the icon box and the label
++inline constexpr float kSidebarGap = 2.0f;
++
++inline constexpr float kSupportIconBlock = 40.0f;
++inline constexpr float kSupportIconHeart = 22.0f;
++inline constexpr float kSupportIconGap = 14.0f;  // between the block and the card's text
++
++inline constexpr float kFooterHeight = 60.0f;
++inline constexpr float kFooterButtonHeight = 36.0f;
++inline constexpr float kFooterButtonWidth = 108.0f;
++inline constexpr float kFooterGap = 10.0f;
++inline constexpr float kPlayWidth = 190.0f;
++inline constexpr float kPlayHeight = 42.0f;
++inline constexpr float kKeycapHeight = 26.0f;
++inline constexpr float kKeycapPadding = 8.0f;
++inline constexpr float kKeycapRounding = 6.0f;
++inline constexpr float kKeycapGap = 6.0f;     // between a keycap and its action
++inline constexpr float kKeyHintGap = 12.0f;   // between two shortcuts
++inline constexpr float kFooterSeparator = 28.0f;
++inline constexpr float kFooterSeparatorGap = 10.0f;
++inline constexpr float kFooterHelpLine = 18.0f;  // between the helper lines' centres
++
++inline float HeaderHeight(float viewport_height, float scale) {
++  return std::clamp(viewport_height * 0.145f, 88.0f * scale, 140.0f * scale);
++}
++
++inline float SidebarWidth(float viewport_width, float scale) {
++  return std::clamp(viewport_width * 0.15f, 168.0f * scale, 176.0f * scale);
++}
++
++inline float SidebarHeight(int pages, float row = kSidebarRow) {
++  return kSidebarPadding * 2.0f + float(pages) * row + float(pages - 1) * kSidebarGap;
++}
++
++// The full row while every page fits, less in a window too short for that.
++inline float SidebarRowFor(int pages, float body_height) {
++  const float rows = body_height - SidebarHeight(pages, 0.0f);
++  return std::clamp(std::floor(rows / float(pages)), kSidebarRowMin, kSidebarRow);
++}
++
++inline float ControlColumnWidth(float row_width, float scale) {
++  return std::clamp(row_width * 0.34f, 280.0f * scale, 360.0f * scale);
++}
++
++// A whole number of pixels, so that lines stay crisp at any display scale.
++inline float LineThickness(float scale) { return std::max(1.0f, std::floor(scale + 0.5f)); }
++inline float PassiveLineThickness(float scale) { return std::max(1.0f, std::floor(scale)); }
++// The panel drawn over a border softens one pixel of it.
++inline float PanelBorderWidth(float scale) { return LineThickness(scale) + 1.0f; }
++
++// A page's width with room for its scrollbar, so that the bar appearing moves nothing.
++inline float StableContentWidth(float body_width, float scrollbar_size) { return body_width - scrollbar_size; }
++
++inline constexpr float SidebarLabelX() { return kSidebarIconInset + kSidebarIcon + kSidebarIconGap; }
++
++// Where to place a line so that the point `visual_center` below its top lands on `center`.
++inline float CenteredTop(float center, float visual_center) { return std::floor(center - visual_center + 0.5f); }
++
++struct KeyHint {
++  std::string_view key;  // empty when the text has no key
++  std::string_view action;
++};
++
++// "Enter  Play     Esc  Quit": two spaces inside a shortcut, more between shortcuts.
++inline std::vector<KeyHint> ParseKeyHints(std::string_view text) {
++  std::vector<KeyHint> hints;
++  while (!text.empty()) {
++    const size_t begin = text.find_first_not_of(' ');
++    if (begin == std::string_view::npos) break;
++    text.remove_prefix(begin);
++    const size_t end = text.find("   ");
++    std::string_view item = text.substr(0, end);
++    text.remove_prefix(item.size());
++    const size_t gap = item.find("  ");
++    if (gap == std::string_view::npos) {
++      hints.push_back({{}, item});
++    } else {
++      hints.push_back({item.substr(0, gap), item.substr(item.find_first_not_of(' ', gap))});
++    }
++  }
++  return hints;
++}
++
++// The footer's helper text, one sentence per line.
++inline std::vector<std::string_view> SplitSentences(std::string_view text) {
++  std::vector<std::string_view> lines;
++  while (!text.empty()) {
++    const size_t end = text.find(". ");
++    if (end == std::string_view::npos) {
++      lines.push_back(text);
++      break;
++    }
++    lines.push_back(text.substr(0, end + 1));
++    text.remove_prefix(end + 2);
++  }
++  return lines;
++}
++}  // namespace layout
++
++}  // namespace trg
+diff --git a/include/trg/page_navigation.h b/include/trg/page_navigation.h
+new file mode 100644
+index 0000000..4d7e11e
+--- /dev/null
++++ b/include/trg/page_navigation.h
+@@ -0,0 +1,28 @@
++#pragma once
++
++namespace trg {
++
++// The page a frame draws. Requests made while a frame is being drawn wait for
++// Commit() at the start of the next one, so every part of a frame sees one page.
++class PageNavigation {
++ public:
++  PageNavigation() = default;
++  explicit PageNavigation(int page) : current_(page) {}
++
++  int current() const { return current_; }
++  void Request(int page) { pending_ = page; }
++
++  // True when a request was waiting, even for the current page.
++  bool Commit() {
++    if (pending_ < 0) return false;
++    current_ = pending_;
++    pending_ = -1;
++    return true;
++  }
++
++ private:
++  int current_ = 0;
++  int pending_ = -1;
++};
++
++}  // namespace trg
+diff --git a/src/launcher.cpp b/src/launcher.cpp
+index 8a8c5a5..9589741 100644
+--- a/src/launcher.cpp
++++ b/src/launcher.cpp
+@@ -12,9 +12,7 @@
+ 
+ namespace trg {
+ 
+-namespace {
+ Translator g_translator = nullptr;
+-}  // namespace
+ 
+ void SetTranslator(Translator translator) { g_translator = translator; }
+ 
+@@ -28,16 +26,7 @@ ImVec4 Mix(const ImVec4& a, const ImVec4& b, float t) {
+   return ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+ }
+ 
+-void UseAccentForActions(Theme& t) {
+-  t.action = t.accent;
+-  t.action_hot = t.accent_hot;
+-  t.action_active = t.accent_hot;
+-  t.on_action = t.on_accent;
+-  t.action_edge = t.accent;
+-  t.link = t.accent;
+-}
+-
+-void ApplyTheme(const Theme& t, float s) {
++void ApplyTheme(const Theme& t, float s, float font_size) {
+   ImGuiStyle& st = ImGui::GetStyle();
+   st.WindowPadding = ImVec2(14 * s, 12 * s);  // popups and combos; the launcher's own windows use none
+   st.WindowBorderSize = 0;
+@@ -52,10 +41,10 @@ void ApplyTheme(const Theme& t, float s) {
+   st.TabRounding = 7 * s;
+   st.ScrollbarRounding = 8 * s;
+   st.ScrollbarSize = 10 * s;
+-  st.FramePadding = ImVec2(12 * s, 8 * s);
+-  st.ItemSpacing = ImVec2(10 * s, 10 * s);
++  st.FramePadding = ImVec2(12 * s, (layout::kControlHeight - font_size) * 0.5f * s);
++  st.ItemSpacing = ImVec2(8 * s, layout::kItemGap * s);
+   st.ItemInnerSpacing = ImVec2(8 * s, 6 * s);
+-  st.CellPadding = ImVec2(0, 12 * s);
++  st.CellPadding = ImVec2(0, layout::kRowPadding * s);
+   st.GrabMinSize = 14 * s;
+   st.SelectableTextAlign = ImVec2(0, 0.5f);
+   ImVec4* c = st.Colors;
+@@ -84,9 +73,9 @@ void ApplyTheme(const Theme& t, float s) {
+   c[ImGuiCol_ScrollbarGrab] = t.frame_hot;
+   c[ImGuiCol_ScrollbarGrabHovered] = t.frame_active;
+   c[ImGuiCol_ScrollbarGrabActive] = t.frame_active;
+-  c[ImGuiCol_Separator] = ImVec4(1, 1, 1, 0.07f);
+-  c[ImGuiCol_TableBorderLight] = ImVec4(1, 1, 1, 0.06f);
+-  c[ImGuiCol_TableBorderStrong] = ImVec4(1, 1, 1, 0.08f);
++  c[ImGuiCol_Separator] = t.border_row;
++  c[ImGuiCol_TableBorderLight] = t.border_row;
++  c[ImGuiCol_TableBorderStrong] = t.border_panel;
+   c[ImGuiCol_TableRowBg] = ImVec4(0, 0, 0, 0);
+   c[ImGuiCol_TableRowBgAlt] = ImVec4(0, 0, 0, 0);
+   c[ImGuiCol_NavCursor] = t.link;
+@@ -104,8 +93,8 @@ ImFont* LoadFirstFont(std::initializer_list<std::string> paths, float size) {
+ }
+ 
+ // Draws `text` at `pos` and returns its advance. A non-empty url makes it a
+-// hyperlink: always underlined except while hovered, then the hand cursor, a
+-// tooltip with the url and a click that opens it.
++// hyperlink: always underlined except while hovered, then the hand cursor and a
++// click that opens it.
+ float LinkText(ImDrawList* dl, const char* id, ImVec2 pos, ImFont* font, float size, ImU32 color,
+                const char* text, const std::string& url) {
+   const char* end = text + std::strlen(text);
+@@ -118,7 +107,7 @@ float LinkText(ImDrawList* dl, const char* id, ImVec2 pos, ImFont* font, float s
+     hovered = ImGui::IsItemHovered();
+     if (hovered) {
+       ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+-      ImGui::SetTooltip("%s", url.c_str());
++      ImGui::SetItemTooltip("%s", url.c_str());
+     }
+     ImGui::PopID();
+   }
+@@ -144,6 +133,44 @@ float SponsorButtonWidth(const SponsorLink& sponsor, ImFont* font, float font_si
+   return text + SponsorIconSize(font_size) + 8 * scale + 28 * scale;
+ }
+ 
++// From the top of a line to the middle of its capitals, which is where the eye puts the text's centre.
++float CapCenter(ImFont* font, float size) {
++  const ImFontGlyph* glyph = font->GetFontBaked(size)->FindGlyph('H');
++  return glyph ? (glyph->Y0 + glyph->Y1) * 0.5f : size * 0.5f;
++}
++
++// Draws the shortcuts as keycaps and labels centred on `at.y`, or only measures them without `dl`.
++float DrawKeyHints(ImDrawList* dl, const std::vector<layout::KeyHint>& hints, const Fonts& fonts, const Theme& t,
++                   ImVec2 at, float s) {
++  const float size = layout::kTextFooter * s;
++  const float cap_h = layout::kKeycapHeight * s, padding = layout::kKeycapPadding * s;
++  const float cap_top = std::floor(at.y - cap_h * 0.5f);
++  const float key_top = layout::CenteredTop(at.y, CapCenter(fonts.semibold, size));
++  const float action_top = layout::CenteredTop(at.y, CapCenter(fonts.regular, size));
++  float x = at.x;
++  for (const layout::KeyHint& hint : hints) {
++    const char* key_end = hint.key.data() + hint.key.size();
++    const char* action_end = hint.action.data() + hint.action.size();
++    if (!hint.key.empty()) {
++      const float text_w = fonts.semibold->CalcTextSizeA(size, FLT_MAX, 0.0f, hint.key.data(), key_end).x;
++      const float cap_w = std::floor(text_w + padding * 2);
++      if (dl) {
++        const ImVec2 min(std::floor(x), cap_top), max(min.x + cap_w, cap_top + cap_h);
++        const float rounding = layout::kKeycapRounding * s;
++        dl->AddRectFilled(min, max, Col(t.frame, 0.7f), rounding);
++        dl->AddRect(min, max, Col(t.frame_hot), rounding, 0, layout::LineThickness(s));
++        dl->AddText(fonts.semibold, size, ImVec2(min.x + (cap_w - text_w) * 0.5f, key_top), Col(t.text),
++                    hint.key.data(), key_end);
++      }
++      x += cap_w + layout::kKeycapGap * s;
++    }
++    if (dl) dl->AddText(fonts.regular, size, ImVec2(x, action_top), Col(t.text, 0.85f), hint.action.data(), action_end);
++    x += fonts.regular->CalcTextSizeA(size, FLT_MAX, 0.0f, hint.action.data(), action_end).x;
++    x += layout::kKeyHintGap * s;
++  }
++  return hints.empty() ? 0.0f : x - at.x - layout::kKeyHintGap * s;
++}
++
+ bool SponsorButton(const char* id, const SponsorLink& sponsor, ImVec2 pos, ImVec2 size, ImFont* font,
+                    float font_size, float scale) {
+   ImGui::SetCursorScreenPos(pos);
+@@ -159,7 +186,8 @@ bool SponsorButton(const char* id, const SponsorLink& sponsor, ImVec2 pos, ImVec
+     ImGui::SetItemTooltip("%s", sponsor.url.c_str());
+   }
+   const ImVec2 min = ImGui::GetItemRectMin();
+-  const ImVec2 text = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, T(sponsor.label.c_str()));
++  const char* label = T(sponsor.label.c_str());
++  const ImVec2 text = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label);
+   const bool has_icon = sponsor.icon != ImTextureID{};
+   const float icon = has_icon ? SponsorIconSize(font_size) : 0.0f;
+   const float gap = has_icon ? 8 * scale : 0.0f;
+@@ -169,17 +197,12 @@ bool SponsorButton(const char* id, const SponsorLink& sponsor, ImVec2 pos, ImVec
+   if (has_icon) {
+     dl->AddImage(ImTextureRef(sponsor.icon), ImVec2(x, cy - icon * 0.5f), ImVec2(x + icon, cy + icon * 0.5f));
+   }
+-  dl->AddText(font, font_size, ImVec2(x + icon + gap, cy - text.y * 0.5f), IM_COL32_WHITE, T(sponsor.label.c_str()));
++  dl->AddText(font, font_size, ImVec2(x + icon + gap, cy - text.y * 0.5f), IM_COL32_WHITE, label);
+   return pressed;
+ }
+ 
+ }  // namespace
+ 
+-// ------------------------------------------------------------------- theme --
+-ImU32 Col(const ImVec4& c, float alpha_mul) {
+-  return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, c.w * alpha_mul));
+-}
+-
+ void PushActionButton(const Theme& t, float scale) {
+   ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, std::max(scale, 1.0f));
+   ImGui::PushStyleColor(ImGuiCol_Button, t.action);
+@@ -194,6 +217,22 @@ void PopActionButton() {
+   ImGui::PopStyleVar();
+ }
+ 
++// ------------------------------------------------------------------- theme --
++ImU32 Col(const ImVec4& c, float alpha_mul) {
++  return ImGui::ColorConvertFloat4ToU32(ImVec4(c.x, c.y, c.z, c.w * alpha_mul));
++}
++
++namespace {
++void UseAccentForActions(Theme& t) {
++  t.action = t.accent;
++  t.action_hot = t.accent_hot;
++  t.action_active = t.accent_hot;
++  t.on_action = t.on_accent;
++  t.action_edge = t.accent;
++  t.link = t.accent;
++}
++}  // namespace
++
+ Theme Theme::Midnight() {
+   Theme t;
+   t.bg = ImVec4(0.027f, 0.039f, 0.086f, 1.0f);
+@@ -320,35 +359,75 @@ void Ui::BeginPage() {
+ 
+ void Ui::EndPage() { LeaveRows(); }
+ 
+-void Ui::Row(const char* label, const char* help) {
++void Ui::BeginRow() {
+   if (!in_rows_) {
+     char id[32];
+     std::snprintf(id, sizeof id, "##rows%d", rows_id_++);
+-    in_rows_ = ImGui::BeginTable(id, 2, ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp);
++    const float control_w = layout::ControlColumnWidth(ImGui::GetContentRegionAvail().x, scale_);
++    BeginRowLines();
++    in_rows_ = ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp);
+     if (in_rows_) {
+-      ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch, 0.46f);
+-      ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthStretch, 0.54f);
++      // Without an explicit weight this column collapses on the table's first frame.
++      ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthStretch, 1.0f);
++      ImGui::TableSetupColumn("control", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, control_w);
+     }
+   }
+   if (in_rows_) {
+     ImGui::TableNextRow();
+     ImGui::TableSetColumnIndex(0);
++    if (ImGui::TableGetRowIndex() > 0) AddRowLine();
+   }
++  row_top_ = ImGui::GetCursorPosY();
++}
++
++void Ui::RowLabel(const char* label, const char* help, float label_size, const ImVec4* label_color) {
+   if (label && *label) {
+-    ImGui::PushFont(fonts().semibold, 0.0f);
++    ImGui::PushFont(fonts().semibold, label_size);
++    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, layout::kLabelGap * scale_));
++    ImGui::PushStyleColor(ImGuiCol_Text, label_color ? *label_color : theme().text);
+     ImGui::TextUnformatted(T(label));
++    ImGui::PopStyleColor();
++    ImGui::PopStyleVar();
+     ImGui::PopFont();
+   }
+   if (help && *help) {
+     ImGui::PushStyleColor(ImGuiCol_Text, theme().dim);
+-    ImGui::PushFont(nullptr, fonts().size * 0.84f);
+-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 24 * scale_);
++    ImGui::PushFont(nullptr, layout::kTextHelp);
++    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 16 * scale_);
+     ImGui::TextUnformatted(T(help));
+     ImGui::PopTextWrapPos();
+     ImGui::PopFont();
+     ImGui::PopStyleColor();
+   }
+-  if (in_rows_) ImGui::TableSetColumnIndex(1);
++}
++
++void Ui::Row(const char* label, const char* help) {
++  BeginRow();
++  if (!help || !*help) {
++    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (ImGui::GetFrameHeight() - layout::kTextLabel * scale_) * 0.5f);
++  }
++  RowLabel(label, help);
++  RowControl();
++}
++
++void Ui::RowEmphasized(const char* label, const char* help) {
++  BeginRow();
++  RowLabel(label, help, layout::kTextSection, &theme().accent);
++  RowControl();
++}
++
++void Ui::RowLeft(const char* label, const char* help) {
++  BeginRow();
++  RowLabel(label, help);
++}
++
++void Ui::RowControl() {
++  if (in_rows_) {
++    const float label_h = ImGui::GetCursorPosY() - ImGui::GetStyle().ItemSpacing.y - row_top_;
++    ImGui::TableSetColumnIndex(1);
++    const float spare = label_h - ImGui::GetFrameHeight();
++    if (spare > 0.0f) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + spare * 0.5f);
++  }
+   ImGui::SetNextItemWidth(-FLT_MIN);
+ }
+ 
+@@ -356,6 +435,26 @@ void Ui::EndRows() {
+   if (!in_rows_) return;
+   ImGui::EndTable();
+   in_rows_ = false;
++  DrawRowLines();
++}
++
++void Ui::BeginRowLines() {
++  row_lines_.clear();
++  row_left_ = ImGui::GetCursorScreenPos().x;
++  row_right_ = row_left_ + ImGui::GetContentRegionAvail().x;
++}
++
++void Ui::AddRowLine() { row_lines_.push_back(ImGui::GetCursorScreenPos().y - ImGui::GetStyle().CellPadding.y); }
++
++// Filled after the table: SDL's software renderer breaks long thin strokes, and a cell would clip the line to its column.
++void Ui::DrawRowLines() {
++  row_lines_.push_back(ImGui::GetItemRectMax().y);
++  ImDrawList* dl = ImGui::GetWindowDrawList();
++  const ImU32 color = Col(theme().border_row);
++  for (const float y : row_lines_) {
++    const float top = std::floor(y);
++    dl->AddRectFilled(ImVec2(row_left_, top), ImVec2(row_right_, top + 1.0f), color);
++  }
+ }
+ 
+ int Ui::Segmented(const char* id, const std::vector<std::string>& labels, int selected) {
+@@ -363,14 +462,24 @@ int Ui::Segmented(const char* id, const std::vector<std::string>& labels, int se
+   ImGui::PushID(id);
+   const float avail = ImGui::GetContentRegionAvail().x;
+   const float gap = 6 * scale_;
+-  const float bw = (avail - gap * float(labels.size() - 1)) / float(labels.size());
++  const float count = float(labels.size());
++  const float equal_w = (avail - gap * (count - 1)) / count;
++  std::vector<float> text_w;
++  float total_text = 0.0f, longest = 0.0f;
++  for (const std::string& label : labels) {
++    text_w.push_back(ImGui::CalcTextSize(T(label.c_str())).x);
++    total_text += text_w.back();
++    longest = std::max(longest, text_w.back());
++  }
++  const bool equal = longest + ImGui::GetStyle().FramePadding.x * 2 <= equal_w;
++  const float spare = std::max(0.0f, equal_w - total_text / count);
+   int clicked = -1;
+   for (size_t i = 0; i < labels.size(); ++i) {
+     if (i) ImGui::SameLine(0, gap);
+     const bool sel = int(i) == selected;
+     if (sel) PushActionButton(theme(), scale_);
+     ImGui::PushID(int(i));
+-    if (ImGui::Button(T(labels[i].c_str()), ImVec2(bw, 0)) && !sel) clicked = int(i);
++    if (ImGui::Button(T(labels[i].c_str()), ImVec2(equal ? equal_w : text_w[i] + spare, 0)) && !sel) clicked = int(i);
+     ImGui::PopID();
+     if (sel) PopActionButton();
+   }
+@@ -475,14 +584,15 @@ bool Ui::InputText(const char* label, const char* help, const char* key, const c
+   std::snprintf(buf, sizeof buf, "%s", settings().Get(key).c_str());
+   ImGui::PushID(key);
+   ImGui::SetNextItemWidth(-FLT_MIN);
+-  const bool changed = ImGui::InputTextWithHint("##text", hint, buf, sizeof buf);
++  const bool changed = ImGui::InputTextWithHint("##text", T(hint), buf, sizeof buf);
+   if (changed) settings().Set(key, buf);
+   ImGui::PopID();
+   return changed;
+ }
+ 
+ void Ui::Info(const char* label, const char* text) {
+-  Row(label, nullptr);
++  RowLeft(label, nullptr);
++  RowControl();
+   ImGui::PushStyleColor(ImGuiCol_Text, theme().dim);
+   ImGui::PushTextWrapPos(0.0f);
+   ImGui::TextUnformatted(T(text));
+@@ -490,6 +600,46 @@ void Ui::Info(const char* label, const char* text) {
+   ImGui::PopStyleColor();
+ }
+ 
++void Ui::InfoGrid(const std::vector<std::pair<std::string, std::string>>& items) {
++  LeaveRows();
++  char id[32];
++  std::snprintf(id, sizeof id, "##rows%d", rows_id_++);
++  BeginRowLines();
++  ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0, layout::kInfoGridPadding * scale_));
++  if (!ImGui::BeginTable(id, 4, ImGuiTableFlags_SizingStretchProp)) {
++    ImGui::PopStyleVar();
++    return;
++  }
++  // Weighted by text so the columns are right on the first frame; automatic weights need a frame of content.
++  float text_w[4] = {};
++  for (size_t i = 0; i < items.size(); ++i) {
++    const size_t column = (i % 2) * 2;
++    ImGui::PushFont(fonts().semibold, layout::kTextLabel);
++    text_w[column] = std::max(text_w[column], ImGui::CalcTextSize(T(items[i].first.c_str())).x);
++    ImGui::PopFont();
++    text_w[column + 1] = std::max(text_w[column + 1], ImGui::CalcTextSize(T(items[i].second.c_str())).x);
++  }
++  for (const float width : text_w)
++    ImGui::TableSetupColumn(nullptr, ImGuiTableColumnFlags_WidthStretch, std::max(width, 1.0f));
++  for (size_t i = 0; i < items.size(); ++i) {
++    const auto& [label, value] = items[i];
++    ImGui::TableNextColumn();
++    if (i >= 2 && i % 2 == 0) AddRowLine();
++    ImGui::PushFont(fonts().semibold, layout::kTextLabel);
++    ImGui::TextUnformatted(T(label.c_str()));
++    ImGui::PopFont();
++    ImGui::TableNextColumn();
++    ImGui::PushStyleColor(ImGuiCol_Text, theme().dim);
++    ImGui::PushTextWrapPos(0.0f);
++    ImGui::TextUnformatted(T(value.c_str()));
++    ImGui::PopTextWrapPos();
++    ImGui::PopStyleColor();
++  }
++  ImGui::EndTable();
++  ImGui::PopStyleVar();
++  DrawRowLines();
++}
++
+ bool Ui::ButtonRow(const char* label, const char* help, const char* button, bool accent) {
+   Row(label, help);
+   ImGui::PushID(label);
+@@ -580,46 +730,57 @@ void Ui::StatusCard(Status status, const char* title, const char* detail, float
+   LeaveRows();
+   const Theme& t = theme();
+   const ImVec2 p = ImGui::GetCursorScreenPos();
+-  const float w = ImGui::GetContentRegionAvail().x, h = 76 * scale_;
++  const float w = ImGui::GetContentRegionAvail().x;
++  const float pad_y = 10 * scale_;
++  const float text_top = pad_y + layout::kTextLabel * scale_ + ImGui::GetStyle().ItemSpacing.y;
++  ImGui::PushFont(nullptr, layout::kTextHelp);
++  const float detail_h = progress < 0.0f && detail && *detail
++                             ? ImGui::CalcTextSize(T(detail), nullptr, false, w - 64 * scale_).y
++                             : layout::kTextHelp * scale_;
++  ImGui::PopFont();
++  const float h = text_top + detail_h + pad_y;
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+   const ImVec4 fill = status == Status::kReady ? t.good : status == Status::kBusy ? t.frame : t.warn;
+   dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), Col(fill), 12 * scale_);
+-  const ImVec2 dot(p.x + 34 * scale_, p.y + h * 0.5f);
++  const ImVec2 dot(p.x + 24 * scale_, p.y + h * 0.5f);
+   if (status == Status::kBusy) {
+     const float a = float(ImGui::GetTime()) * 5.0f;
+-    dl->PathArcTo(dot, 11 * scale_, a, a + 4.2f, 24);
+-    dl->PathStroke(Col(t.accent), 0, 3.5f * scale_);
++    dl->PathArcTo(dot, 9 * scale_, a, a + 4.2f, 24);
++    dl->PathStroke(Col(t.accent), 0, 3 * scale_);
+   } else {
+-    dl->AddCircleFilled(dot, 12 * scale_, Col(status == Status::kReady ? t.good_dot : t.warn_dot), 24);
++    dl->AddCircleFilled(dot, 9 * scale_, Col(status == Status::kReady ? t.good_dot : t.warn_dot), 24);
+   }
+-  ImGui::SetCursorScreenPos(ImVec2(p.x + 64 * scale_, p.y + 14 * scale_));
++  ImGui::SetCursorScreenPos(ImVec2(p.x + 48 * scale_, p.y + pad_y));
+   ImGui::BeginGroup();
+-  ImGui::PushFont(fonts().semibold, 0.0f);
++  ImGui::PushFont(fonts().semibold, layout::kTextLabel);
+   ImGui::TextUnformatted(T(title));
+   ImGui::PopFont();
+   ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.92f, 0.96f, 1));
+   if (progress >= 0.0f) {
+-    ImGui::ProgressBar(progress, ImVec2(w - 100 * scale_, 6 * scale_), "");
++    ImGui::ProgressBar(progress, ImVec2(w - 64 * scale_, 6 * scale_), "");
+   } else if (detail && *detail) {
++    ImGui::PushFont(nullptr, layout::kTextHelp);
+     ImGui::PushTextWrapPos(p.x + w - 16 * scale_ - ImGui::GetWindowPos().x);
+     ImGui::TextUnformatted(T(detail));
+     ImGui::PopTextWrapPos();
++    ImGui::PopFont();
+   }
+   ImGui::PopStyleColor();
+   ImGui::EndGroup();
+-  ImGui::SetCursorScreenPos(ImVec2(p.x, std::max(p.y + h, ImGui::GetItemRectMax().y + 10 * scale_) + 14 * scale_));
++  ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + layout::kItemGap * scale_));
+   ImGui::Dummy(ImVec2(0, 0));
+ }
+ 
+ bool Ui::TaskProgress(Task& task) {
+   if (!task.running()) return false;
+   const float f = task.fraction();
++  const char* task_label = T(task.label().c_str());
+   char label[160];
+   if (f >= 0.0f)
+-    std::snprintf(label, sizeof label, "%s %.0f%%", task.label().c_str(), double(f) * 100.0);
++    std::snprintf(label, sizeof label, "%s %.0f%%", task_label, double(f) * 100.0);
+   else
+-    std::snprintf(label, sizeof label, "%s", task.label().c_str());
+-  const float cancel_w = 120 * scale_;
++    std::snprintf(label, sizeof label, "%s", task_label);
++  const float cancel_w = 90 * scale_;
+   ImGui::ProgressBar(f >= 0.0f ? f : -1.0f * float(ImGui::GetTime()),
+                      ImVec2(ImGui::GetContentRegionAvail().x - cancel_w - ImGui::GetStyle().ItemSpacing.x, 0), label);
+   ImGui::SameLine();
+@@ -631,8 +792,8 @@ bool Ui::TaskProgress(Task& task) {
+ 
+ void Ui::Heading(const char* text) {
+   LeaveRows();
+-  ImGui::Dummy(ImVec2(0, 4 * scale_));
+-  ImGui::PushFont(fonts().semibold, fonts().size * 1.1f);
++  ImGui::Dummy(ImVec2(0, layout::kSectionGap * scale_));
++  ImGui::PushFont(fonts().semibold, layout::kTextSection);
+   ImGui::TextUnformatted(T(text));
+   ImGui::PopFont();
+ }
+@@ -648,7 +809,7 @@ void Ui::Paragraph(const char* text) {
+ 
+ void Ui::Help(const char* text) {
+   ImGui::PushStyleColor(ImGuiCol_Text, theme().dim);
+-  ImGui::PushFont(nullptr, fonts().size * 0.84f);
++  ImGui::PushFont(nullptr, layout::kTextHelp);
+   ImGui::PushTextWrapPos(0.0f);
+   ImGui::TextUnformatted(T(text));
+   ImGui::PopTextWrapPos();
+@@ -658,7 +819,7 @@ void Ui::Help(const char* text) {
+ 
+ void Ui::Link(const char* text, const std::string& url) {
+   ImGui::PushStyleColor(ImGuiCol_Text, theme().link);
+-  ImGui::PushFont(nullptr, fonts().size * 0.84f);
++  ImGui::PushFont(nullptr, layout::kTextHelp);
+   LinkText(ImGui::GetWindowDrawList(), text, ImGui::GetCursorScreenPos(), ImGui::GetFont(), ImGui::GetFontSize(),
+            ImGui::GetColorU32(ImGuiCol_Text), text, url);
+   ImGui::PopFont();
+@@ -675,23 +836,38 @@ void Ui::SponsorCard(const char* message, const char* note) {
+   const float s = scale_;
+   const ImVec2 p = ImGui::GetCursorScreenPos();
+   const float w = ImGui::GetContentRegionAvail().x;
+-  const float pad = 18 * s, gap = 24 * s, paragraph_gap = 16 * s, link_gap = 8 * s;
++  const float pad = 12 * s, gap = 16 * s, paragraph_gap = layout::kItemGap * s, link_gap = 4 * s;
+   const float font_size = ImGui::GetFontSize();
+   ImFont* font = fonts().semibold;
+-  const ImVec2 button(SponsorButtonWidth(sponsor, font, font_size, s), 40 * s);
+-  const float text_w = std::max(w - button.x - gap - pad * 2, 160 * s);
++  const ImVec2 button(SponsorButtonWidth(sponsor, font, font_size, s), layout::kControlHeight * s);
++  const bool has_heart = sponsor.icon != ImTextureID{};
++  const float block = layout::kSupportIconBlock * s;
++  const float text_inset = has_heart ? block + layout::kSupportIconGap * s : 0.0f;
++  const float text_w = std::max(w - button.x - gap - pad * 2 - text_inset, 160 * s);
+   const float message_h = ImGui::CalcTextSize(message, nullptr, false, text_w).y;
+   const float note_h = ImGui::CalcTextSize(note, nullptr, false, text_w).y;
+-  const float link_size = fonts().size * 0.84f * s;
++  const float link_size = layout::kTextHelp * s;
+   const float h = std::max(message_h + paragraph_gap + note_h, button.y + link_gap + link_size) + pad * 2;
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+-  dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), Col(t.frame, 0.35f), 12 * s);
+-  dl->AddRect(p, ImVec2(p.x + w, p.y + h), Col(t.frame_hot, 0.8f), 12 * s, 0, std::max(s, 1.0f));
++  const float line = layout::PanelBorderWidth(s);
++  const ImVec2 outer(std::floor(p.x), std::floor(p.y)), outer_end(std::floor(p.x + w), std::floor(p.y + h));
++  const ImVec2 inner(outer.x + line, outer.y + line), inner_end(outer_end.x - line, outer_end.y - line);
++  dl->AddRectFilled(outer, outer_end, Col(t.border_panel), 12 * s);
++  dl->AddRectFilled(inner, inner_end, Col(t.panel), 12 * s - line);
++  dl->AddRectFilled(inner, inner_end, Col(t.frame, 0.35f), 12 * s - line);
++
++  if (has_heart) {
++    const ImVec2 min(std::floor(p.x + pad), std::floor(p.y + (h - block) * 0.5f));
++    dl->AddRectFilled(min, ImVec2(min.x + block, min.y + block), Col(kSponsorPink), 10 * s);
++    const float heart = std::floor(layout::kSupportIconHeart * s);
++    const ImVec2 heart_min(std::floor(min.x + (block - heart) * 0.5f), std::floor(min.y + (block - heart) * 0.5f));
++    dl->AddImage(ImTextureRef(sponsor.icon), heart_min, ImVec2(heart_min.x + heart, heart_min.y + heart));
++  }
+ 
+-  ImGui::SetCursorScreenPos(ImVec2(p.x + pad, p.y + pad));
++  ImGui::SetCursorScreenPos(ImVec2(p.x + pad + text_inset, p.y + pad));
+   ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + text_w);
+   ImGui::TextUnformatted(message);
+-  ImGui::SetCursorScreenPos(ImVec2(p.x + pad, p.y + pad + message_h + paragraph_gap));
++  ImGui::SetCursorScreenPos(ImVec2(p.x + pad + text_inset, p.y + pad + message_h + paragraph_gap));
+   ImGui::PushStyleColor(ImGuiCol_Text, t.dim);
+   ImGui::TextUnformatted(note);
+   ImGui::PopStyleColor();
+@@ -711,7 +887,7 @@ void Ui::SponsorCard(const char* message, const char* note) {
+            link_font, link_size, Col(kSponsorLinkColor), shown.c_str(), sponsor.url);
+   ImGui::PopItemFlag();
+ 
+-  ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 14 * s));
++  ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + layout::kItemGap * s));
+   ImGui::Dummy(ImVec2(0, 0));
+ }
+ 
+@@ -722,9 +898,9 @@ void Ui::Spacer(float height) {
+ 
+ bool Ui::Section(const char* title, bool open_by_default) {
+   LeaveRows();
+-  ImGui::Dummy(ImVec2(0, 4 * scale_));
+-  ImGui::PushFont(fonts().semibold, 0.0f);
+-  const bool open = ImGui::CollapsingHeader(title, open_by_default ? ImGuiTreeNodeFlags_DefaultOpen : 0);
++  ImGui::Dummy(ImVec2(0, layout::kSectionGap * scale_));
++  ImGui::PushFont(fonts().semibold, layout::kTextSection);
++  const bool open = ImGui::CollapsingHeader(T(title), open_by_default ? ImGuiTreeNodeFlags_DefaultOpen : 0);
+   ImGui::PopFont();
+   return open;
+ }
+@@ -792,8 +968,8 @@ void Ui::AchievementGrid(const std::vector<AchievementCard>& cards, int max_colu
+ // ---------------------------------------------------------------- launcher --
+ Launcher::Launcher(LauncherConfig config) : config_(std::move(config)) {
+   ui_.launcher_ = this;
+-  if (config_.fonts.size <= 0.0f) config_.fonts.size = 18.0f;
+-  page_ = std::clamp(config_.start_page, 0, std::max(0, int(config_.pages.size()) - 1));
++  if (config_.fonts.size <= 0.0f) config_.fonts.size = layout::kTextBody;
++  navigation_ = PageNavigation(std::clamp(config_.start_page, 0, std::max(0, int(config_.pages.size()) - 1)));
+   if (config_.settings)
+     for (const std::string& key : config_.restart_keys) restart_baseline_.push_back(config_.settings->Get(key));
+   // Testing aid: TRG_LAUNCHER_AUTOPLAY=<frames> (or 1 for the default 120)
+@@ -871,7 +1047,8 @@ void Launcher::DrawPrompt() {
+     const float bw = (avail - gap * float(play_buttons.size() - 1)) / float(play_buttons.size());
+     const PromptButton& b = *play_buttons[i];
+     ImGui::PushID(int(i));
+-    if (b.accent ? ui_.AccentButton(b.label.c_str(), ImVec2(bw, 0)) : ImGui::Button(T(b.label.c_str()), ImVec2(bw, 0)))
++    if (b.accent ? ui_.AccentButton(b.label.c_str(), ImVec2(bw, 0))
++                 : ImGui::Button(T(b.label.c_str()), ImVec2(bw, 0)))
+       chosen = &b;
+     ImGui::PopID();
+   }
+@@ -910,8 +1087,7 @@ int Launcher::FindPage(std::string_view name) const {
+ 
+ void Launcher::GoToPage(int index) {
+   if (index < 0 || index >= int(config_.pages.size())) return;
+-  page_ = index;
+-  ui_.capturing_.clear();
++  navigation_.Request(index);
+ }
+ 
+ void Launcher::SetStatus(std::string text, double seconds) {
+@@ -932,6 +1108,7 @@ bool Launcher::Save() {
+ 
+ Result Launcher::Frame() {
+   IM_ASSERT(config_.settings && "LauncherConfig::settings is required");
++  if (navigation_.Commit()) ui_.capturing_.clear();
+   Fonts& fonts = config_.fonts;
+   if (!fonts.regular) fonts.regular = ImGui::GetFont();
+   if (!fonts.bold) fonts.bold = fonts.semibold ? fonts.semibold : fonts.regular;
+@@ -941,7 +1118,7 @@ Result Launcher::Frame() {
+   ImGui::PushFont(fonts.regular, fonts.size);
+   s_ = ImGui::GetFontSize() / fonts.size;
+   ui_.scale_ = s_;
+-  ApplyTheme(config_.theme, s_);
++  ApplyTheme(config_.theme, s_, fonts.size);
+ 
+   const ImGuiViewport* vp = ImGui::GetMainViewport();
+   ImGui::SetNextWindowPos(vp->Pos);
+@@ -952,15 +1129,15 @@ Result Launcher::Frame() {
+                    ImGuiWindowFlags_NoBringToFrontOnFocus);
+   ImGui::PopStyleVar();
+   const float w = vp->Size.x, h = vp->Size.y;
+-  const float header = std::clamp(h * 0.2f, 120 * s_, 190 * s_);
+-  const float footer = 78 * s_;
+-  const float margin = 22 * s_;
++  const float header = layout::HeaderHeight(h, s_);
++  const float footer = layout::kFooterHeight * s_;
++  const float margin = layout::kMargin * s_;
+ 
+   DrawHeader(vp->Pos, w, header);
+ 
+-  const float body_top = header + margin * 0.6f;
++  const float body_top = header + layout::kBodyGap * s_;
+   const float body_h = std::max(100 * s_, h - body_top - footer);
+-  const float sidebar_w = std::clamp(w * 0.17f, 170 * s_, 230 * s_);
++  const float sidebar_w = layout::SidebarWidth(w, s_);
+   ImGui::SetCursorPos(ImVec2(margin, body_top));
+   DrawSidebar(ImVec2(sidebar_w, body_h));
+   ImGui::SetCursorPos(ImVec2(margin * 2 + sidebar_w, body_top));
+@@ -1040,7 +1217,7 @@ void Launcher::DrawHeader(ImVec2 origin, float w, float h) {
+     dl->AddRectFilledMultiColor(ImVec2(origin.x, p1.y - h * 0.35f), p1, Col(t.bg, 0.0f), Col(t.bg, 0.0f),
+                                 Col(t.bg, 1.0f), Col(t.bg, 1.0f));
+ 
+-  float x = origin.x + 30 * s_;
++  float x = origin.x + 24 * s_;
+   if (b.icon != ImTextureID{}) {
+     const float icon = h * 0.46f;
+     const ImVec2 i0(x, origin.y + (h - icon) * 0.45f);
+@@ -1048,12 +1225,12 @@ void Launcher::DrawHeader(ImVec2 origin, float w, float h) {
+                         IM_COL32_WHITE, 10 * s_);
+     x += icon + 20 * s_;
+   }
+-  const float title_size = std::clamp(h * 0.27f, 30 * s_, 46 * s_);
++  const float title_size = std::clamp(h * 0.34f, 30 * s_, 44 * s_);
+   const float title_y = origin.y + h * 0.5f - title_size * 0.85f;
+   const char* title = b.title.c_str();
+   dl->AddText(config_.fonts.bold, title_size, ImVec2(x + 2 * s_, title_y + 3 * s_), b.title_shadow, title);
+   dl->AddText(config_.fonts.bold, title_size, ImVec2(x, title_y), IM_COL32_WHITE, title);
+-  const float subtitle_size = 16 * s_;
++  const float subtitle_size = 15 * s_;
+   const ImU32 subtitle_color = Col(b.subtitle_color.value_or(t.accent));
+   const float subtitle_x = x + 2 * s_;
+   const float subtitle_y = title_y + title_size * 1.15f;
+@@ -1063,127 +1240,210 @@ void Launcher::DrawHeader(ImVec2 origin, float w, float h) {
+     for (size_t i = 0; i < b.subtitle_segments.size(); ++i) {
+       const SubtitleSegment& segment = b.subtitle_segments[i];
+       ImGui::PushID(int(i));
+-      sx += LinkText(dl, "##segment", ImVec2(sx, subtitle_y), config_.fonts.semibold, subtitle_size,
+-                     segment.url.empty() ? subtitle_color : Col(t.link), T(segment.text.c_str()), segment.url);
++    sx += LinkText(dl, "##segment", ImVec2(sx, subtitle_y), config_.fonts.semibold, subtitle_size,
++                   segment.url.empty() ? subtitle_color : Col(t.link), T(segment.text.c_str()), segment.url);
+       ImGui::PopID();
+     }
+     ImGui::PopID();
+   } else if (!b.subtitle.empty()) {
+     dl->AddText(config_.fonts.semibold, subtitle_size, ImVec2(subtitle_x, subtitle_y), subtitle_color,
+-                b.subtitle.c_str());
++                T(b.subtitle.c_str()));
+   }
+   dl->PopClipRect();
+ }
+ 
+ void Launcher::DrawSidebar(ImVec2 size) {
+   const Theme& t = config_.theme;
++  OutlinePanel(size);
+   ImGui::BeginChild("##sidebar", size, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
+-  const float pad = 10 * s_;
+-  const float item_h = 46 * s_;
++  const float pad = layout::kSidebarPadding * s_;
++  const float item_h = layout::SidebarRowFor(int(config_.pages.size()), size.y / s_) * s_;
++  const float framebuffer = std::max(ImGui::GetIO().DisplayFramebufferScale.x, 1.0f);
++  const int icon_pixels = int(layout::kSidebarIcon * s_ * framebuffer + 0.5f);
++  const float icon_size = float(icon_pixels) / framebuffer;
+   ImGui::SetCursorPos(ImVec2(pad, pad));
+-  ImGui::PushFont(config_.fonts.semibold, 0.0f);
++  ImGui::PushFont(config_.fonts.semibold, layout::kTextSidebar);
++  const float cap_center = CapCenter(config_.fonts.semibold, ImGui::GetFontSize());
+   for (int i = 0; i < int(config_.pages.size()); ++i) {
+     const Page& page = config_.pages[size_t(i)];
+-    const bool selected = page_ == i;
++    const bool selected = navigation_.current() == i;
+     ImGui::SetCursorPosX(pad);
+     ImGui::PushID(i);
+     const ImVec2 pos = ImGui::GetCursorScreenPos();
+     const ImVec2 item(size.x - pad * 2, item_h);
+     if (ImGui::InvisibleButton("##page", item)) GoToPage(i);
+     const bool hot = ImGui::IsItemHovered();
++    const float center_y = std::floor(pos.y + item_h * 0.5f);
+     ImDrawList* dl = ImGui::GetWindowDrawList();
+-    const ImVec2 item_end(pos.x + item.x, pos.y + item.y);
+     if (selected) {
+-      dl->AddRectFilled(pos, item_end, Col(ImGui::IsItemActive() ? t.action_active : hot ? t.action_hot : t.action),
+-                        8 * s_);
+-      dl->AddRect(pos, item_end, Col(t.action_edge), 8 * s_, 0, std::max(s_, 1.0f));
++      dl->AddRectFilled(pos, ImVec2(pos.x + item.x, pos.y + item.y),
++                        Col(ImGui::IsItemActive() ? t.action_active : hot ? t.action_hot : t.action), 8 * s_);
++      dl->AddRect(pos, ImVec2(pos.x + item.x, pos.y + item.y), Col(t.action_edge), 8 * s_, 0, std::max(s_, 1.0f));
+     } else if (hot) {
+-      dl->AddRectFilled(pos, item_end, Col(t.frame), 8 * s_);
++      dl->AddRectFilled(pos, ImVec2(pos.x + item.x, pos.y + item.y), Col(t.frame), 8 * s_);
++    }
++    const ImTextureID icon = page.icon ? page.icon(icon_pixels) : ImTextureID{};
++    if (icon != ImTextureID{}) {
++      // On the pixel grid, so the image stays one texel per pixel.
++      const ImVec2 min(std::floor((pos.x + layout::kSidebarIconInset * s_) * framebuffer) / framebuffer,
++                       layout::CenteredTop(center_y, icon_size * 0.5f));
++      dl->AddImage(ImTextureRef(icon), min, ImVec2(min.x + icon_size, min.y + icon_size), ImVec2(0, 0), ImVec2(1, 1),
++                   Col(selected ? t.on_action : hot ? t.text : t.dim));
+     }
+-    dl->AddText(ImVec2(pos.x + 16 * s_, pos.y + (item_h - ImGui::GetFontSize()) * 0.5f),
++    dl->AddText(ImVec2(pos.x + layout::SidebarLabelX() * s_, layout::CenteredTop(center_y, cap_center)),
+                 Col(selected ? t.on_action : t.text), T(page.name.c_str()));
+-    if (page.needs_attention && page.needs_attention())
++    const int badge = page.badge ? page.badge() : 0;
++    if (badge > 0) {
++      const std::string count = badge > 99 ? "99+" : std::to_string(badge);
++      const ImVec2 text = ImGui::CalcTextSize(count.c_str());
++      const float pill_h = text.y + 4 * s_, pill_w = std::max(pill_h, text.x + 12 * s_);
++      const ImVec2 min(pos.x + item.x - 12 * s_ - pill_w, pos.y + (item_h - pill_h) * 0.5f);
++      dl->AddRectFilled(min, ImVec2(min.x + pill_w, min.y + pill_h), Col(selected ? t.on_action : t.accent), pill_h * 0.5f);
++      dl->AddText(ImVec2(min.x + (pill_w - text.x) * 0.5f, min.y + 2 * s_), Col(selected ? t.action : t.on_accent),
++                  count.c_str());
++    } else if (page.needs_attention && page.needs_attention()) {
+       dl->AddCircleFilled(ImVec2(pos.x + item.x - 18 * s_, pos.y + item_h * 0.5f), 4.5f * s_,
+                           Col(selected ? t.on_action : t.warn_dot));
++    }
+     ImGui::PopID();
+-    ImGui::Dummy(ImVec2(0, 2 * s_));
++    ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + item_h + layout::kSidebarGap * s_));
+   }
++  ImGui::Dummy(ImVec2(0, 0));
+   ImGui::PopFont();
+   ImGui::EndChild();
+ }
+ 
+ void Launcher::DrawContent(ImVec2 size) {
++  OutlinePanel(size);
+   ImGui::BeginChild("##content", size, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar);
+   if (config_.pages.empty()) {
+     ImGui::EndChild();
+     return;
+   }
+-  const Page& page = config_.pages[size_t(page_)];
+-  const float pad = 26 * s_;
+-  ImGui::SetCursorPos(ImVec2(pad, pad * 0.8f));
+-  ImGui::BeginGroup();
+-  ImGui::PushFont(config_.fonts.semibold, config_.fonts.size * 1.45f);
++  const int current_page = navigation_.current();
++  const Page& page = config_.pages[size_t(current_page)];
++  const float pad = layout::kContentPadding * s_;
++  const float title_y = layout::kContentTop * s_;
++  ImGui::SetCursorPos(ImVec2(pad, title_y));
++  ImGui::PushFont(config_.fonts.semibold, layout::kTextPage);
+   ImGui::TextUnformatted(T(page.name.c_str()));
++  const float title_w = ImGui::GetItemRectSize().x;
+   ImGui::PopFont();
++  float body_y = title_y + (layout::kTextPage + layout::kItemGap) * s_;
+   if (!page.blurb.empty()) {
+     ImGui::PushStyleColor(ImGuiCol_Text, config_.theme.dim);
+-    ImGui::TextUnformatted(T(page.blurb.c_str()));
++    ImGui::PushFont(nullptr, layout::kTextHelp);
++    const char* blurb = T(page.blurb.c_str());
++    const float blurb_x = pad + title_w + 12 * s_;
++    if (blurb_x + ImGui::CalcTextSize(blurb).x <= size.x - pad) {
++      // On the title's baseline.
++      ImGui::SetCursorPos(ImVec2(blurb_x, title_y + (layout::kTextPage - layout::kTextHelp) * 0.8f * s_));
++    } else {
++      ImGui::SetCursorPos(ImVec2(pad, body_y));
++      body_y += (layout::kTextHelp + layout::kItemGap) * s_;
++    }
++    ImGui::TextUnformatted(blurb);
++    ImGui::PopFont();
+     ImGui::PopStyleColor();
+   }
+-  ImGui::EndGroup();
+ 
+-  ImGui::SetCursorPos(ImVec2(pad, ImGui::GetCursorPosY() + 8 * s_));
++  ImGui::SetCursorPos(ImVec2(pad, body_y));
+   ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+-  ImGui::BeginChild("##page_body", ImVec2(size.x - pad * 2, size.y - ImGui::GetCursorPosY() - pad * 0.6f),
+-                    ImGuiChildFlags_None);
+-  ImGui::PushID(page_);
++  // One child per page: scroll position and scrollbar state are window state.
++  ImGui::PushID(current_page);
++  const float body_w = size.x - pad * 2;
++  ImGui::SetNextWindowContentSize(ImVec2(layout::StableContentWidth(body_w, ImGui::GetStyle().ScrollbarSize), 0.0f));
++  ImGui::BeginChild("##page_body", ImVec2(body_w, size.y - body_y - layout::kContentBottom * s_), ImGuiChildFlags_None);
+   ui_.BeginPage();
+   if (page.draw) page.draw(ui_);
+   ui_.EndPage();
+-  ImGui::PopID();
+-  ImGui::Dummy(ImVec2(0, 8 * s_));
++  ImGui::Dummy(ImVec2(0, layout::kItemGap * s_));
+   ImGui::EndChild();
++  ImGui::PopID();
+   ImGui::PopStyleColor();
+   ImGui::EndChild();
+ }
+ 
++// Filled behind the panel: on SDL's software renderer a stroked rounded rectangle loses whole sides.
++void Launcher::OutlinePanel(ImVec2 size) {
++  const float line = layout::PanelBorderWidth(s_);
++  const ImVec2 min = ImGui::GetCursorScreenPos();
++  const ImVec2 outer(std::floor(min.x) - line, std::floor(min.y) - line);
++  const ImVec2 outer_end(std::floor(min.x) + std::floor(size.x) + line, std::floor(min.y) + std::floor(size.y) + line);
++  ImGui::GetWindowDrawList()->AddRectFilled(outer, outer_end, Col(config_.theme.border_panel),
++                                            ImGui::GetStyle().ChildRounding + line);
++}
++
+ void Launcher::DrawFooter(ImVec2 origin, float w, float h) {
+   const Theme& t = config_.theme;
+-  const float bw = 130 * s_, play_w = 210 * s_, bh = 48 * s_;
++  const float bw = layout::kFooterButtonWidth * s_, bh = layout::kFooterButtonHeight * s_;
++  const float play_w = layout::kPlayWidth * s_, play_h = layout::kPlayHeight * s_;
++  const float gap = layout::kFooterGap * s_;
+   const float cy = origin.y + h * 0.5f;
+   ImDrawList* dl = ImGui::GetWindowDrawList();
+-  const float small = config_.fonts.size * 0.84f * s_;
+-  dl->AddText(config_.fonts.regular, small, ImVec2(origin.x, cy - 20 * s_), Col(t.dim), T(config_.hints.c_str()));
+-  const bool show_status = !status_.empty() && ImGui::GetTime() < status_until_;
+-  dl->AddText(show_status ? config_.fonts.semibold : config_.fonts.regular, small, ImVec2(origin.x, cy + 2 * s_),
+-              Col(show_status ? t.accent : t.dim), show_status ? status_.c_str() : T(config_.note.c_str()));
++  const Fonts& fonts = config_.fonts;
++  const float help_size = layout::kTextFooter * s_;
++  const std::vector<layout::KeyHint> hints = layout::ParseKeyHints(T(config_.hints.c_str()));
++  const std::vector<std::string_view> note = layout::SplitSentences(T(config_.note.c_str()));
++  const float hints_w = DrawKeyHints(nullptr, hints, fonts, t, ImVec2(origin.x, cy), s_);
++  const float separator_gap = layout::kFooterSeparatorGap * s_;
++  const float help_x = std::floor(origin.x + hints_w + separator_gap * 2);
++  float note_w = 0.0f;
++  for (const std::string_view line : note)
++    note_w = std::max(note_w, fonts.regular->CalcTextSizeA(help_size, FLT_MAX, 0.0f, line.data(), line.data() + line.size()).x);
+ 
+   const float right = origin.x + w;
+-  const float quit_x = right - play_w - bw * 2 - 24 * s_;
++  const float quit_x = right - play_w - bw * 2 - gap * 2;
++  float left_end = quit_x;
+   const SponsorLink& sponsor = config_.sponsor;
+   if (!sponsor.url.empty()) {
+     ImFont* font = config_.fonts.semibold;
+-    const float font_size = ImGui::GetFontSize() * 0.94f;
+-    const ImVec2 size(SponsorButtonWidth(sponsor, font, font_size, s_), bh * 0.85f);
+-    const float x = quit_x - 12 * s_ - size.x;
+-    const float text_w =
+-        std::max(config_.fonts.regular->CalcTextSizeA(small, FLT_MAX, 0.0f, T(config_.hints.c_str())).x,
+-                 config_.fonts.regular->CalcTextSizeA(small, FLT_MAX, 0.0f, T(config_.note.c_str())).x);
+-    if (x >= origin.x + text_w + 20 * s_) {
++    const float font_size = ImGui::GetFontSize();
++    const ImVec2 size(SponsorButtonWidth(sponsor, font, font_size, s_), bh);
++    const float x = quit_x - gap - size.x;
++    if (x >= help_x + note_w + gap) {
++      left_end = x;
+       if (SponsorButton("##sponsor_footer", sponsor, ImVec2(x, cy - size.y * 0.5f), size, font, font_size, s_)) {
+         OpenUrl(sponsor.url);
+       }
+     }
+   }
++
++  // A long status takes the whole left side, so it never runs under the buttons.
++  const bool show_status = !status_.empty() && ImGui::GetTime() < status_until_;
++  const float status_w = show_status ? fonts.semibold->CalcTextSizeA(help_size, FLT_MAX, 0.0f, status_.c_str()).x : 0.0f;
++  const bool status_only = show_status && help_x + status_w + gap > left_end;
++  if (!status_only) {
++    DrawKeyHints(dl, hints, fonts, t, ImVec2(origin.x, cy), s_);
++    if (!hints.empty()) {
++      const float x = std::floor(origin.x + hints_w + separator_gap), half = layout::kFooterSeparator * s_ * 0.5f;
++      dl->AddLine(ImVec2(x, cy - half), ImVec2(x, cy + half), Col(t.border_row), layout::PassiveLineThickness(s_));
++    }
++  }
++  if (show_status) {
++    dl->AddText(fonts.semibold, help_size,
++                ImVec2(status_only ? origin.x : help_x, layout::CenteredTop(cy, CapCenter(fonts.semibold, help_size))),
++                Col(t.accent), status_.c_str());
++  } else {
++    const float cap_center = CapCenter(fonts.regular, help_size);
++    const float step = layout::kFooterHelpLine * s_;
++    float line_y = cy - step * 0.5f * float(note.size() - 1);
++    for (const std::string_view line : note) {
++      dl->AddText(fonts.regular, help_size, ImVec2(help_x, layout::CenteredTop(line_y, cap_center)), Col(t.dim),
++                  line.data(), line.data() + line.size());
++      line_y += step;
++    }
++  }
++
+   ImGui::SetCursorScreenPos(ImVec2(quit_x, cy - bh * 0.5f));
+   ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12 * s_);
+   if (ImGui::Button(T("Quit"), ImVec2(bw, bh))) want_quit_ = true;
+-  ImGui::SameLine(0, 12 * s_);
++  ImGui::SameLine(0, gap);
+   if (ImGui::Button(T("Save"), ImVec2(bw, bh))) Save();
+-  ImGui::SameLine(0, 12 * s_);
+   ImGui::PopStyleVar();
+   const PlayCheck check = config_.can_play ? config_.can_play() : PlayCheck{};
+-  DrawPlayButton(ImVec2(play_w, bh), check.ok);
++  ImGui::SetCursorScreenPos(ImVec2(right - play_w, cy - play_h * 0.5f));
++  DrawPlayButton(ImVec2(play_w, play_h), check.ok);
+ }
+ 
+ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+@@ -1204,18 +1464,16 @@ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+                 Col(t.action_edge, 0.45f * (1.0f - pulse)), r + grow, 0, 2 * s_);
+   }
+   dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + size.y),
+-                    can_play ? Col(held ? t.action_active : hot ? t.action_hot : t.action)
+-                             : Col(hot ? t.frame_hot : t.frame),
+-                    r);
+-  if (can_play)
+-    dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), Col(t.action_edge), r, 0, std::max(s_, 1.0f));
+-  const float fs = 22 * s_;
+-  const ImVec2 ts = config_.fonts.bold->CalcTextSizeA(fs, FLT_MAX, 0, T("PLAY"));
++                    can_play ? Col(held ? t.action_active : hot ? t.action_hot : t.action) : Col(hot ? t.frame_hot : t.frame), r);
++  if (can_play) dl->AddRect(p, ImVec2(p.x + size.x, p.y + size.y), Col(t.action_edge), r, 0, std::max(s_, 1.0f));
++  const float fs = 20 * s_;
++  const char* play = T("PLAY");
++  const ImVec2 ts = config_.fonts.bold->CalcTextSizeA(fs, FLT_MAX, 0, play);
+   const float tri = fs * 0.5f;
+   const float total = ts.x + 12 * s_ + tri;
+   const float tx = p.x + (size.x - total) * 0.5f, ty = p.y + (size.y - ts.y) * 0.5f;
+   const ImU32 ink = can_play ? Col(t.on_action) : Col(t.dim);
+-  dl->AddText(config_.fonts.bold, fs, ImVec2(tx, ty), ink, T("PLAY"));
++  dl->AddText(config_.fonts.bold, fs, ImVec2(tx, ty), ink, play);
+   const float ax = tx + ts.x + 12 * s_, ay = p.y + size.y * 0.5f;
+   dl->AddTriangleFilled(ImVec2(ax, ay - tri * 0.6f), ImVec2(ax, ay + tri * 0.6f), ImVec2(ax + tri, ay), ink);
+   if (clicked) want_play_ = true;
+@@ -1223,13 +1481,11 @@ void Launcher::DrawPlayButton(ImVec2 size, bool can_play) {
+ 
+ void Launcher::HandleHotkeys() {
+   const ImGuiIO& io = ImGui::GetIO();
+-  if (capturing_key() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
+-  const bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);
+-  if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
++  if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {
+     Save();
+     return;
+   }
+-  if (io.WantTextInput) return;
++  if (capturing_key() || io.WantTextInput || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
+   if (ImGui::IsKeyPressed(ImGuiKey_GamepadStart, false)) {
+     want_play_ = true;
+   } else if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {

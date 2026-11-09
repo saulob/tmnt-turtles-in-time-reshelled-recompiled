@@ -179,7 +179,8 @@ test('the period comparison names both exact ranges and handles an empty previou
   assert.equal(change('Rooms created'), '-');
   assert.equal(change('Successful joins'), '+5 (+50%)');
   assert.deepEqual(table.find((n) => n.tag === 'tr').slice(1).map((r) => r.children[0].textContent), ['Unique players', 'Sessions',
-    'Rooms created', 'Successful joins', 'Rooms with a guest', 'Peak online', 'Peak in rooms']);
+    'Rooms created', 'Successful joins', 'Rooms with a guest', 'Peak online', 'Peak in rooms', 'Bug reports filed',
+    'Bug reports rejected']);
   assert.ok(clean(table.textContent));
 });
 
@@ -434,7 +435,8 @@ test('connection health, abuse protection and the breakdowns render their counte
   putDimensions(env, 0, 'country', { BR: 2, Unknown: 1 });
   const page = await dashboard(env, 30);
   assert.deepEqual(cardText(page, 'health'), ['Reconnects not counted as sessions7', 'Incompatibility rejects2',
-    'Rooms that used the relay1 · 25%', 'Room operations refused2']);
+    'Rooms that used the relay1 · 25%', 'Room operations refused2', 'Bug reports filed0', 'Bug reports rejected0',
+    'Report status checks0', 'Report reads0', 'Developer replies0', 'Reports deleted0', 'Report service failures0', 'Reports stored now0']);
   assert.ok(page.get('abuse').textContent.includes('Party snapshots refused: too many'));
   assert.ok(page.get('rejects').textContent.includes('Party join refused'));
   assert.ok(page.get('d-version').textContent.includes('v0.4.2'));
@@ -448,7 +450,7 @@ test('the dashboard asks only for the two aggregate routes, whatever the range',
 });
 
 const SECTIONS = ['Period comparison', 'Multiplayer activity', 'Characters &amp; parties', 'Historical activity', 'Daily totals',
-  'Connection health', 'Platforms and countries', 'Abuse protection', 'How to read this'];
+  'Connection health', 'Platforms and countries', 'Abuse protection', 'How to read this', 'Bug reports'];
 
 test('the sections follow the Dragon dashboard order, with the top cards first', () => {
   const at = SECTIONS.map((s) => ADMIN_HTML.indexOf(`>${s}</h2>`));
@@ -457,7 +459,7 @@ test('the sections follow the Dragon dashboard order, with the top cards first',
   assert.ok(ADMIN_HTML.indexOf('id="c-online"') < at[0]);
   assert.deepEqual([...ADMIN_HTML.matchAll(/<h2( class="section")?>([^<]*)</g)].filter((m) => m[1]).map((m) => m[2]),
     ['Period comparison', 'Multiplayer activity', 'Characters &amp; parties', 'Historical activity', 'Connection health',
-      'Platforms and countries', 'Abuse protection']);
+      'Platforms and countries', 'Abuse protection', 'Bug reports']);
 });
 
 test('the top cards are the Dragon ones plus the two unique player cards', () => {
@@ -506,8 +508,19 @@ test('the page keeps its controls and the Dragon wording', () => {
   assert.ok(!/Dragon|Fighter|Sorceress|operational telemetry/i.test(ADMIN_HTML));
 });
 
+test('the Bug reports tab holds the list, status form, log and delete controls', () => {
+  for (const text of ['Bug reports', 'bug-status-filter', 'bug-fixed', 'bug-message', 'bug-log', 'Delete report',
+    'Save status', 'Copy log', 'Download log']) {
+    assert.ok(ADMIN_HTML.includes(text), text);
+  }
+  assert.ok(ADMIN_JS.includes("'/admin/api/incidents'"));
+  assert.ok(ADMIN_JS.includes("'/status'"));
+  assert.ok(ADMIN_JS.includes("method: 'DELETE'"));
+});
+
 test('the dashboard reads only its own routes, with no dangerous construct in production code', () => {
-  assert.deepEqual([...ADMIN_JS.matchAll(/api\('([^']+)/g)].map((m) => m[1]).sort(), ['/admin/api/history?days=', '/admin/api/summary']);
+  assert.deepEqual([...new Set([...ADMIN_JS.matchAll(/api\('([^']+)/g)].map((m) => m[1]))].sort(),
+    ['/admin/api/history?days=', '/admin/api/incidents', '/admin/api/incidents/', '/admin/api/summary']);
   assert.equal([...ADMIN_JS.matchAll(/fetch\(/g)].length, 1);
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\b|new Function/.test(ADMIN_JS));
   assert.ok(!/localStorage/.test(ADMIN_JS));

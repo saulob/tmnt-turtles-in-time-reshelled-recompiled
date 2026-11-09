@@ -571,6 +571,7 @@ $ParityFeatures = @(
     @{ Name = 'Online: WebSocket'; File = 'src/online/websocket_posix.cpp'; Needs = 'SSL_connect' }
     @{ Name = 'Online: Direct'; File = 'src/netplay/udp_transport.cpp'; Needs = 'sendto', 'recvfrom' }
     @{ Name = 'Online: friends and invites'; File = 'src/online_page.cpp'; Needs = 'namespace tmnt' }
+    @{ Name = 'Bug reports'; File = 'src/incident_page.cpp'; Needs = 'IncidentPage::Draw', 'MyReports', 'LogRoleText' }
     @{ Name = 'Detailed logging'; File = 'src/log_filter.cpp'; Needs = 'REXCVAR_DEFINE_BOOL(detailed_logging' }
     @{ Name = 'Open logs folder'; File = 'src/launcher.cpp'; Needs = 'Open logs folder' }
     @{ Name = 'Quit from the launcher'; File = 'src/launcher.cpp'; Needs = 'Finish(cb_.quit)' }
@@ -721,6 +722,17 @@ Invoke-Check 'online service: Worker tests (node --test, no network)' {
         & $Node.Source --test 'test/*.test.js' 2>&1 | Select-Object -Last 8 | ForEach-Object { Write-Host "   $_" }
         if ($LASTEXITCODE) { "node --test failed ($LASTEXITCODE)" }
     } finally { Pop-Location }
+}
+
+Invoke-Check 'worker tool: tools/worker.ps1 deploys server/tmnt-lobby with Wrangler and -DryRun uploads nothing' {
+    $text = Read-Text 'tools/worker.ps1'
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($needed in @("server\tmnt-lobby", "wrangler.toml", "Get-Command npx", "@('wrangler', 'deploy')",
+            'if ($DryRun) { $wrangler += ''--dry-run'' }', 'Push-Location', 'Pop-Location', 'exit $code')) {
+        if ($text.IndexOf($needed, [StringComparison]::Ordinal) -lt 0) { $problems.Add("tools/worker.ps1 is missing $needed") }
+    }
+    if ($text -match 'server\\lobby') { $problems.Add('tools/worker.ps1 points at the Dragon Worker') }
+    $problems
 }
 
 Invoke-Check 'online instances: four isolated local test instances (PrepareOnly, nothing is started)' {

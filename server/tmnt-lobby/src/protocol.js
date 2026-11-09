@@ -9,6 +9,7 @@ export const GUESTS = ['base'];
 export const LIMITS = {
   frameBytes: 4096,
   telemetryFrameBytes: 8192 + 128,
+  incidentFrameBytes: 160 * 1024,
   nameChars: 16,
   versionChars: 16,
   platformChars: 16,
@@ -41,11 +42,12 @@ export const BUCKETS = {
   search: { burst: 6, perSecond: 1 },
   telemetry: { burst: 6, perSecond: 0.2 },
   telemetryAll: { burst: 120, perSecond: 10 },
+  incidentStatus: { burst: 10, perSecond: 0.3 },
   beacon: { burst: 6, perSecond: 0.2 },
   beaconAll: { burst: 60, perSecond: 5 },
 };
 
-export const WORKER_BUILD = '2026-10-31-party1';
+export const WORKER_BUILD = '2026-11-09-bugreports1';
 
 // Binary relay frames: magic "SR", version, type, src slot, dst slot, token (u32), sequence (u32), payload length (u16),
 // payload.

@@ -10,11 +10,17 @@ TurtlesInTimeReshelled\
     logs\
     user_data\
         settings.toml           launcher choices
+        online_identity.ini     this installation's online identity (private)
+        bug_reports.json        reports sent from this PC, with their receipts
         0000000000000000\
             584109D2\           installed DLC
         achievements\           unlocked achievements (584109D2.toml)
         cache\                  ReXGlue's shader cache
 ```
+
+`bug_reports.json` holds the ticket, receipt, description, log name, game facts, status and developer message of the
+reports sent from this PC; see [bug-reports.md](bug-reports.md). Keep it private: the receipts prove ownership of those
+reports. An interrupted save leaves the previous file; a damaged one is renamed `bug_reports.json.damaged`.
 
 Leaderboard scores are kept at `584109D2\live\stats.toml` under `user_data`; only the local player's submitted best score is stored.
 

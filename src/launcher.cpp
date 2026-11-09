@@ -37,6 +37,7 @@
 #include "game_files.h"
 #include "graphics_adapters.h"
 #include "imgui_gamepad.h"
+#include "incident_page.h"
 #include "keybinds.h"
 #include "language.h"
 #include "launcher_achievements.h"
@@ -45,6 +46,7 @@
 #include "localization/active_language.h"
 #include "localization/ui_text.h"
 #include "log_filter.h"
+#include "active_log.h"
 #include "online_page.h"
 #include "online_runtime.h"
 #include "platform.h"
@@ -236,6 +238,8 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     sponsor_icon_ = LoadLauncherImage(paths_.immediate_drawer, "sponsor-heart.png", true);
     trg::SetTranslator(&TranslateLauncherText);
     localization::SetActiveLanguage(settings_.Get(kLanguageSetting, kLanguageDefault));
+    incident_page_ = std::make_unique<IncidentPage>(IncidentPlaces());
+    incident_page_->CheckReports(IncidentServiceFromEnvironment());
     launcher_ = std::make_unique<trg::Launcher>(MakeConfig());
     updater_ = std::make_unique<trg::update::UpdateController>(MakeUpdateConfig(PortFolder()));
     updater_->StartCheck();
@@ -322,7 +326,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     achievements_tried_ = false;
     if (cb_.window_changed && cb_.window_changed()) {
       if (cb_.restart && cb_.restart()) {
-        Finish(nullptr);
+        Finish(nullptr, true);
         return;
       }
       starting_ = false;
@@ -330,7 +334,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       return;
     }
     RestoreStartupWindow();
-    Finish(cb_.play);
+    Finish(cb_.play, true);
   }
 
   // Drawn outside the disabled frame so the message keeps full brightness.
@@ -360,7 +364,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
  private:
-  void Finish(std::function<void()> action) {
+  void Finish(std::function<void()> action, bool starting_game = false) {
     done_ = true;
     if (updater_) {
       updater_->Cancel();
@@ -372,7 +376,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (!skip_finish_save_) {
       SavePlacement(placement_.Flush());
     }
-    REXLOG_INFO("Launcher closed");
+    REXLOG_INFO("{}", starting_game ? "Launcher closed, starting the game" : "Launcher closed");
     Close();
     if (action) {
       action();
@@ -526,6 +530,9 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
          [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }},
         {"Achievements", "Your achievements on this PC.", [this](trg::Ui& ui) { PageAchievements(ui); }},
         {"Controls", "Controller and keyboard.", [](trg::Ui& ui) { PageControls(ui); }},
+        {"Bug Report", "Report a problem and send it with one game log.",
+         [this](trg::Ui& ui) { incident_page_->Draw(ui, CurrentReportFacts()); },
+         [this] { return incident_page_->HasReportUpdates(); }},
         {"About", "About this port, and where your files and settings live.",
          [this](trg::Ui& ui) { PageAbout(ui); }},
     };
@@ -1471,6 +1478,19 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     ui.settings().Set(action.key, binding);
   }
 
+  IncidentPage::Places IncidentPlaces() const {
+    const std::filesystem::path running = ActiveLogFile();
+    return {paths_.logs_dir, running, paths_.user_dir,
+            {PortFolder(), paths_.user_dir.parent_path(), paths_.logs_dir.parent_path()}};
+  }
+
+  ReportFacts CurrentReportFacts() const {
+    static const std::string operating_system = OperatingSystemText();
+    const bool ready = game_files_ == GameFiles::kReady;
+    return {PortVersion(), ready ? "TMNT: Turtles in Time Re-Shelled (XBLA)" : "Not installed", "0.0.1.3",
+            ready ? "584109D2" : "", operating_system};
+  }
+
   void PageAbout(trg::Ui& ui) {
     ui.SponsorCard(
         "This open source PC port is maintained and developed in my free time. If you enjoy the project and would "
@@ -1565,6 +1585,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   std::optional<DlcInfo> dlc_remove_target_;
   bool dlc_remove_open_ = false;
   std::unique_ptr<trg::update::UpdateController> updater_;
+  std::unique_ptr<IncidentPage> incident_page_;
   OnlinePage online_page_;
   PlayAttemptDetector play_attempt_;
   int online_page_index_ = 0;

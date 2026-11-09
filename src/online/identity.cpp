@@ -95,6 +95,12 @@ Identity LoadOrCreateIdentity(const fs::path& user_dir) {
   return Read(file);
 }
 
+Identity LoadIdentityIfPresent(const std::filesystem::path& user_dir) {
+  const fs::path file = user_dir / kIdentityFileName;
+  std::error_code ec;
+  return fs::exists(file, ec) ? Read(file) : Identity{};
+}
+
 Identity MakeEphemeralIdentity() {
   const std::string token = RandomHex(32);
   if (token.empty()) {

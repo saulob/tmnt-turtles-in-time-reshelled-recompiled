@@ -1,0 +1,461 @@
+#include "my_reports.h"
+
+#include <algorithm>
+#include <cfloat>
+#include <cmath>
+#include <cstdio>
+#include <thread>
+#include <utility>
+
+#include "imgui.h"
+#include "localization/active_language.h"
+#include "localization/ui_text.h"
+
+namespace tmnt {
+namespace {
+
+constexpr float kSentReportHeight = 300.0f;
+constexpr float kFramePadding = 12.0f;
+constexpr float kFrameRounding = 12.0f;
+constexpr float kDetailGap = 8.0f;
+constexpr float kRefreshPadding = 16.0f;
+constexpr float kActionShare = 0.4f;
+constexpr float kFactLabelShare = 0.28f, kFactLabelMin = 130.0f, kFactLabelMax = 220.0f;
+constexpr float kHeaderRoom = 140.0f;
+constexpr float kScrollRatio = 0.1f;
+constexpr float kMessagePadding = 12.0f, kMessageBar = 4.0f, kMessageRounding = 8.0f, kMessageGap = 6.0f;
+constexpr float kMessageTint = 0.12f, kMessageBorderQuiet = 0.45f, kBadgePadding = 8.0f;
+constexpr float kMarkerDot = 3.5f, kMarkerGap = 6.0f;
+constexpr auto kFreshCheck = std::chrono::seconds(30);
+constexpr char kDot[] = " \xC2\xB7 ";
+
+std::string DateText(int64_t milliseconds) {
+  return LogDateText(std::time_t(milliseconds / 1000), localization::PortugueseBrazilSelected());
+}
+
+IncidentServiceConfig ServiceConfig() { return IncidentServiceFromEnvironment(); }
+
+void HelpLine(const ImVec4& color, const std::string& text, bool wrap = false) {
+  ImGui::PushFont(nullptr, trg::layout::kTextHelp);
+  ImGui::PushStyleColor(ImGuiCol_Text, color);
+  if (wrap) ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextUnformatted(text.c_str());
+  if (wrap) ImGui::PopTextWrapPos();
+  ImGui::PopStyleColor();
+  ImGui::PopFont();
+}
+
+std::string StatusText(const TrackedReport& report) {
+  const char* note = report.unavailable ? "No longer available" : report.unseen ? "Updated" : nullptr;
+  return ReportStatusLine(report) + (note ? kDot + std::string(Tr(note)) : std::string());
+}
+
+ImU32 Tint(const ImVec4& color, float alpha) { return ImGui::GetColorU32(ImVec4(color.x, color.y, color.z, color.w * alpha)); }
+
+// Drawn on the layer behind the report's content, which is only measured once it has been laid out.
+void DrawFrame(trg::Ui& ui, const ImVec2& min, const ImVec2& max) {
+  const float scale = ui.scale();
+  const trg::Theme& theme = ui.theme();
+  const float line = trg::layout::PanelBorderWidth(scale);
+  const float rounding = kFrameRounding * scale;
+  const ImVec2 outer(std::floor(min.x), std::floor(min.y)), outer_end(std::floor(max.x), std::floor(max.y));
+  const ImVec2 inner(outer.x + line, outer.y + line), inner_end(outer_end.x - line, outer_end.y - line);
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+  draw->AddRectFilled(outer, outer_end, Tint(theme.border_panel, 1.0f), rounding);
+  draw->AddRectFilled(inner, inner_end, Tint(theme.panel, 1.0f), rounding - line);
+  draw->AddRectFilled(inner, inner_end, Tint(theme.frame, 0.35f), rounding - line);
+}
+
+void KeepInView(float top, float scale) {
+  const ImVec2 origin = ImGui::GetWindowPos();
+  const ImVec2 region_min = ImGui::GetWindowContentRegionMin();
+  const ImVec2 region_max = ImGui::GetWindowContentRegionMax();
+  if (top < origin.y + region_min.y || top > origin.y + region_max.y - kHeaderRoom * scale) {
+    ImGui::SetScrollHereY(kScrollRatio);
+  }
+}
+
+void NewReplyMarker(trg::Ui& ui) {
+  const float radius = kMarkerDot * ui.scale();
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextHelp);
+  const ImVec2 at = ImGui::GetCursorScreenPos();
+  ImGui::GetWindowDrawList()->AddCircleFilled(ImVec2(at.x + radius, at.y + ImGui::GetTextLineHeight() * 0.5f), radius,
+                                              ImGui::GetColorU32(ui.theme().accent));
+  ImGui::SetCursorPosX(ImGui::GetCursorPosX() + radius * 2.0f + kMarkerGap * ui.scale());
+  ImGui::PushStyleColor(ImGuiCol_Text, ui.theme().accent);
+  ImGui::TextUnformatted(Tr("New reply"));
+  ImGui::PopStyleColor();
+  ImGui::PopFont();
+}
+
+// The developer message in a panel of its own: accent bar and border, the label, and "New reply" until the report closes.
+void DrawDeveloperMessage(trg::Ui& ui, const std::string& message, bool fresh) {
+  const trg::Theme& theme = ui.theme();
+  const float scale = ui.scale();
+  const float pad = kMessagePadding * scale, bar = kMessageBar * scale, rounding = kMessageRounding * scale;
+  const float width = ImGui::GetContentRegionAvail().x;
+  const float text_width = std::max(width - pad * 2.0f - bar, 1.0f);
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float left = origin.x + bar + pad;
+  ImDrawList* draw = ImGui::GetWindowDrawList();
+
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextHelp);
+  const char* badge_text = Tr("New reply");
+  const ImVec2 badge_size = ImGui::CalcTextSize(badge_text);
+  ImGui::PopFont();
+  const ImVec2 badge(badge_size.x + kBadgePadding * 2.0f * scale, badge_size.y + kBadgePadding * 0.5f * scale);
+
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
+  const char* title = Tr("Message from developer");
+  const float title_height = std::max(ImGui::GetTextLineHeight(), fresh ? badge.y : 0.0f);
+  ImGui::PopFont();
+
+  ImGui::PushFont(nullptr, trg::layout::kTextBody);
+  ImFont* body_font = ImGui::GetFont();
+  const float body_size = ImGui::GetFontSize();
+  const float text_height = ImGui::CalcTextSize(message.c_str(), nullptr, false, text_width).y;
+  ImGui::PopFont();
+
+  const float title_top = origin.y + pad;
+  const float text_top = title_top + title_height + kMessageGap * scale;
+  const ImVec2 end(origin.x + width, text_top + text_height + pad);
+  const float line = trg::layout::PanelBorderWidth(scale);
+  const ImVec2 outer(std::floor(origin.x), std::floor(origin.y)), outer_end(std::floor(end.x), std::floor(end.y));
+
+  draw->AddRectFilled(outer, outer_end, Tint(theme.accent, kMessageTint), rounding);
+  draw->AddRect(outer, outer_end, Tint(theme.accent, fresh ? 1.0f : kMessageBorderQuiet), rounding, 0, line);
+  draw->AddRectFilled(outer, ImVec2(outer.x + bar, outer_end.y), ImGui::GetColorU32(theme.accent), rounding, ImDrawFlags_RoundCornersLeft);
+
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
+  draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(left, title_top + (title_height - ImGui::GetTextLineHeight()) * 0.5f),
+                ImGui::GetColorU32(theme.accent), title);
+  ImGui::PopFont();
+  if (fresh) {
+    const ImVec2 badge_min(origin.x + width - pad - badge.x, title_top + (title_height - badge.y) * 0.5f);
+    draw->AddRectFilled(badge_min, ImVec2(badge_min.x + badge.x, badge_min.y + badge.y), ImGui::GetColorU32(theme.accent), badge.y * 0.5f);
+    ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextHelp);
+    draw->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                  ImVec2(badge_min.x + kBadgePadding * scale, badge_min.y + (badge.y - badge_size.y) * 0.5f),
+                  ImGui::GetColorU32(theme.on_accent), badge_text);
+    ImGui::PopFont();
+  }
+  draw->AddText(body_font, body_size, ImVec2(left, text_top), ImGui::GetColorU32(theme.text), message.c_str(), nullptr, text_width);
+  ImGui::Dummy(ImVec2(width, end.y - origin.y));
+}
+
+void DrawSummary(trg::Ui& ui, const TrackedReport& report, std::string& toggled) {
+  const float scale = ui.scale();
+  const ImGuiStyle& style = ImGui::GetStyle();
+  const float room = ImGui::GetContentRegionAvail().x;
+  const float action = std::min(trg::layout::ControlColumnWidth(room, scale), room * kActionShare);
+  if (!ImGui::BeginTable("##summary", 2, ImGuiTableFlags_SizingStretchProp)) return;
+  ImGui::TableSetupColumn("summary", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+  ImGui::TableSetupColumn("action", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, action);
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  const float top = ImGui::GetCursorPosY();
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(style.ItemSpacing.x, trg::layout::kLabelGap * scale));
+  ImGui::PushStyleColor(ImGuiCol_Text, ui.theme().text);
+  ImGui::TextUnformatted(report.ticket.c_str());
+  ImGui::PopStyleColor();
+  ImGui::PopStyleVar();
+  ImGui::PopFont();
+  HelpLine(ui.theme().dim, ReportPreview(report.description), true);
+  HelpLine(ui.theme().accent, StatusText(report), true);
+  HelpLine(ui.theme().dim, DateText(report.submitted_at), true);
+  const float height = ImGui::GetCursorPosY() - style.ItemSpacing.y - top;
+  ImGui::TableSetColumnIndex(1);
+  const float spare = height - ImGui::GetFrameHeight();
+  if (spare > 0.0f) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + spare * 0.5f);
+  if (ImGui::Button(Tr("Hide details"), ImVec2(-FLT_MIN, 0))) toggled = report.ticket;
+  ImGui::EndTable();
+}
+
+void Fact(trg::Ui& ui, const char* label, const std::string& value, bool emphasized = false) {
+  ImGui::TableNextRow();
+  ImGui::TableSetColumnIndex(0);
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextBody);
+  ImGui::TextUnformatted(Tr(label));
+  ImGui::PopFont();
+  ImGui::TableSetColumnIndex(1);
+  ImGui::PushStyleColor(ImGuiCol_Text, emphasized ? ui.theme().text : ui.theme().dim);
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextUnformatted(value.c_str());
+  ImGui::PopTextWrapPos();
+  ImGui::PopStyleColor();
+}
+
+void DrawFacts(trg::Ui& ui, const TrackedReport& report) {
+  const float scale = ui.scale();
+  const float labels = std::clamp(ImGui::GetContentRegionAvail().x * kFactLabelShare, kFactLabelMin * scale, kFactLabelMax * scale);
+  if (!ImGui::BeginTable("##facts", 2, ImGuiTableFlags_SizingStretchProp)) return;
+  ImGui::TableSetupColumn("label", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, labels);
+  ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+  const char* status = ReportStatusText(report.status);
+  Fact(ui, "Report ID", report.ticket);
+  Fact(ui, "Submitted", DateText(report.submitted_at));
+  Fact(ui, "Description", report.description);
+  Fact(ui, "Selected log", report.log_file);
+  Fact(ui, "Game build", report.game_build);
+  Fact(ui, "Launcher version", report.launcher_version);
+  Fact(ui, "Status", status ? Tr(status) : report.status);
+  Fact(ui, "Status updated", DateText(report.status_updated_at));
+  if (report.status == "fixed" && !report.fixed_version.empty()) Fact(ui, "Fixed in version", report.fixed_version, true);
+  ImGui::EndTable();
+}
+
+}  // namespace
+
+MyReports::MyReports(std::filesystem::path history_file) : history_(std::move(history_file)) { history_.Load(); }
+
+void MyReports::Refresh(const IncidentServiceConfig& config, bool asked_by_player) {
+  Collect();
+  if (check_) return;
+  std::vector<TrackedReport> reports;
+  for (const TrackedReport& report : history_.reports()) {
+    if (!report.unavailable || asked_by_player) reports.push_back(report);
+  }
+  if (reports.empty()) return;
+  check_ = std::make_shared<StatusCheck>();
+  for (const TrackedReport& report : reports) check_->asked.push_back(report.ticket);
+  last_check_ = std::chrono::steady_clock::now();
+  asked_by_player_ = asked_by_player;
+  std::thread([check = check_, config, reports = std::move(reports)] {
+    check->statuses = FetchReportStatuses(config, reports);
+    check->done = true;
+  }).detach();
+}
+
+void MyReports::RefreshIfStale(const IncidentServiceConfig& config) {
+  if (!last_check_ || std::chrono::steady_clock::now() - *last_check_ >= kFreshCheck) Refresh(config);
+}
+
+void MyReports::Collect() {
+  if (reading_ && reading_->done) {
+    if (reading_->ticket == sent_ticket_) {
+      sent_unavailable_ = !reading_->package;
+      sent_text_ = reading_->package ? IncidentPreviewText(*reading_->package) : std::string();
+    }
+    reading_.reset();
+  }
+  if (!check_ || !check_->done) return;
+  check_failed_ = asked_by_player_ && !check_->statuses;
+  if (check_->statuses && history_.Apply(*check_->statuses, check_->asked)) SaveHistory();
+  check_.reset();
+}
+
+void MyReports::SaveHistory() {
+  if (!history_.Save()) std::printf("Bug report: could not save My reports\n");
+}
+
+bool MyReports::Remember(const IncidentPackage& package, const IncidentReceipt& receipt) {
+  if (receipt.credential.empty()) return false;
+  if (history_.Add(TrackedReportOf(package, receipt))) return true;
+  std::printf("Bug report: could not save My reports\n");
+  return false;
+}
+
+bool MyReports::HasUpdates() {
+  Collect();
+  return history_.HasUnseen() || history_.HasUnseenMessage();
+}
+
+bool MyReports::HasNewReply() {
+  Collect();
+  return history_.HasUnseenMessage();
+}
+
+void MyReports::ShowUpdate() {
+  Collect();
+  const std::string ticket = history_.NextUnseen();
+  if (ticket.empty()) return;
+  if (open_ticket_ == ticket) bring_detail_into_view_ = true;
+  else Open(ticket);
+}
+
+void MyReports::ForgetSentReport() {
+  sent_ticket_.clear();
+  sent_text_.clear();
+  sent_unavailable_ = false;
+}
+
+void MyReports::Collapse() {
+  open_ticket_.clear();
+  fresh_reply_.clear();
+  ForgetSentReport();
+}
+
+void MyReports::Open(const std::string& ticket) {
+  if (open_ticket_ == ticket) {
+    Collapse();
+    return;
+  }
+  open_ticket_ = ticket;
+  fresh_reply_.clear();
+  bring_detail_into_view_ = true;
+  ForgetSentReport();
+}
+
+void MyReports::ReadSentReport(const TrackedReport& report, const IncidentServiceConfig& config) {
+  sent_ticket_ = report.ticket;
+  sent_text_.clear();
+  sent_unavailable_ = false;
+  reading_ = std::make_shared<SentReportRead>();
+  reading_->ticket = report.ticket;
+  std::thread([read = reading_, config, report] {
+    read->package = FetchSentReport(config, report);
+    read->done = true;
+  }).detach();
+}
+
+void MyReports::Draw(trg::Ui& ui) {
+  Collect();
+  DrawHeader(ui);
+  if (history_.reports().empty()) {
+    ui.Paragraph("No reports sent from this PC");
+    return;
+  }
+  DrawReports(ui);
+}
+
+void MyReports::DrawHeader(trg::Ui& ui) {
+  ui.EndRows();
+  const float scale = ui.scale();
+  const bool any = !history_.reports().empty();
+  ImGui::Dummy(ImVec2(0, trg::layout::kSectionGap * scale));
+  ImGui::AlignTextToFramePadding();
+  ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextSection);
+  const char* title = Tr("My reports");
+  const float title_width = ImGui::CalcTextSize(title).x;
+  ImGui::TextUnformatted(title);
+  ImGui::PopFont();
+  if (std::exchange(bring_into_view_, false)) ImGui::SetScrollHereY(0.0f);
+  if (any) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float width = std::max(ImGui::CalcTextSize(Tr("Refresh")).x, ImGui::CalcTextSize(Tr("Checking...")).x) +
+                        style.FramePadding.x * 2 + kRefreshPadding * scale;
+    const float room = ImGui::GetContentRegionAvail().x;
+    if (room >= title_width + style.ItemSpacing.x + width) ImGui::SameLine(ImGui::GetCursorPosX() + room - width);
+    ImGui::BeginDisabled(check_ != nullptr);
+    if (ImGui::Button(Tr(check_ ? "Checking..." : "Refresh"), ImVec2(width, 0))) Refresh(ServiceConfig(), true);
+    ImGui::EndDisabled();
+  }
+  ui.Help("Only reports sent from this PC are listed here.");
+  if (check_failed_) HelpLine(ui.theme().warn_dot, Tr("Could not check for updates. The last known status is shown."));
+}
+
+void MyReports::DrawReports(trg::Ui& ui) {
+  const std::vector<TrackedReport>& reports = history_.reports();
+  std::string toggled, removed;
+  for (size_t i = 0; i < reports.size(); ++i) {
+    if (reports[i].ticket == open_ticket_) DrawExpanded(ui, reports[i], i, toggled, removed);
+    else DrawRow(ui, reports[i], i, toggled);
+  }
+  if (!toggled.empty()) Open(toggled);
+  if (removed.empty()) return;
+  if (removed == open_ticket_) Collapse();
+  history_.Remove(removed);
+  SaveHistory();
+}
+
+void MyReports::DrawRow(trg::Ui& ui, const TrackedReport& report, size_t index, std::string& toggled) {
+  const std::string preview = ReportPreview(report.description);
+  ui.RowLeft(report.ticket.c_str(), preview.c_str());
+  HelpLine(ui.theme().accent, StatusText(report));
+  if (report.message_unseen) NewReplyMarker(ui);
+  HelpLine(ui.theme().dim, DateText(report.submitted_at));
+  ui.RowControl();
+  ImGui::PushID(int(index));
+  if (ImGui::Button(Tr("View details"), ImVec2(-FLT_MIN, 0))) toggled = report.ticket;
+  ImGui::PopID();
+}
+
+void MyReports::DrawExpanded(trg::Ui& ui, const TrackedReport& report, size_t index, std::string& toggled, std::string& removed) {
+  ui.EndRows();
+  if (report.message_unseen) fresh_reply_ = report.ticket;
+  if (history_.MarkSeen(report.ticket)) SaveHistory();
+  const float scale = ui.scale();
+  const float pad = kFramePadding * scale;
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float width = ImGui::GetContentRegionAvail().x;
+  if (std::exchange(bring_detail_into_view_, false)) KeepInView(origin.y, scale);
+
+  ImGui::PushID(int(index));
+  ImGui::Dummy(ImVec2(0, pad));
+  ImGui::Indent(pad);
+  ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0));
+  ImGui::BeginChild("##report_body", ImVec2(std::max(width - pad * 2.0f, 1.0f), 0),
+                    ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoBackground);
+
+  DrawSummary(ui, report, toggled);
+  ImGui::Dummy(ImVec2(0, kDetailGap * scale));
+  if (report.unavailable) {
+    HelpLine(ui.theme().warn_dot, Tr("This report was removed from the online service. The last known status is shown."), true);
+    ImGui::Dummy(ImVec2(0, kDetailGap * scale));
+  }
+  if (!report.player_message.empty()) {
+    DrawDeveloperMessage(ui, report.player_message, fresh_reply_ == report.ticket);
+    ImGui::Dummy(ImVec2(0, kDetailGap * scale));
+  }
+  DrawFacts(ui, report);
+  ImGui::Dummy(ImVec2(0, kDetailGap * scale));
+  DrawActions(ui, report, removed);
+  if (sent_ticket_ == report.ticket) DrawSentReport(ui);
+
+  ImGui::EndChild();
+  ImGui::PopStyleColor();
+  ImGui::Unindent(pad);
+  ImGui::Dummy(ImVec2(0, pad));
+  const float bottom = ImGui::GetItemRectMax().y;
+
+  DrawFrame(ui, origin, ImVec2(origin.x + width, bottom));
+  ImGui::PopID();
+}
+
+void MyReports::DrawActions(trg::Ui& ui, const TrackedReport& report, std::string& removed) {
+  const bool shown = sent_ticket_ == report.ticket;
+  ImGui::BeginDisabled(reading_ != nullptr);
+  const char* label = reading_ ? "Loading..." : shown ? "Hide report" : "What was sent";
+  const bool toggle_sent = ImGui::Button(Tr(label));
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  if (ConfirmRemoval(ui)) removed = report.ticket;
+  HelpLine(ui.theme().dim, Tr("Removes it from this list only. The report stays with the developer."));
+  if (!toggle_sent) return;
+  if (shown) ForgetSentReport();
+  else ReadSentReport(report, ServiceConfig());
+}
+
+void MyReports::DrawSentReport(trg::Ui& ui) {
+  if (sent_unavailable_) HelpLine(ui.theme().warn_dot, Tr("This report is no longer available online."));
+  if (sent_text_.empty()) return;
+  // ReadOnly: ImGui never writes to the text it is given.
+  ImGui::InputTextMultiline("##sent", sent_text_.data(), sent_text_.size() + 1, ImVec2(-FLT_MIN, kSentReportHeight * ui.scale()),
+                            ImGuiInputTextFlags_ReadOnly | ImGuiInputTextFlags_WordWrap);
+}
+
+bool MyReports::ConfirmRemoval(trg::Ui& ui) {
+  const float scale = ui.scale();
+  if (ImGui::Button(Tr("Remove from this PC"))) ImGui::OpenPopup("##remove");
+  bool confirmed = false;
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24 * scale, 20 * scale));
+  const bool open = ImGui::BeginPopupModal("##remove", nullptr,
+                                           ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
+  ImGui::PopStyleVar();
+  if (!open) return false;
+  ImGui::PushFont(ui.fonts().semibold, 0.0f);
+  ImGui::TextUnformatted(Tr("Remove this report from this PC?"));
+  ImGui::PopFont();
+  ImGui::Dummy(ImVec2(320 * scale, 6 * scale));
+  if (ui.AccentButton("Remove", ImVec2(150 * scale, 0))) {
+    confirmed = true;
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button(Tr("Cancel"), ImVec2(150 * scale, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape, false)) ImGui::CloseCurrentPopup();
+  ImGui::EndPopup();
+  return confirmed;
+}
+
+}  // namespace tmnt

@@ -440,27 +440,38 @@ otherwise every `/admin*` path answers 404.
 
 - `GET /admin`: the dashboard, one self-contained page (inline style and script allowed by hash under a strict CSP, no
   external resources). It holds no data; it asks for the token (kept in memory, or this tab with "Keep for this tab") and
-  calls the two routes below with it. A browser cannot send a bearer header on navigation, which is why the page itself is
+  calls the routes below with it. A browser cannot send a bearer header on navigation, which is why the page itself is
   the only unauthenticated route.
 - `GET /admin/telemetry/summary[?days=1..30]`: the operational aggregates as JSON. Not shown by the dashboard.
 - `GET /admin/telemetry/session?diag=<12 hex>`: everything kept about one party (reporters, per-peer reports, merged event
   timeline). 400 for a malformed `diag`, 404 when nothing is kept. Not shown by the dashboard.
 - `GET /admin/api/summary`: live numbers and today's figures (see "Service metrics").
 - `GET /admin/api/history[?days=1..365]`: daily rows, dimensions, samples, totals and the period comparison; 30 days by default.
+- `/admin/api/incidents` and `/admin/api/incidents/<ticket>`: the Bug reports tab. The list has no logs; opening a report
+  returns its sanitized log. `POST .../status` saves a status, fixed version and developer message; `DELETE` removes the
+  report, log, status and receipt hash. See [docs/bug-reports.md](../../docs/bug-reports.md).
 
-All four need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time). They only read; nothing under
-`/admin` takes data. Clients report over the directory WebSocket, and there is no HTTP route for it.
+All of them need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time). Clients report over
+the directory WebSocket; the admin routes are the only HTTP writers and are private.
 
 ```
 npx wrangler secret put ADMIN_TOKEN       # manual; never commit a value
-curl -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>/admin/telemetry/summary
+curl -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>/admin/api/summary
 ```
 
-The dashboard follows the Dragon's Crown Pro one and reads only `/admin/api/summary` and `/admin/api/history`. It has a range
-selector (7, 30, 90, 365 days) and shows, in order: the live cards (with unique players today and in the range), the period
-comparison, multiplayer activity, Characters & parties, the usage and daily charts, daily totals, connection health, platforms,
-versions and countries, the protection counters and "How to read this". The operational telemetry routes above stay available for
-debugging and are not part of the page. Every value is written as text, never as markup.
+The dashboard reads `/admin/api/summary`, `/admin/api/history` and, in its Bug reports tab,
+`/admin/api/incidents`. It has a range selector (7, 30, 90, 365 days) and shows, in order: the live cards (with unique
+players today and in the range), the period comparison, multiplayer activity, Characters & parties, the usage and daily
+charts, daily totals, connection health, platforms, versions and countries, the protection counters and "How to read
+this". The operational telemetry routes above stay available for debugging and are not part of the page. Every value is
+written as text, never as markup.
+
+Reports live in three tables of the same directory object, created with `CREATE TABLE IF NOT EXISTS`:
+`incidents` (fields and sanitized log), `incident_quota` (salted account and address keys per accepted report, deleted
+after 24 hours) and `incident_tracking` (status, developer message and salted receipt hash). The newest 500 reports and
+5000 statuses are kept. No migration or new binding is needed.
+
+`tools/worker.ps1` deploys this folder (`npx wrangler deploy`); `tools/worker.ps1 -DryRun` bundles without uploading.
 
 ## Local
 
