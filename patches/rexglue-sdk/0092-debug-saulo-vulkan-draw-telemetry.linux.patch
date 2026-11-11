@@ -76,7 +76,7 @@ index 0d5a27c..5bb38be 100644
 +  }
 +  if (debug_saulo_.placeholder_draws_logged < kDebugSauloLogLimit) {
 +    ++debug_saulo_.placeholder_draws_logged;
-+    REXGPU_INFO(
++    REXGPU_WARN(
 +        "DEBUG_SAULO placeholder draw skipped: frame {} VS {:016X} PS {:016X} prim {} count {}",
 +        debug_saulo_.frame, DebugSauloHash(vertex_shader), DebugSauloHash(pixel_shader),
 +        uint32_t(prim_type), index_count);
@@ -91,7 +91,7 @@ index 0d5a27c..5bb38be 100644
 +  ++debug_saulo_.stale_vertex_skips;
 +  if (debug_saulo_.stale_vertex_logged < kDebugSauloLogLimit) {
 +    ++debug_saulo_.stale_vertex_logged;
-+    REXGPU_INFO(
++    REXGPU_WARN(
 +        "DEBUG_SAULO stale vertex buffer: frame {} vfetch {} address 0x{:08X} size {} VS {:016X} "
 +        "PS {:016X}",
 +        debug_saulo_.frame, vfetch_index, address_dwords << 2, size_dwords << 2,
@@ -105,7 +105,7 @@ index 0d5a27c..5bb38be 100644
 +  }
 +  ++debug_saulo_.aa838_draws_in_frame;
 +  if (stage_a && !debug_saulo_.aa838_stage_a_draws++) {
-+    REXGPU_INFO("DEBUG_SAULO AA838 Stage A fix first applied at frame {}", debug_saulo_.frame);
++    REXGPU_WARN("DEBUG_SAULO AA838 Stage A fix first applied at frame {}", debug_saulo_.frame);
 +  }
 +}
 +
@@ -115,7 +115,7 @@ index 0d5a27c..5bb38be 100644
 +    ++t.aa838_frames;
 +    if (t.aa838_draws_in_frame != 3 && t.aa838_odd_frames_logged < kDebugSauloLogLimit) {
 +      ++t.aa838_odd_frames_logged;
-+      REXGPU_INFO("DEBUG_SAULO AA838 frame {} has {} draws, expected 3", t.frame,
++      REXGPU_WARN("DEBUG_SAULO AA838 frame {} has {} draws, expected 3", t.frame,
 +                  t.aa838_draws_in_frame);
 +    }
 +  }
@@ -126,7 +126,7 @@ index 0d5a27c..5bb38be 100644
 +  if (t.frame - t.summary_frame >= kDebugSauloSummaryFrames && events != t.summary_events) {
 +    t.summary_frame = t.frame;
 +    t.summary_events = events;
-+    REXGPU_INFO(
++    REXGPU_WARN(
 +        "DEBUG_SAULO Vulkan summary: frame {} | placeholder draws {} in {} frames, presents "
 +        "skipped {} | stale vertex buffers {} | AA838 frames {}, Stage A draws {}",
 +        t.frame, t.placeholder_draws, t.placeholder_frames, t.skipped_presents,
@@ -196,7 +196,7 @@ index 427fd03..84cdbbb 100644
 +    static uint32_t debug_saulo_yuv_logged = 0;
 +    if (debug_saulo_yuv_logged < 16) {
 +      ++debug_saulo_yuv_logged;
-+      REXGPU_INFO("DEBUG_SAULO packed YUV texture: format {} {}x{} base 0x{:08X} host format {}",
++      REXGPU_WARN("DEBUG_SAULO packed YUV texture: format {} {}x{} base 0x{:08X} host format {}",
 +                  uint32_t(key.format), key.GetWidth(), key.GetHeight(), key.base_page << 12,
 +                  uint32_t(formats[0]));
 +    }

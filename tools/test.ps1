@@ -169,6 +169,33 @@ Invoke-Check 'patch docs: docs/rexglue-runtime-patch.md covers every patch with 
     $problems
 }
 
+Invoke-Check 'patch diagnostics: every debug-saulo patch is a listed temporary marker, documented as temporary, for one platform' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $doc = Read-Text 'docs\rexglue-runtime-patch.md'
+    $listed = @{}
+    foreach ($line in Get-Content -LiteralPath (Join-Root 'tools\debug-markers.txt')) {
+        if ($line -match '^\s*(#|$)') { continue }
+        $fields = @($line.Trim() -split '\s+')
+        $listed[$fields[0]] = [int]$fields[1]
+    }
+    foreach ($row in Read-PatchManifest) {
+        $file = $row.Fields[0]
+        if ($file -notlike '*-debug-saulo-*') { continue }
+        $path = "patches/rexglue-sdk/$file"
+        $patchText = Read-Text "patches\rexglue-sdk\$file"
+        $markers = [regex]::Matches($patchText, 'DEBUG_SAULO').Count
+        if (-not $listed.ContainsKey($path)) { $problems.Add("$file is not listed in tools/debug-markers.txt") }
+        elseif ($listed[$path] -ne $markers) { $problems.Add("${file}: tools/debug-markers.txt lists $($listed[$path]) markers, the patch has $markers") }
+        $backend = @{ '0092' = 'linux'; '0093' = 'windows' }[$file.Substring(0, 4)]
+        if (-not $backend) { $problems.Add("$file has no backend in this check: name its platform here") }
+        elseif ($file -notmatch "\.$backend\.patch$") { $problems.Add("$file must be a .$backend.patch, its diagnostic is for that backend only") }
+        if ([regex]::IsMatch($patchText, 'REXGPU_INFO\((\s|\+)*"DEBUG_SAULO')) { $problems.Add("$file logs DEBUG_SAULO at INFO, which the compact log drops: use WARN") }
+        $tableRow = ($doc -split "`n" | Where-Object { $_ -match "^\| \[$($file.Substring(0, 4))-" } | Select-Object -First 1)
+        if ($tableRow -notmatch 'DEBUG_SAULO, temporary') { $problems.Add("${file}: its docs row does not say 'DEBUG_SAULO, temporary'") }
+    }
+    $problems
+}
+
 $AudioPatch = '0086-audio-unregister-waits-for-callback.patch'
 $HostPlatform = if ($IsLinux) { 'linux' } else { 'windows' }
 $PatchSeries = @{}

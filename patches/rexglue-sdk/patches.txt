@@ -93,3 +93,4 @@
 0087-xma-pcm-provider.patch                            windows,linux  rexruntime               tmnt       shared
 0091-vulkan-aa838-stage-a-fix.linux.patch               linux          rexgpu-xenos             tmnt       pair:0080
 0092-debug-saulo-vulkan-draw-telemetry.linux.patch      linux          rexgpu-xenos             tmnt       vulkan-specific
+0093-debug-saulo-issue2-d3d12-telemetry.windows.patch   windows        rexgpu-xenos             tmnt       d3d12-specific
