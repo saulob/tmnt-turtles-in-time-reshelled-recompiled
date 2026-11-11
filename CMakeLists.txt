@@ -797,6 +797,12 @@ add_executable(tmnt_launcher_quit_tests EXCLUDE_FROM_ALL tests/launcher_quit_tes
 target_include_directories(tmnt_launcher_quit_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_quit_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# Launcher controller reading (XInput slot scan on Windows, no SDL instance of the program's own), not part of the
+# default build: cmake --build <dir> --target tmnt_launcher_gamepad_tests
+add_executable(tmnt_launcher_gamepad_tests EXCLUDE_FROM_ALL tests/launcher_gamepad_tests.cpp)
+target_include_directories(tmnt_launcher_gamepad_tests PRIVATE src)
+target_compile_definitions(tmnt_launcher_gamepad_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # cmake --build <dir> --target tmnt_launcher_assets_tests
 add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp)
 target_include_directories(tmnt_launcher_assets_tests PRIVATE src)
