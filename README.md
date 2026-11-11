@@ -20,13 +20,17 @@ This is a native PC port, not an emulator: the game's own PowerPC code is transl
 
 - **Native static recompilation**: the game's own code, not an emulator. Native Windows x64 build, plus an experimental Linux / Steam Deck AppImage.
 - **TRG launcher** with a game package installer, display, graphics, gameplay and online settings, and a self-updater that installs nothing until you choose it.
-- **Online multiplayer for up to four players**, through this port's own online service (not Xbox Live): friends by friend code, invites from your lobby, and peers that connect over Direct UDP with a Relay fallback for any pair that cannot.
+- **Bug reports** with a preview of the sanitized log, report IDs, My reports history, status tracking and developer replies ([docs/bug-reports.md](docs/bug-reports.md)).
+- **Online multiplayer for up to four players**, through this port's own online service (not Xbox Live): friend requests by friend code or from the public **Lobby**, invites from your lobby, and peers that connect over Direct UDP with a Relay fallback for any pair that cannot.
+- **Classic Soundtrack**: import your own SNES *Turtles in Time* ROM (`.sfc`, `.smc` or `.zip`; USA, Europe or Australia) and play with the SNES music ([docs/classic-soundtrack.md](docs/classic-soundtrack.md)).
+- **SNES Gameplay**: Directional Combat, SNES Throw Control, Disable Double Jump and SNES Dash (Off, Auto, Manual), from the same ROM import, with an **F9** menu and per-player choices online ([docs/snes-gameplay.md](docs/snes-gameplay.md)).
+- **Cheats** for offline play: Infinite Health, Infinite Lives, Damage Multiplier, Turbo Attack, Turbo Strong Attack, Super Armor and Spin Attack, with an **F10** menu; all Off while Online play is on.
 - **Offline achievements**, saved on your PC with the game's own names, icons and gamerscore.
 - **Languages**: the game's original English, French, German, Italian and Spanish, plus an unofficial **Português Brasil** translation of the game text and the launcher.
 - **Skip intro** goes straight to the title screen.
 - **Render Resolution** from 1x to 4x (1280×720 to 5120×2880), scaled to your window. The game keeps its original 16:9 picture.
 - **Anti-aliasing and filtering**: MSAA, FXAA and FXAA Extreme, and texture filtering from the game's own up to 16x anisotropic.
-- **Graphics card selection** (Windows): choose which compatible GPU renders the game, useful on PCs with integrated and dedicated graphics.
+- **Graphics card selection**: choose which compatible GPU renders the game, useful on PCs with integrated and dedicated graphics (DirectX 12 adapters on Windows, Vulkan devices on Linux).
 - **In-game overlays**: **F2** shows the FPS counter, and **F3** shows Ping while Online play is on.
 - **Window handling**: **F11** switches between Windowed and Borderless Fullscreen, and **Exit Game** closes the program cleanly.
 - **Portable user data**: saves, settings, achievements and caches are in a `user_data` folder beside the program.
@@ -71,8 +75,9 @@ extracting it. Any other version is refused, because the port is built for this 
 ### Linux and Steam Deck
 
 **Experimental.** This is a native Linux build (ReXGlue's patched Linux runtime with its Vulkan GPU plugin), not Proton
-or Wine, and rendering goes through Vulkan. **It has not yet been validated on real Linux hardware or on a Steam Deck**,
-so rendering, audio, controllers and online play on Linux are unconfirmed. It needs 64-bit x86 Linux with glibc 2.31 or
+or Wine, and rendering goes through Vulkan. A first Steam Deck report shows the game running, with graphical bugs that are
+still being investigated ([issue #3](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/3)); audio,
+controllers and online play on Linux are not yet confirmed. It needs 64-bit x86 Linux with glibc 2.31 or
 newer, a Vulkan driver and an X11 or Wayland desktop.
 
 1. Download **TurtlesInTimeReshelledRecompiled-v…-x86_64.AppImage** from the
@@ -82,7 +87,7 @@ newer, a Vulkan driver and an X11 or Wayland desktop.
 3. Run it, then install your package from the **Play** page as above. The game files go in a `game` folder next to the
    AppImage.
 
-On a Steam Deck, this is the intended flow, and it has not been tried on a Steam Deck yet:
+On a Steam Deck:
 
 1. Switch to **Desktop Mode**.
 2. Download the AppImage, and copy your Xbox 360 package to the Deck (USB stick, SD card or network).
@@ -110,10 +115,13 @@ The TRG launcher opens before the game. Settings are saved to `user_data\setting
 | Play | Game files, Install from package, PLAY |
 | Display | Display mode, window size, monitor, VSync |
 | Graphics | Graphics card, Render resolution 1x to 4x, anti-aliasing, multisampling (MSAA), texture filtering |
-| Gameplay | Language, Skip intro, frame rate and render resolution in the title, frame counter, player names |
-| Online | Online play, Connection test, friends, invites |
+| Gameplay | Language, Skip intro, frame rate and render resolution in the title, frame counter, player names, Unlock all stages, SNES soundtrack import and Classic soundtrack |
+| SNES | Directional Combat, SNES Throw Control, Disable Double Jump, SNES Dash |
+| Cheats | Offline cheats, disabled while Online play is on |
+| Online | Settings (Online play, online name, friend code, Connection test), Friends (requests), Lobby |
 | Achievements | Your achievements on this PC |
 | Controls | Keyboard on/off and bindings |
+| Bug Report | A problem description and one sanitized game log, with My reports and developer replies |
 | About | Versions, folders, Open logs folder, Detailed logging, Sponsor |
 
 Hold **Shift** while starting to show a launcher that was turned off. See [docs/launcher.md](docs/launcher.md).
@@ -127,18 +135,21 @@ Xbox controllers work without setup, and the keyboard works too (the Controls pa
 | **F2** | Show or hide the FPS counter |
 | **F3** | Show or hide Ping while Online play is on |
 | **F7** | Open the achievements |
+| **F9** | SNES menu: Classic Soundtrack and SNES Gameplay for this session |
+| **F10** | Cheats menu for this session (not while Online play is on) |
 | **F11** | Switch between Windowed and Borderless Fullscreen |
 
 ## Online multiplayer
 
 Play with up to four players in total (you and up to three friends) through the game's own Multiplayer menus. Online
 play is this port's own online service and is not Xbox Live. Turn on **Online play** on the launcher's Online page, run
-the **Connection test**, and add friends by friend code. In the game, Multiplayer > Online offers Quick Match, Create
+the **Connection test**, and send friend requests by friend code or from the public **Lobby** (where the default name shows as `Player-XXXX`). In the game, Multiplayer > Online offers Quick Match, Create
 Match and Custom Match, and **X Invite Friends** in your lobby invites a friend.
 
 Peers connect directly over UDP when they can (**Direct**) and through the online service's relay for any pair that
 cannot (**Relay**). The online service only sees what it needs to bring players together; see
-[docs/online.md](docs/online.md), which also covers what it stores and the Xbox LIVE menus this port removes.
+[docs/online.md](docs/online.md), which also covers what it stores and the Xbox LIVE menus this port removes. Turning
+Online play on switches every saved cheat Off and keeps it off; turning it off restores nothing.
 
 ## Languages
 
@@ -173,13 +184,14 @@ caches are kept. On Linux this replaces the AppImage file, which must keep its r
 
 - The picture is 16:9.
 - Leaderboards, Xbox Live Party and Gamer Cards are removed from the menus: this port has no Xbox Live service.
-- Linux and Steam Deck are experimental and have not yet been validated on real hardware.
-- Linux: two Direct3D 12 rendering fixes (a cyan flicker on the turtles, stale geometry) have no Vulkan version yet.
+- Linux and Steam Deck are experimental; Steam Deck graphical bugs are being investigated (issue #3).
+- Linux: two Direct3D 12 rendering fixes (stale geometry, the Shredder lighting flicker) have no Vulkan version yet.
 - If a player closes the window during an online match, the others can wait up to 30 s before the match goes on.
 
 ## Reporting problems
 
-Attach the newest `tmnt_turtles_in_time_reshelled_*.log` from the `logs` folder next to the program to an
+Use the launcher's **Bug Report** page: it sends a description and one sanitized log, and **My reports** shows replies.
+Or attach the newest `tmnt_turtles_in_time_reshelled_*.log` from the `logs` folder next to the program to an
 [issue](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues). After a crash the log ends with a
 `CRASH REPORT` section.
 

@@ -1,0 +1,235 @@
+Lets the host replace the decoded PCM of XMA streams it recognises through rex_audio_set_xma_pcm_provider. The guest keeps decoding the original packets, so length, loops, stalls and stops are unchanged; only the samples written to the output ring differ, and a stream the provider does not know, a mono stream or a provider failure keeps the decoded audio. State is at file scope because the exe compiles against the stock header.
+
+diff --git a/src/audio/xma_context.cpp b/src/audio/xma_context.cpp
+index ed2d841..a2604ec 100644
+--- a/src/audio/xma_context.cpp
++++ b/src/audio/xma_context.cpp
+@@ -10,6 +10,7 @@
+ */
+ 
+ #include <algorithm>
++#include <array>
+ #include <cstring>
+ 
+ #include <rex/audio/xma/context.h>
+@@ -21,6 +22,8 @@
+ #include <rex/platform.h>
+ #include <rex/stream.h>
+ 
++#include "xma_pcm_override.h"
++
+ extern "C" {
+ #if REX_COMPILER_MSVC
+ #pragma warning(push)
+@@ -36,10 +39,25 @@ extern "C" {
+ // Credits for most of this code goes to:
+ // https://github.com/koolkdev/libertyv/blob/master/libav_wrapper/xma2dec.c
+ 
++extern "C" void rex_audio_set_xma_pcm_provider(const RexXmaPcmProvider* provider) {
++  rex::audio::pcm_override::SetProvider(provider);
++}
++
+ namespace rex::audio {
+ 
+ using stream::BitStream;
+ 
++namespace {
++// At file scope so the class layout the exe compiles against stays stock. XmaDecoder::kContextCount is protected;
++// a context beyond this bound only loses the override.
++constexpr size_t kPcmOverrideContexts = 320;
++std::array<pcm_override::ContextState, kPcmOverrideContexts> g_pcm_override;
++
++pcm_override::ContextState* PcmOverrideFor(uint32_t id) {
++  return id < g_pcm_override.size() ? &g_pcm_override[id] : nullptr;
++}
++}  // namespace
++
+ const uint32_t XmaContext::kBitsPerPacketHeader;
+ const uint32_t XmaContext::kOutputMaxSizeBytes;
+ 
+@@ -222,6 +240,9 @@ void XmaContext::ClearLocked(XMA_CONTEXT_DATA* data) {
+   data->output_buffer_read_offset = 0;
+   data->output_buffer_write_offset = 0;
+ 
++  if (auto* state = PcmOverrideFor(id())) {
++    pcm_override::OnClear(*state);
++  }
+   ResetDecoderState();
+ }
+ 
+@@ -257,6 +278,9 @@ void XmaContext::Release() {
+   assert_true(is_allocated());
+ 
+   set_is_allocated(false);
++  if (auto* state = PcmOverrideFor(id())) {
++    pcm_override::OnRelease(*state);
++  }
+   ResetDecoderState();
+   auto context_ptr = memory()->TranslateVirtual(guest_ptr());
+   std::memset(context_ptr, 0, sizeof(XMA_CONTEXT_DATA));
+@@ -615,6 +639,12 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+   const uint32_t current_input_size = GetCurrentInputBufferSize(data);
+   const uint32_t current_input_packet_count = current_input_size / kBytesPerPacket;
+ 
++  if (auto* state = PcmOverrideFor(id())) {
++    pcm_override::OnBuffer(*state, id(), data->GetCurrentInputBufferAddress(), current_input_buffer,
++                           current_input_size, static_cast<uint32_t>(GetSampleRate(data->sample_rate)),
++                           data->is_stereo ? 2u : 1u);
++  }
++
+   const int16_t packet_index = GetPacketNumber(current_input_size, data->input_buffer_read_offset);
+ 
+   if (packet_index == -1) {
+@@ -745,6 +775,17 @@ void XmaContext::Decode(XMA_CONTEXT_DATA* data) {
+       loop_frame_output_limit_ = pending_output_limit_;
+       current_frame_remaining_subframes_ -=
+           std::min(pending_start_skip_, current_frame_remaining_subframes_);
++
++      auto* state = PcmOverrideFor(id());
++      if (state && data->is_stereo) {
++        const uint32_t total_blocks = 4u << data->is_stereo;
++        const uint32_t first_block = total_blocks - current_frame_remaining_subframes_;
++        const uint32_t end_block = loop_frame_output_limit_ > 0
++                                       ? std::min<uint32_t>(loop_frame_output_limit_, total_blocks)
++                                       : total_blocks;
++        int16_t scratch[kSamplesPerFrame * 2];
++        pcm_override::Fill(*state, raw_frame_.data(), first_block, end_block, scratch);
++      }
+     }
+ 
+     std::memcpy(carry_frame_.data(), decoded_frame_.data() + pad_bytes, carry_bytes);
+diff --git a/src/audio/xma_pcm_override.h b/src/audio/xma_pcm_override.h
+new file mode 100644
+index 0000000..35dcac7
+--- /dev/null
++++ b/src/audio/xma_pcm_override.h
+@@ -0,0 +1,129 @@
++#pragma once
++
++#include <atomic>
++#include <cstdint>
++
++// Lets the host replace the decoded PCM of XMA streams it recognises. The guest keeps decoding the original packets,
++// so stream length, loops, stalls and stops are unchanged; only the output samples differ. Every callback runs on
++// the thread decoding the context, under that context's lock.
++extern "C" {
++struct RexXmaPcmProvider {
++  void* user;
++  // A stream id when the input buffer should be replaced, -1 otherwise. May return the stream already playing on
++  // this context to continue it.
++  int32_t (*open)(void* user, uint32_t context_id, const uint8_t* input, uint32_t input_bytes, uint32_t sample_rate,
++                  uint32_t channels);
++  // Interleaved host-endian frames. kRenderReplaced uses them, kRenderPassThrough keeps the decoded samples for this
++  // call and the stream, kRenderFailed keeps the decoded samples for the rest of the stream.
++  int32_t (*render)(void* user, int32_t stream, int16_t* frames, uint32_t frame_count);
++  void (*close)(void* user, int32_t stream);
++};
++
++// Set once before the guest starts; nullptr disables replacement.
++void rex_audio_set_xma_pcm_provider(const RexXmaPcmProvider* provider);
++}
++
++namespace rex::audio::pcm_override {
++
++constexpr int32_t kNoStream = -1;
++constexpr int32_t kRenderFailed = 0;
++constexpr int32_t kRenderReplaced = 1;
++constexpr int32_t kRenderPassThrough = 2;
++constexpr uint32_t kBlockBytes = 256;
++constexpr uint32_t kStereoFramesPerBlock = kBlockBytes / 4;
++
++struct ContextState {
++  int32_t stream = kNoStream;
++  uint32_t buffer_address = 0;
++  uint32_t buffer_bytes = 0;
++  bool reset = true;
++};
++
++inline std::atomic<const RexXmaPcmProvider*>& ProviderSlot() {
++  static std::atomic<const RexXmaPcmProvider*> slot{nullptr};
++  return slot;
++}
++
++inline void SetProvider(const RexXmaPcmProvider* provider) {
++  static RexXmaPcmProvider storage{};
++  if (!provider) {
++    ProviderSlot().store(nullptr, std::memory_order_release);
++    return;
++  }
++  storage = *provider;
++  ProviderSlot().store(&storage, std::memory_order_release);
++}
++
++inline void CloseStream(ContextState& state, const RexXmaPcmProvider* provider) {
++  if (state.stream != kNoStream && provider) {
++    provider->close(provider->user, state.stream);
++  }
++  state.stream = kNoStream;
++}
++
++// A buffer the provider does not know continues the current stream unless the context was reset since.
++inline void OnBuffer(ContextState& state, uint32_t context_id, uint32_t address, const uint8_t* data, uint32_t bytes,
++                     uint32_t sample_rate, uint32_t channels) {
++  if (!state.reset && address == state.buffer_address && bytes == state.buffer_bytes) {
++    return;
++  }
++  const bool was_reset = state.reset;
++  state.reset = false;
++  state.buffer_address = address;
++  state.buffer_bytes = bytes;
++  const RexXmaPcmProvider* provider = ProviderSlot().load(std::memory_order_acquire);
++  if (!provider) {
++    state.stream = kNoStream;
++    return;
++  }
++  const int32_t next = provider->open(provider->user, context_id, data, bytes, sample_rate, channels);
++  if (next == kNoStream) {
++    if (was_reset) {
++      CloseStream(state, provider);
++    }
++    return;
++  }
++  if (next != state.stream) {
++    CloseStream(state, provider);
++    state.stream = next;
++  }
++}
++
++// Overwrites blocks [first_block, end_block) of a big-endian stereo frame; false leaves the decoded samples.
++inline bool Fill(ContextState& state, uint8_t* frame, uint32_t first_block, uint32_t end_block, int16_t* scratch) {
++  if (state.stream == kNoStream || end_block <= first_block) {
++    return false;
++  }
++  const RexXmaPcmProvider* provider = ProviderSlot().load(std::memory_order_acquire);
++  if (!provider) {
++    state.stream = kNoStream;
++    return false;
++  }
++  const uint32_t frames = (end_block - first_block) * kStereoFramesPerBlock;
++  const int32_t rendered = provider->render(provider->user, state.stream, scratch, frames);
++  if (rendered == kRenderPassThrough) {
++    return false;
++  }
++  if (rendered != kRenderReplaced) {
++    CloseStream(state, provider);
++    return false;
++  }
++  uint8_t* out = frame + first_block * kBlockBytes;
++  for (uint32_t i = 0; i < frames * 2; ++i) {
++    const uint16_t sample = uint16_t(scratch[i]);
++    out[i * 2] = uint8_t(sample >> 8);
++    out[i * 2 + 1] = uint8_t(sample);
++  }
++  return true;
++}
++
++inline void OnClear(ContextState& state) {
++  state.reset = true;
++}
++
++inline void OnRelease(ContextState& state) {
++  CloseStream(state, ProviderSlot().load(std::memory_order_acquire));
++  state = {};
++}
++
++}  // namespace rex::audio::pcm_override

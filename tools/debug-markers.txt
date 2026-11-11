@@ -1,0 +1,6 @@
+# Temporary DEBUG_SAULO diagnostics accepted by the development gate, with how many markers each file may hold.
+# tools/test.ps1 and tools/test.sh read this list. Remove a row when its file is clean.
+# A third field `release` ships that patch's diagnostics in a release on purpose (v0.2.0: issues #2 and #3, collected by
+# Bug Report): -Release accepts the row, and the packaging scripts accept DEBUG_SAULO in that platform's GPU plugin only.
+patches/rexglue-sdk/0092-debug-saulo-vulkan-draw-telemetry.linux.patch 15 release
+patches/rexglue-sdk/0093-debug-saulo-issue2-d3d12-telemetry.windows.patch 19 release

@@ -160,7 +160,7 @@ test('the period comparison counts distinct players of each period, and copes wi
   assert.deepEqual(comparison.unique_players, { current: 1, previous: 2, change: -50 });
   assert.equal(comparison.sessions.change, -50);
   assert.deepEqual(Object.keys(comparison), ['unique_players', 'sessions', 'rooms_created', 'room_joins', 'rooms_with_guest',
-    'peak_online', 'peak_in_rooms']);
+    'peak_online', 'peak_in_rooms', 'incidents_filed', 'incidents_rejected', 'lobby_list_requests', 'lobby_publishes']);
   assert.equal(percentChange(5, 0), null);
   assert.equal(percentChange(0, 0), null);
   assert.equal(percentChange(15, 10), 50);

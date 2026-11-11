@@ -30,8 +30,8 @@ REQUIREMENTS
 - Your own Turtles in Time Re-Shelled Xbox Live Arcade package (about 270 MB), plus
   about 300 MB of free disk space next to the program for the game files
 
-Linux has its own download, an experimental AppImage. It has not yet been
-validated on real hardware or on Steam Deck. Its instructions are on the
+Linux has its own download, an experimental AppImage. It runs on Steam Deck,
+with graphical bugs still being investigated. Its instructions are on the
 project page.
 
 
@@ -73,6 +73,8 @@ PLAYING
 - F2 shows or hides the FPS counter.
 - F3 shows or hides Ping while Online play is on.
 - F7 opens the achievements.
+- F9 opens the SNES menu (Classic Soundtrack, SNES Gameplay) for this session.
+- F10 opens the Cheats menu for this session (not while Online play is on).
 - F11 switches between Windowed and Borderless Fullscreen.
 - Xbox controllers work without setup.
 - The keyboard works too; the Controls page lists the keys.
@@ -81,14 +83,16 @@ PLAYING
 The launcher's Gameplay page has the Language (including the port's unofficial
 Portugues Brasil translation) and Skip intro. The Graphics page has the Render
 Resolution, from 1x to 4x, anti-aliasing and texture filtering. The picture is
-16:9.
+16:9. The Gameplay page also imports your own SNES Turtles in Time ROM for the
+Classic Soundtrack and the SNES page's gameplay options; no ROM is included.
+The Bug Report page sends a description and one sanitized log.
 
 
 ONLINE
 ------
 Online play is with friends, through the game's own Multiplayer menus. On the
-launcher's Online page, turn on Online play, run the Connection test and add
-friends by friend code. Players connect directly when they can, and through a
+launcher's Online page, turn on Online play, run the Connection test and send
+friend requests by friend code or from the public Lobby. Players connect directly when they can, and through a
 relay when they cannot. Invites you receive open in the game.
 
 

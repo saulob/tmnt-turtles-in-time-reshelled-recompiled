@@ -57,10 +57,10 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 | SSF2T | fc1e9afa 89363e88 | hard-exit on window close; Linux AppImage support | app header, tools/package-linux.sh | - | shutdown / AppImage | - | yes | ALREADY PRESENT | Linux package verification extended: --verify-only, UTF-16 local-path scan, DEBUG_SAULO scan, per-library RUNPATH, debug-section check, final-image re-scan. | yes | yes | LOW |
 | SSF2T | 149014f c0e7179 7a555f7 | release-folder checker, test aggregator | tools/package-release.ps1, tools/test-release-check.ps1 | - | release | user/repo/msys paths (text and UTF-16), reparse points, more forbidden types | partly | PORT WITH ADAPTATION | DONE: regex scan, reparse points, UTF-16 DEBUG_SAULO, extra patterns; 30 test cases pass. | yes | n/a | LOW |
 | SSF2T | 149014f b60ed3a | VERSIONINFO resource and application-identity check | packaging/windows/*.rc.in | - | Windows release | version info against antivirus false positives | no | PORT WITH ADAPTATION | Deferred: the Windows resource compile is fragile and needs a build to verify. | yes | n/a | LOW |
-| SSF2T | 44ad861 f27f553 | prevent launcher idle hang on Windows (XInput reader) | src/imgui_gamepad.cpp, pad_slot_scan.h | - | input | launcher gamepad no longer polls the program SDL instance | no | PORT | Deferred (Windows runtime test needed): launcher idle for minutes with and without a pad. | yes | no | MEDIUM |
+| SSF2T | 44ad861 f27f553 | prevent launcher idle hang on Windows (XInput reader) | src/imgui_gamepad.cpp, pad_slot_scan.h | - | input | launcher gamepad no longer polls the program SDL instance | no | PORT | DONE: Windows reads XInput through PadSlotScan (empty slots once a second) with the foreground gate; Linux keeps the shared SDL. tests/launcher_gamepad_tests.cpp (87 checks, 0 failures). Still needs the runtime check: launcher idle for minutes with and without a pad, and a pad unplugged and plugged back while it is open. XInput sees only Xbox-type pads, so a DualSense or Steam Controller without Steam Input no longer navigates the Windows launcher (same trade-off as SSF2T). | yes | no | MEDIUM |
 | SSF2T | 225738d | deduplicate expected asset lookup misses | patch 0039-ntcreatefile-probe-miss-dedupe | - | log noise | - | no | NEEDS RUNTIME TEST | Log-only; applies cleanly; take it only if detailed logs show repeated NtCreateFile misses. | yes | yes | LOW |
-| SSF2T | 7d19af9 | case-variant default.xex on Linux | src/game_files.cpp | - | Linux | - | no | PORT WITH ADAPTATION | Deferred: Linux cannot run the game yet. | n/a | yes | LOW |
-| SSF2T | 5199312 | launcher achievements page follows the chosen language | src/launcher_achievements.* | - | launcher | - | no | NEEDS RUNTIME TEST | Depends on per-language strings in the TMNT XDBF. | yes | yes | LOW |
+| SSF2T | 7d19af9 | case-variant default.xex on Linux | src/game_files.cpp | - | Linux | - | no | PORT WITH ADAPTATION | DONE: SameNameNoCase lookup in src/game_files.cpp, covered by tests/installer_tests.cpp (see section 6). | n/a | yes | LOW |
+| SSF2T | 5199312 | launcher achievements page follows the chosen language | src/launcher_achievements.* | - | launcher | - | no | PORT | DONE: LauncherAchievements takes the chosen language's xbox_language, sets user_language before reading the XDBF, and the page reads again when the language changes (kept TMNT's one-try rule on failure). Português Brasil reads the English slot, as in game. Not seen at runtime: whether the TMNT XDBF has achievement strings for French, German, Italian and Spanish. | yes | yes | LOW |
 | SSF2T | bdd31ad9 (0049 progress wake) | command processor progress wake | patch | - | perf | - | no | REJECT | No guest thread waits on those words in either project. | yes | yes | - |
 | SSF2T | b7eea1a (0053) | local player slots, guest sign-in, input mutex | patch | - | input / profile | - | partly | NEEDS RUNTIME TEST | Guest sign-in half REJECT (TMNT tests require sign-in untouched); input mutex and keyboard-owns-user-0 need a 4-player decision. | yes | yes | MEDIUM |
 | TMNT | (this branch) | Windows/Linux patch manifest and parity gate | patches/rexglue-sdk/patches.txt, tools/test.ps1 | - | parity | machine-readable platform/target/origin/parity class; apply check of both series | no | PORT WITH ADAPTATION | DONE (GW2 has a manifest; the parity classes and the apply check are new). | yes | yes | LOW |
@@ -69,17 +69,17 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 
 ## 2. ReXGlue patches: Windows and Linux
 
-`patches/rexglue-sdk/patches.txt` classifies every patch (platforms, targets, origin, parity). `tools/test.ps1` checks it against the files, the names and `docs/rexglue-runtime-patch.md`, and applies both series to the pinned SDK commit (81 patches: 50 shared, 19 Windows-only, 12 Linux-only; the Windows series has 69 patches, the Linux series 62).
+`patches/rexglue-sdk/patches.txt` classifies every patch (platforms, targets, origin, parity). `tools/test.ps1` checks it against the files, the names and `docs/rexglue-runtime-patch.md`, and applies both series to the pinned SDK commit (83 patches: 54 shared, 18 Windows-only, 11 Linux-only; the Windows series has 72 patches, the Linux series 65).
 
 - Windows patch with a Linux counterpart: 0011-0014 (D3D12 submissions, transfers, stencil, EDRAM) with 0016-0018; 0023 with 0024; 0027 with 0026; 0031 with 0032; 0037 with 0038.
-- Windows only, nothing to port: 0015 (high-resolution sleep), 0041 sampler memo, 0044 async submission, 0049 host threads off CPU 0, 0052 ThinLTO, 0053 unchanged constant writes, 0056 PGO, 0079 per-draw vertex residency.
-- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0080 AA838 Stage A fix. The flicker may still show on Linux.
+- Windows only, nothing to port: 0015 (high-resolution sleep), 0041 sampler memo, 0044 async submission, 0049 host threads off CPU 0, 0052 ThinLTO, 0053 unchanged constant writes, 0056 PGO.
+- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0079 per-draw vertex residency (stale geometry possible). 0080 AA838 Stage A fix is ported to Vulkan as 0091 (issue #3, Steam Deck; not yet confirmed on Linux).
 - Linux only: 0019, 0021 (POSIX waits), 0034, 0035 (Vulkan), 0046 (SDL video guidance), 0082 (module library).
 - Made common in this branch: 0051, 0054, 0081.
 
 ## 3. Deferred and rejected
 
-Deferred, each with the reason: Vulkan equivalents of 0040, 0055, 0080 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); Windows launcher XInput reader (runtime test); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; Linux case-variant `default.xex`; release notes (not prepared on request); `docs/rexglue-reference/`.
+Deferred, each with the reason: Vulkan equivalents of 0040, 0055 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); runtime check of the Windows launcher XInput reader (ported, idle and replug test pending); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; `docs/rexglue-reference/`.
 
 Rejected: HC 0058 tile heap debug patch, GW2 0056 frame trace and 0057 HDR/float resolve copies, SSF2T 0049 progress wake and the guest sign-in half of 0053, all DEBUG_SAULO instrumentation, every game-specific feature (cheats, skip intro, aspect hooks, interpolation, achievements, saves).
 
@@ -437,3 +437,18 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 | 52 | 4df062d | 2026-10-29 | feat: add rollback netplay foundation | netplay | game-specific | NOT APPLICABLE | netplay |
 | 53 | 9f20b39 | 2026-10-31 | feat: complete online rollback netplay with direct UDP and relay fallback | netplay, online, server | game-specific; incidental F3/F4 SDK bind removal, corner overlay, clipboard for friend codes | NOT APPLICABLE | netplay. `kRemovedSdkBinds` (remove SDK F3/F4 overlays) exists only to free F3 for the ping display; TMNT keeps SDK F3/F4 by design (src/keybinds.h reserves F10) |
 | 54 | 44ad861 | 2026-10-31 | fix: prevent launcher idle hang on Windows | Windows, launcher, input | Generic: Windows launcher/overlay gamepad via synchronous XInput (`LoadLibrary` of xinput1_4/1_3/9_1_0, `PadSlotScan` retries empty slots 1 Hz), no SDL instance/hidden window/thread; foreground gate | PORT | TMNT src/imgui_gamepad.cpp still runs SDL's own instance on Windows and `SDL_PollEvent` in the launcher (the pre-fix code); no src/pad_slot_scan.h, no tests/launcher_gamepad_tests.cpp. Issue #9 in SSF2T (gap 3) |
+
+## 6. Reusable launcher infrastructure on test/final-parity-gate
+
+The generic launcher pages reused from SSF2T and Hard Corps are present on both platforms: Play, Display, Graphics,
+Gameplay, SNES, Cheats, Online, Achievements, Controls, Bug Report and About, with settings persistence, sidebar icons,
+the compact layout, keyboard and controller navigation, Ctrl+S, Enter and the same Online tabs (Settings, Friends,
+Lobby). Their availability is asserted by `tests/platform_parity_tests.cpp` and `tools/parity-manifest.txt`;
+`tools/test.ps1` and `tools/test.sh` read the same manifest.
+
+The game-specific SSF2T features (Infinite Time, fight-area hooks, character and matchup analytics) are not applicable.
+The Linux case-variant game-file lookup (SSF2T `7d19af9`) is now implemented in `src/game_files.cpp` and covered by
+`tests/installer_tests.cpp`. SNES gameplay, Classic Soundtrack and Cheats are integrated from the historical chain
+`01f0d7e..44bdc30` and are registered on both platforms. The chain's DEBUG_SAULO AA838/graphics diagnostics were not
+restored; the production feature sources contain no Windows-only guards, and the manifest now treats them as `feature`
+rows rather than pending rows.

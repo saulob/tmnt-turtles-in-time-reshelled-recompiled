@@ -1,7 +1,7 @@
 # Linux and Steam Deck
 
-> **Experimental.** Windows is the primary platform. The AppImage has not yet been validated on real Linux or Steam Deck
-> hardware, so rendering, audio, controllers and online play on Linux are unconfirmed.
+> **Experimental.** Windows is the primary platform. A first Steam Deck report (issue #3) shows the AppImage running, with
+> graphical bugs still under investigation; audio, controllers and online play on Linux are not yet confirmed.
 
 The Linux build uses the same code as the Windows build: ReXGlue SDK 0.10.0's Linux runtime and the Xenos GPU
 plugin's Vulkan backend, both built with the project's patches, and the same TRG launcher. It ships as one
@@ -18,9 +18,11 @@ into its own shared library (`libtmnt_turtles_in_time_reshelled_TMNT_r.so`). ReX
 completes on Windows but `dlopen` does not. The Linux-only patch `0082-posix-recompiled-module-library` makes the runtime
 look for `lib<name>.so` beside the executable first.
 
-Two Direct3D 12 fixes that a player can see have no Vulkan counterpart yet: the cyan turtle flicker (`0080`), and vertex
-buffers rewritten at the same address during a frame (`0079`), which can show as stale geometry. The Vulkan equivalents of
-`0040` and `0055` are deferred too; those two are performance work. All four are parity `vulkan-candidate` in
+The cyan turtle flicker fix (`0080`) has its Vulkan counterpart in `0091`, not yet confirmed on a Steam Deck. One
+Direct3D 12 fix that a player can see still has none: vertex buffers rewritten at the same address (`0079`), which can
+show as stale geometry; the temporary `0092` telemetry logs when that happens. The Shredder lighting flicker fix (`0090`)
+is Direct3D 12 only as well: it was found and confirmed there, and has not been seen on Vulkan. The Vulkan equivalents
+of `0040` and `0055` are deferred too; those two are performance work. These four are parity `vulkan-candidate` in
 `patches/rexglue-sdk/patches.txt`.
 
 The AppImage FUSE fallback (the image unpacks itself and runs from there when it cannot be mounted) is part of the
@@ -49,7 +51,7 @@ is older than GCC 13.
 
 ### Steam Deck
 
-This is the intended flow. It has not been tried on a Steam Deck yet.
+The game has been reported running on a Steam Deck with this flow.
 
 1. In **Desktop Mode**, do steps 1 to 5 above. Copy your package to the Deck first (USB stick, SD card or network).
 2. In Steam: **Games** > **Add a Non-Steam Game to My Library**, and pick the AppImage.
@@ -143,7 +145,9 @@ Vulkan loader and layers, RPATH/RUNPATH, NEEDED libraries, debug sections of all
 `tools/package-linux.sh --verify-only FILE` runs the scan, the runtime checks and the glibc check on an existing AppImage.
 
 `tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, the audio client teardown of patch 0086, packaging inputs,
-player-facing feature parity, hygiene); it launches nothing. `tools/test-appimage-release.sh` staged-fixture tests run in a focal WSL
+the shared feature matrix in `tools/parity-manifest.txt`, hygiene); it launches nothing. `tools/test.sh` runs the same
+groups from Linux and adds the shell and compiler checks. The real-hardware checks are in
+[linux-test-checklist.md](linux-test-checklist.md). `tools/test-appimage-release.sh` staged-fixture tests run in a focal WSL
 distribution; set `TMNT_APPIMAGE_TOOLS` to a folder holding appimagetool and a built runtime to add a fixture AppImage.
 `tools/setup-linux-build-env.sh` prepares a clean Ubuntu 20.04 machine for it, as root: clang 20 from
 [apt.llvm.org](https://apt.llvm.org), the GCC 13 runtime from the `ubuntu-toolchain-r/test` PPA, CMake 3.31.8 and the

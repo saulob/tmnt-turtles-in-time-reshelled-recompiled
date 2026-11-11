@@ -24,4 +24,8 @@ std::string TomlString(std::string_view value);
 // for one such line. Every other byte is kept.
 std::string RepairBareString(std::string_view text, std::string_view key, std::size_t& repaired);
 
+// Rewrites `key = true` as `key = "auto"` and `key = false` as `key = "off"`: SNES Dash was a bool before it had modes,
+// and its old true is the Auto dash. Every other byte is kept.
+std::string MigrateBoolToDashMode(std::string_view text, std::string_view key, std::size_t& migrated);
+
 }  // namespace tmnt

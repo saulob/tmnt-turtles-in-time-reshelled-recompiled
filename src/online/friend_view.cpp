@@ -92,6 +92,25 @@ FriendRowView DescribeFriend(const Snapshot& state, const Friend& entry) {
   return view;
 }
 
+LobbyRowView DescribeLobbyPlayer(const Snapshot& state, const LobbyPlayer& player) {
+  LobbyRowView view;
+  view.incompatible = !player.compatible;
+  if (player.relation == "friend") view.relation = LobbyRelation::kFriend;
+  else if (player.relation == "incoming") view.relation = LobbyRelation::kIncoming;
+  else if (player.relation == "pending") view.relation = LobbyRelation::kOutgoing;
+  else if (std::find(state.lobby.pending_handles.begin(), state.lobby.pending_handles.end(), player.player) !=
+           state.lobby.pending_handles.end()) {
+    view.relation = LobbyRelation::kOutgoing;
+  } else {
+    const auto is_player = [&player](const auto& entry) { return entry.player == player.player; };
+    if (std::any_of(state.friends.begin(), state.friends.end(), is_player)) view.relation = LobbyRelation::kFriend;
+    else if (std::any_of(state.outgoing.begin(), state.outgoing.end(), is_player)) view.relation = LobbyRelation::kOutgoing;
+    else if (std::any_of(state.incoming.begin(), state.incoming.end(), is_player)) view.relation = LobbyRelation::kIncoming;
+  }
+  view.can_add = view.relation == LobbyRelation::kNone && player.compatible && state.connection == Connection::kOnline;
+  return view;
+}
+
 std::vector<PartySlotView> DescribePartySlots(const Snapshot& state) {
   std::vector<PartySlotView> slots(kMaxParty);
   for (int i = 0; i < kMaxParty; ++i) slots[i].slot = i + 1;

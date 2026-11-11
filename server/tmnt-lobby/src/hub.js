@@ -6,17 +6,20 @@
 // State lives in SQL tables and in each socket's attachment, so a hibernated Durable Object resumes as if it had never
 // stopped. The same class runs in the development server (local/server.js).
 import { PROTECTION, RateLimiter, checkedCounts } from './abuse.js';
+import { INCIDENT, INCIDENT_LIMITED, IncidentDesk, incidentTicket, readClaims, readIncident, readReadClaim } from './incidents.js';
 import { Metrics, SAMPLE_MS, countryCode, platformCategory, sampleBucket, versionCategory } from './metrics.js';
 import { parsePartyReport } from './party.js';
 import { hmacSha256Hex, sha256Hex, toHex } from './sha256.js';
 import {
   BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, PROTOCOL, ProtocolError, compatibleGuests, fail, ipGroup, isInt, isLocalAddress, isObject,
-  joinTokenHash, normalizeFriendCode, parseHello, takeToken,
+  joinTokenHash, normalizeFriendCode, parseHello, parseLobbyPublish, parseLobbyRevision, takeToken,
 } from './protocol.js';
 import { TelemetryStore, isDiag, parseBatch } from './telemetry.js';
 
 const DAY_MS = 24 * 3600 * 1000;
-const SOCIAL_OPS = new Set(['friends.add', 'party.create', 'party.kick', 'invite.send', 'invite.accept', 'pm.host', 'pm.join']);
+const SOCIAL_OPS = new Set(['friends.add', 'party.create', 'party.kick', 'invite.send', 'invite.accept', 'pm.host', 'pm.join',
+  'lobby.publish']);
+const SESSIONLESS_OPS = new Set(['hello', 'incident.status', 'incident.read']);
 const RULE_KEY = /^[a-z_]{1,16}$/;
 const QOS_DATA = /^(?:[0-9a-f]{2}){0,256}$/;
 const MEMBER_STATES = ['joined', 'connecting', 'connected', 'disconnected'];
@@ -27,6 +30,10 @@ const INVITE_AUDIENCE = {
   host_left: ['target'], party_full: ['target'], cancelled: ['target'],
 };
 const KEEP_ENDED = new Set(['host_left', 'party_full']);
+const DEFAULT_NAME = 'Player';
+const LOBBY_PLAYER = /^[0-9a-f]{32}$/;
+const REQUEST_ID = /^[0-9a-f]{32}$/;
+const LOBBY_RANK = { incoming: 0, pending: 1, friend: 2, none: 3 };
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,
@@ -60,6 +67,7 @@ const ADDED_COLUMNS = [
   ['parties', 'peak', 'INTEGER NOT NULL DEFAULT 0'],
   ['parties', 'relayed', 'INTEGER NOT NULL DEFAULT 0'],
   ['players', 'session', 'INTEGER NOT NULL DEFAULT 0'],
+  ['friend_requests', 'lobby', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 function playerOf(value) {
@@ -86,6 +94,9 @@ export class Hub {
       inviteAddress: new RateLimiter(PROTECTION.inviteAddress),
       friendAccount: new RateLimiter(PROTECTION.friendAccount),
       telemetryAccount: new RateLimiter(PROTECTION.telemetryAccount),
+      incidentStatus: new RateLimiter({ burst: 30, perSecond: 0.5 }),
+      incidentRead: new RateLimiter(PROTECTION.incidentReadAddress),
+      lobbyList: new RateLimiter(PROTECTION.lobbyList),
       partyReportAll: new RateLimiter(PROTECTION.partyReportAll),
       partyReportAccount: new RateLimiter(PROTECTION.partyReportAccount),
       partyReportAddress: new RateLimiter(PROTECTION.partyReportAddress),
@@ -96,6 +107,7 @@ export class Hub {
       try { host.sql.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`); } catch { /* already there */ }
     }
     if (!this.meta('salt')) this.setMeta('salt', this.randomHex(16));
+    this.lobbyRev = host.now();
     this.telemetryBucket = null;
     this.telemetryFailures = 0;
     try {
@@ -110,6 +122,12 @@ export class Hub {
     } catch (error) {
       this.telemetryFailed(error);
       this.metrics = null;
+    }
+    try {
+      this.incidents = new IncidentDesk(host.sql, this.meta('salt'));
+    } catch (error) {
+      this.telemetryFailed(error);
+      this.incidents = null;
     }
     if (this.telemetry) this.telemetry.onAbuse = (entries) => this.track(() => this.metrics.addAbuse(entries));
     this.reconcile();
@@ -172,8 +190,13 @@ export class Hub {
     this.keepDeferred = false;
     try {
       if (typeof text !== 'string') fail('bad_request', 'text frames only');
-      if (text.length > LIMITS.telemetryFrameBytes ||
-          (text.length > LIMITS.frameBytes && !text.includes('"op":"telemetry.batch"'))) {
+      const reportFrame = text.includes('"op":"incident.file"');
+      const telemetryFrame = text.includes('"op":"telemetry.batch"');
+      if (text.length > LIMITS.incidentFrameBytes ||
+          (text.length > LIMITS.telemetryFrameBytes && !reportFrame && !telemetryFrame)) {
+        fail('too_large');
+      }
+      if (!reportFrame && !telemetryFrame && text.length > LIMITS.frameBytes) {
         fail('too_large');
       }
       let msg;
@@ -184,7 +207,13 @@ export class Hub {
       }
       if (!isObject(msg) || typeof msg.op !== 'string' || !isInt(msg.seq, 0, 0x7fffffff)) fail('bad_request', 'envelope');
       seq = msg.seq;
-      if (text.length > LIMITS.frameBytes && msg.op !== 'telemetry.batch') fail('too_large');
+      if (msg.op === 'incident.file') {
+        if (text.length > LIMITS.incidentFrameBytes) fail('too_large');
+      } else if (msg.op === 'telemetry.batch') {
+        if (text.length > LIMITS.telemetryFrameBytes) fail('too_large');
+      } else if (text.length > LIMITS.frameBytes) {
+        fail('too_large');
+      }
       const now = this.host.now();
       const any = takeToken(att.ra, BUCKETS.any, now);
       if (!any) {
@@ -209,8 +238,22 @@ export class Hub {
         }
         att.rq = search;
       }
+      // Status checks and report reads take no account, so they are limited per socket and per address.
+      if (msg.op === 'incident.status' || msg.op === 'incident.read') {
+        const socket = takeToken(att.ri, BUCKETS.incidentStatus, now);
+        if (!socket) {
+          this.noteLimit('incident');
+          fail('limit', 'slow down');
+        }
+        att.ri = socket;
+        const guard = msg.op === 'incident.read' ? this.guards.incidentRead : this.guards.incidentStatus;
+        if (!guard.take(this.ipKey(att.ip), now)) {
+          this.noteLimit('incident');
+          fail('limit', 'slow down');
+        }
+      }
       if (!Object.hasOwn(HANDLERS, msg.op)) fail('bad_request', 'unknown op');
-      if (msg.op !== 'hello' && !att.hello) fail('no_session');
+      if (!SESSIONLESS_OPS.has(msg.op) && !att.hello) fail('no_session');
       this.index = null;
       const body = HANDLERS[msg.op].call(this, att, msg, conn, text) ?? {};
       conn.setAttachment(att);
@@ -256,6 +299,7 @@ export class Hub {
     const att = conn.attachment();
     if (!att?.hello) return;
     this.index = null;
+    if (att.presence && att.lobby) this.touchLobby();
     att.hello = false;
     conn.setAttachment(att);
     this.index = null;
@@ -492,6 +536,7 @@ export class Hub {
       online: present.size,
       in_rooms: this.host.sql.get('SELECT COUNT(*) AS n FROM party_members WHERE offline_since IS NULL').n,
       rooms: this.host.sql.get('SELECT COUNT(*) AS n FROM parties').n,
+      lobby_visible: new Set(this.sockets().filter((s) => s.att.presence && s.att.lobby).map((s) => s.att.player)).size,
       platform: tally((att) => platformCategory(att.platform)),
       version: tally((att) => versionCategory(att.version)),
       country: tally((att) => countryCode(att.country)),
@@ -499,7 +544,11 @@ export class Hub {
   }
 
   observeLive() {
-    this.track(() => this.metrics.observe(this.liveMetrics()));
+    this.track(() => {
+      const live = this.liveMetrics();
+      this.metrics.observe(live);
+      this.metrics.lobbyVisible(live.lobby_visible);
+    });
   }
 
   // The next 15-minute usage sample, while anyone is connected.
@@ -508,11 +557,33 @@ export class Hub {
   }
 
   metricsSummary() {
-    return this.metrics.summary(this.liveMetrics());
+    return { ...this.metrics.summary(this.liveMetrics()), incidents: this.incidentMetrics() };
   }
 
   metricsHistory(days) {
     return { ...this.metrics.history(days), player_key: this.metricsSecret ? 'secret' : 'salt' };
+  }
+
+  // ---- bug reports (incidents.js); admin reads after the edge checked the token ----
+  incidentMetrics() {
+    return this.incidents ? this.incidents.summary() : { total: 0, by_status: {}, tracked: 0 };
+  }
+
+  incidentList() {
+    return this.incidents ? this.incidents.list() : { incidents: [], kept: INCIDENT.kept };
+  }
+
+  incident(ticket) {
+    const found = this.incidents ? this.incidents.get(ticket) : null;
+    return found ? { ...found, ...this.incidents.status(ticket) } : null;
+  }
+
+  setIncidentStatus(ticket, change) {
+    if (!this.incidents) return null;
+    const before = this.incidents.status(ticket);
+    const saved = this.incidents.setStatus(ticket, change, this.host.now());
+    if (saved && saved.player_message !== before?.player_message) this.track(() => this.metrics?.incidentMessage());
+    return saved;
   }
 
   // One Connection Test beacon (beacon.js); a store that fails throws to the caller, which answers regardless.
@@ -595,9 +666,21 @@ export class Hub {
     return mine.member.state === 'connected' ? 'in_game' : 'connecting';
   }
 
+  // Players who kept the default name stay apart. Salted, so an alias cannot be checked against an account.
+  displayName(account, name) {
+    if (name !== DEFAULT_NAME) return name;
+    return `${DEFAULT_NAME}-${sha256Hex(`${this.meta('salt')}|alias|${account}`).slice(0, 4).toUpperCase()}`;
+  }
+
+  // Beside `name`, never in place of it: the game matches room members to friends by the real name.
+  shownAs(account, name) {
+    const shown = this.displayName(account, name);
+    return shown === name ? {} : { display_name: shown };
+  }
+
   friendView(player, viewer) {
     const row = this.playerRow(player);
-    const view = { player, name: row?.name ?? '', online: false, state: 'offline' };
+    const view = { player, name: row?.name ?? '', online: false, state: 'offline', ...this.shownAs(player, row?.name) };
     const present = this.presentSockets(player);
     if (!present.length) return view;
     const att = present[0].att;
@@ -611,6 +694,82 @@ export class Hub {
     return this.host.sql.all('SELECT friend FROM friends WHERE player = ? ORDER BY friend', player).map((r) => r.friend);
   }
 
+  // ---- public Lobby ----
+  // Visibility is part of a present socket's attachment: it ends with the socket and is never written to SQL. `player`
+  // is random for each publication and names a row of this list, nothing else.
+  lobbyListed(player) {
+    return this.presentSockets(player).some((s) => Boolean(s.att.lobby));
+  }
+
+  touchLobby() {
+    this.lobbyRev += 1;
+  }
+
+  showInLobby(att, now) {
+    att.lobby = { player: this.randomHex(16), since: now };
+  }
+
+  lobbyRelations(account) {
+    const since = this.host.now() - LIMITS.requestDays * DAY_MS;
+    const accounts = (query, key) => new Set(this.host.sql.all(query, account, since).map((r) => r[key]));
+    const friends = new Set(this.friendsOf(account));
+    const incoming = accounts('SELECT sender FROM friend_requests WHERE target = ? AND ms >= ?', 'sender');
+    const outgoing = accounts('SELECT target FROM friend_requests WHERE sender = ? AND ms >= ?', 'target');
+    return (other) => {
+      if (friends.has(other)) return 'friend';
+      if (incoming.has(other)) return 'incoming';
+      return outgoing.has(other) ? 'pending' : 'none';
+    };
+  }
+
+  // Names one pending request to both of its players. A request made from the public Lobby is addressed only by this
+  // id, so the Lobby handle never leads to a friend code before the request is accepted.
+  requestId(sender, target) {
+    return sha256Hex(`${this.meta('salt')}|request|${sender}|${target}`).slice(0, 32);
+  }
+
+  // The other player of this player's pending request with that id.
+  requestPeer(att, id) {
+    if (typeof id !== 'string' || !REQUEST_ID.test(id)) fail('bad_request', 'request');
+    const rows = this.host.sql.all('SELECT sender, target FROM friend_requests WHERE sender = ? OR target = ?', att.player, att.player);
+    const row = rows.find((r) => this.requestId(r.sender, r.target) === id);
+    return row ? (row.sender === att.player ? row.target : row.sender) : fail('not_found');
+  }
+
+  lobbyTarget(att, player) {
+    if (typeof player !== 'string' || !LOBBY_PLAYER.test(player)) fail('bad_request', 'player');
+    if (!att.lobby) fail('not_visible');
+    const entry = this.sockets().find((s) => s.att.presence && s.att.lobby?.player === player);
+    if (!entry) fail('not_found');
+    return this.playerRow(entry.att.player) ?? fail('not_found');
+  }
+
+  // Visible compatible players other than the viewer, ranked by relation. The rows carry a random handle, the
+  // presentation name, the version and the relation; never an account, address, token, endpoint or match.
+  lobbyPlayers(viewer) {
+    const seen = new Set();
+    const relation = this.lobbyRelations(viewer.player);
+    const candidates = [];
+    for (const { att } of this.sockets()) {
+      if (!att.lobby || !att.presence || att.player === viewer.player || seen.has(att.player)) continue;
+      seen.add(att.player);
+      if (!compatibleGuests(viewer, att)) continue;
+      candidates.push({ att, state: relation(att.player) });
+    }
+    const key = (c) => c.att.name.toLowerCase();
+    candidates.sort((a, b) => (LOBBY_RANK[a.state] - LOBBY_RANK[b.state]) || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)
+      || (a.att.lobby.player < b.att.lobby.player ? -1 : 1));
+    return candidates.slice(0, LIMITS.lobbyPlayers).map(({ att, state }) => ({
+      player: att.lobby.player, name: this.displayName(att.player, att.name), version: att.version, state,
+    }));
+  }
+
+  limitLobbyList(att) {
+    if (this.exempt(att) || this.guards.lobbyList.take(att.player, this.host.now())) return;
+    this.diagnose('lobby_list_limited');
+    fail('limit', 'reading the lobby too fast');
+  }
+
   areFriends(a, b) {
     return Boolean(this.host.sql.get('SELECT 1 AS x FROM friends WHERE player = ? AND friend = ?', a, b));
   }
@@ -620,6 +779,7 @@ export class Hub {
   }
 
   notifyStatus(player) {
+    if (this.lobbyListed(player)) this.touchLobby();
     for (const friend of this.friendsOf(player)) {
       for (const s of this.presentSockets(friend)) {
         this.send(s.conn, { ev: 'friend.status', friend: this.friendView(player, s.att) });
@@ -998,25 +1158,116 @@ const HANDLERS = {
     return { time: this.host.now() };
   },
 
+  // Shows or hides this connection's player in the public Lobby. Nothing is stored; an unchanged request changes nothing.
+  'lobby.publish'(att, msg) {
+    if (!att.presence) fail('bad_request', 'presence required');
+    const visible = parseLobbyPublish(msg);
+    if (Boolean(att.lobby) !== visible) {
+      if (visible) this.showInLobby(att, this.host.now());
+      else delete att.lobby;
+      this.touchLobby();
+      this.track(() => this.metrics?.lobbyPublish());
+      this.observeLive();
+    }
+    return { visible };
+  },
+
+  // The visible players. A client that sends the revision it holds hears `unchanged` while the list is still the same.
+  'lobby.list'(att, msg) {
+    const held = parseLobbyRevision(msg);
+    this.limitLobbyList(att);
+    this.track(() => this.metrics?.lobbyListRequest());
+    const visible = Boolean(att.lobby);
+    if (held === this.lobbyRev) return { unchanged: true, rev: this.lobbyRev, visible };
+    return { players: this.lobbyPlayers(att), rev: this.lobbyRev, visible };
+  },
+
+  'incident.file'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const parsed = readIncident(msg);
+    if (parsed.code) {
+      this.track(() => this.metrics?.incidentRejected(parsed.code));
+      this.diagnose(parsed.code === 'too_large' ? 'incident_limited' : 'incident_rejected');
+      fail(parsed.code, parsed.detail);
+    }
+    const now = this.host.now();
+    const refusal = this.incidents.refusal(att.player, att.ip, now);
+    if (refusal) {
+      this.track(() => this.metrics?.incidentRejected(refusal));
+      this.diagnose(INCIDENT_LIMITED[refusal] ?? 'incident_limited');
+      fail(refusal);
+    }
+    let ticket;
+    do ticket = incidentTicket(crypto.getRandomValues(new Uint8Array(6)));
+    while (this.incidents.taken(ticket));
+    const receipt = this.randomHex(32);
+    try {
+      this.incidents.file(parsed.incident, ticket, att.player, att.ip, now);
+      this.incidents.track(ticket, receipt, now);
+    } catch (error) {
+      this.host.log(`incident: could not store ${ticket}: ${error?.message ?? error}`);
+      this.incidents.remove(ticket);
+      this.track(() => this.metrics?.incidentRejected('storage'));
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    this.track(() => this.metrics?.incidentFiled());
+    this.diagnose('incident_filed');
+    return { ticket, receipt, submitted_at: now };
+  },
+
+  'incident.status'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const claims = readClaims(msg);
+    if (!claims) fail('bad_request', 'reports');
+    const statuses = this.incidents.statuses(claims);
+    this.track(() => this.metrics?.incidentStatusCheck());
+    return { reports: statuses };
+  },
+
+  'incident.read'(att, msg) {
+    if (!this.incidents) {
+      this.track(() => this.metrics?.incidentError());
+      fail('internal');
+    }
+    const claim = readReadClaim(msg);
+    if (!claim) fail('bad_request', 'receipt');
+    const report = this.incidents.report(claim);
+    if (!report) fail('not_found');
+    this.track(() => this.metrics?.incidentRead());
+    return { report };
+  },
+
   'friends.list'(att) {
     return { friends: this.friendsOf(att.player).map((f) => this.friendView(f, att)) };
   },
 
   'friends.requests'(att) {
     this.expireRequests();
-    const named = (rows, key) => rows.map((r) => ({ player: r[key], name: this.playerRow(r[key])?.name ?? '', ms: r.ms }));
+    const named = (rows, key) => rows.map((r) => {
+      const name = this.playerRow(r[key])?.name ?? '';
+      const row = { request: this.requestId(r.sender, r.target), name, ...this.shownAs(r[key], name), ms: r.ms };
+      return r.lobby ? row : { player: r[key], ...row };
+    });
     return {
-      incoming: named(this.host.sql.all('SELECT sender, ms FROM friend_requests WHERE target = ? ORDER BY ms', att.player), 'sender'),
-      outgoing: named(this.host.sql.all('SELECT target, ms FROM friend_requests WHERE sender = ? ORDER BY ms', att.player), 'target'),
+      incoming: named(this.host.sql.all('SELECT sender, target, ms, lobby FROM friend_requests WHERE target = ? ORDER BY ms', att.player), 'sender'),
+      outgoing: named(this.host.sql.all('SELECT sender, target, ms, lobby FROM friend_requests WHERE sender = ? ORDER BY ms', att.player), 'target'),
     };
   },
 
   'friends.add'(att, msg) {
-    const code = normalizeFriendCode(msg.code);
-    const target = this.playerRow(code);
+    const fromLobby = msg.player !== undefined;
+    const target = fromLobby ? this.lobbyTarget(att, msg.player) : this.playerRow(normalizeFriendCode(msg.code));
     if (!target) fail('not_found');
     if (target.player === att.player) fail('bad_request', 'own code');
-    const result = { player: target.player, name: target.name };
+    const result = { name: target.name, ...this.shownAs(target.player, target.name) };
+    if (!fromLobby) result.player = target.player;
     if (this.areFriends(att.player, target.player)) return { ...result, state: 'friends' };
     this.expireRequests();
     if (this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', target.player, att.player)) {
@@ -1026,23 +1277,27 @@ const HANDLERS = {
       for (const s of this.presentSockets(target.player)) {
         this.send(s.conn, { ev: 'friend.added', friend: this.friendView(att.player, s.att) });
       }
+      this.touchLobby();
       return { ...result, state: 'friends' };
     }
     if (this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', att.player, target.player)) {
-      return { ...result, state: 'pending' };
+      return { ...result, request: this.requestId(att.player, target.player), state: 'pending' };
     }
     const outgoing = this.host.sql.get('SELECT COUNT(*) AS n FROM friend_requests WHERE sender = ?', att.player).n;
     const incoming = this.host.sql.get('SELECT COUNT(*) AS n FROM friend_requests WHERE target = ?', target.player).n;
     if (outgoing >= LIMITS.pendingOut || incoming >= LIMITS.pendingIn) fail('limit', 'too many pending requests');
     this.requireFriendRoom(att.player, target.player);
     this.limitFriendRequest(att);
-    this.host.sql.run('INSERT INTO friend_requests (sender, target, ms) VALUES (?, ?, ?)', att.player, target.player, this.host.now());
-    this.notifyPlayer(target.player, { ev: 'friend.request', player: att.player, name: att.name });
-    return { ...result, state: 'pending' };
+    this.host.sql.run('INSERT INTO friend_requests (sender, target, ms, lobby) VALUES (?, ?, ?, ?)', att.player, target.player,
+      this.host.now(), fromLobby ? 1 : 0);
+    const event = { ev: 'friend.request', request: this.requestId(att.player, target.player), name: att.name, ...this.shownAs(att.player, att.name) };
+    this.notifyPlayer(target.player, fromLobby ? event : { ...event, player: att.player });
+    this.touchLobby();
+    return { ...result, request: this.requestId(att.player, target.player), state: 'pending' };
   },
 
   'friends.accept'(att, msg) {
-    const sender = playerOf(msg.player);
+    const sender = msg.request !== undefined ? this.requestPeer(att, msg.request) : playerOf(msg.player);
     this.expireRequests();
     if (!this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', sender, att.player)) fail('not_found');
     this.requireFriendRoom(att.player, sender);
@@ -1050,16 +1305,19 @@ const HANDLERS = {
     for (const s of this.presentSockets(sender)) {
       this.send(s.conn, { ev: 'friend.added', friend: this.friendView(att.player, s.att) });
     }
+    this.touchLobby();
     return { friend: this.friendView(sender, att) };
   },
 
   'friends.decline'(att, msg) {
-    const other = playerOf(msg.player);
+    const other = msg.request !== undefined ? this.requestPeer(att, msg.request)
+      : typeof msg.player === 'string' && LOBBY_PLAYER.test(msg.player) ? this.lobbyTarget(att, msg.player).player : playerOf(msg.player);
     const pair = [other, att.player, att.player, other];
     if (!this.host.sql.get(`SELECT 1 AS x FROM friend_requests WHERE (sender = ? AND target = ?) OR (sender = ? AND target = ?)`, ...pair)) {
       fail('not_found');
     }
     this.host.sql.run('DELETE FROM friend_requests WHERE (sender = ? AND target = ?) OR (sender = ? AND target = ?)', ...pair);
+    this.touchLobby();
     return {};
   },
 
@@ -1071,6 +1329,7 @@ const HANDLERS = {
     this.host.sql.run('DELETE FROM friend_requests WHERE (sender = ? AND target = ?) OR (sender = ? AND target = ?)', other,
       att.player, att.player, other);
     if (were) this.notifyPlayer(other, { ev: 'friend.removed', player: att.player });
+    if (were) this.touchLobby();
     return {};
   },
 

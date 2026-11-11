@@ -1,17 +1,98 @@
-## TMNT Turtles in Time Re-Shelled Recompiled v0.1.0
+## TMNT Turtles in Time Re-Shelled Recompiled v0.2.0
 
-The first public release of an unofficial native PC port of *Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled* for Xbox Live Arcade. The game's own Xbox 360 code is statically recompiled to native PC code with the ReXGlue SDK, so this is a native program and not an emulator.
+An unofficial native PC port of *Teenage Mutant Ninja Turtles: Turtles in Time Re-Shelled* for Xbox Live Arcade. The game's own Xbox 360 code is statically recompiled to native PC code with the ReXGlue SDK, so this is a native program and not an emulator.
 
-**No game files are included.** You need your own Xbox 360 copy of the game, in the exact version listed below.
+**No game files are included.** You need your own Xbox 360 copy of the game, in the exact version listed below. The new SNES features need your own SNES ROM; no ROM or SNES music is included either.
 
 ## Downloads
 
 | Platform | File |
 | --- | --- |
-| Windows x64 | `TurtlesInTimeReshelled-v0.1.0-windows-x64.zip` |
-| Windows x64 SHA-256 | `TurtlesInTimeReshelled-v0.1.0-windows-x64.sha256` |
-| Linux x86_64 (experimental) | `TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.AppImage` |
-| Linux x86_64 SHA-256 | `TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.sha256` |
+| Windows x64 | `TurtlesInTimeReshelled-v0.2.0-windows-x64.zip` |
+| Windows x64 SHA-256 | `TurtlesInTimeReshelled-v0.2.0-windows-x64.sha256` |
+| Linux x86_64 (experimental) | `TurtlesInTimeReshelledRecompiled-v0.2.0-x86_64.AppImage` |
+| Linux x86_64 SHA-256 | `TurtlesInTimeReshelledRecompiled-v0.2.0-x86_64.sha256` |
+
+Already on v0.1.0? The launcher offers this update on its own: choose **UPDATE NOW**, then **RESTART TO UPDATE**. Game files, `user_data`, saves, settings and logs are kept.
+
+## Highlights
+
+- **Classic Soundtrack** ([issue #1](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/1)): play with the SNES *Turtles in Time* music, imported from your own SNES ROM and played back from the SNES sound data.
+- **SNES Gameplay**: Directional Combat, SNES Throw Control, Disable Double Jump and SNES Dash, offline and online.
+- **Cheats** for offline play, with an in-game **F10** menu.
+- **Online multiplayer** with **Friends** (requests by friend code) and a **public Lobby** on the launcher's Online page.
+- **Achievements** shown in the language you chose.
+- **Bug Report**: send a description and one sanitized log from the launcher, and follow replies in **My reports**.
+- **Shredder lighting flicker fixed** on Windows.
+
+## SNES Classic Soundtrack
+
+- On the launcher's **Gameplay** page, **Import SNES soundtrack** reads your own ROM: `.sfc`, `.smc`, or a `.zip` holding one. The USA, Europe and Australia releases are recognised on their own. Other files are refused with the reason (invalid ROM, another game, unsupported soundtrack).
+- **Classic soundtrack** On replaces the Re-Shelled music with the SNES music. Sound effects and voices are unchanged, and the game's Music volume still applies, mute included.
+- The SNES music is raised by about 3.5 dB so both soundtracks play at a similar level, with a soft limit instead of clipping.
+- **F9** switches it for the current session. Online, each player hears the soundtrack they chose.
+- **Remove SNES soundtrack** deletes the imported music. Your ROM file is never changed, and it is not needed after the import.
+- Windows and Linux.
+
+## SNES Gameplay
+
+- A new **SNES** page, also reachable in game with **F9**: **Directional Combat**, **SNES Throw Control**, **Disable Double Jump** and **SNES Dash** (**Off**, **Auto** or **Manual**). It needs a Ready SNES import. F9 changes last for the session only.
+- Online, a mechanic is available only when every player's PC supports it with the same data. Each player's choice then applies to their own turtle, fixed for the match. PAL and NTSC imports share Directional Combat and Disable Double Jump; Throw Control and Dash are unavailable when they are mixed. Without an agreement, every mechanic stays Off and the match plays normally.
+- Windows and Linux.
+
+## Cheats
+
+- A new **Cheats** page: **Infinite Health**, **Infinite Lives**, **Damage Multiplier** (Off, 2x, 4x), **Turbo Attack**, **Turbo Strong Attack**, **Super Armor** and **Spin Attack**. **F10** changes them for the session only.
+- **Unlock all stages** on the Gameplay page makes every Quick Play stage selectable without changing your saved progress.
+- Cheats are for offline play. Turning **Online play** on switches every saved cheat Off, and turning it off again restores nothing. The Cheats page and F10 say so while Online play is on, and Unlock all stages is not applied in an online session.
+- Windows and Linux.
+
+## Online, Friends and the public Lobby
+
+- The Online page now has three tabs: **Settings**, **Friends** and **Lobby**.
+- Friends are added by request. Send one by friend code, or from the Lobby. The other player sees it as **Pending** and can **Accept** or **Decline** it.
+- **Show me in Lobby** lists you for other players with your online name and game version. The default name `Player` is shown as `Player-XXXX`. Your friend code is not shown in the Lobby. **Refresh lobby** and an "Updated" time show how fresh the list is.
+- The online protocol is unchanged.
+- Windows and Linux.
+
+## Bug Report
+
+- A new **Bug Report** page sends a short description and one game log you choose. You see a preview of exactly what will be sent before anything leaves your PC, and personal folders and names are removed from the log.
+- Each report gets a report ID (`TMNT-XXXXXX`). **My reports** shows its status, the version where it was fixed, and any message from the developer.
+- Reports carry the graphics diagnostics described below even with **Detailed logging** Off.
+- Windows and Linux.
+
+## Launcher
+
+- New pages: SNES, Cheats and Bug Report. New page icons, drawn sharp at any Windows display scale.
+- **Ctrl+S** saves from any page, and the footer lists Play, Quit and Save.
+- Achievements are shown in the language you chose.
+- Windows: the launcher no longer hangs while idle with a controller connected. It now reads controllers through XInput.
+- Português Brasil covers the new pages.
+
+## Graphics
+
+- **Fixed (Windows):** in the final fight, Shredder no longer flickers to an almost black silhouette.
+- **Linux:** the Vulkan renderer now has the AA838 fix (the cyan turtle flicker fix that Windows got in v0.1.0), plus targeted Vulkan telemetry for further Steam Deck reports. It is not yet confirmed on a Steam Deck.
+
+## Diagnostics
+
+v0.2.0 writes extra graphics diagnostics to the game log, so that a Bug Report can help with the two open graphics issues below. They are logged as warnings, so they stay in the log even with Detailed logging Off. They do not change what is drawn.
+
+- Windows (Direct3D 12): lighting, render target, resolve and shader-compilation state for [issue #2](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/2).
+- Linux (Vulkan): skipped draws, stale vertex data, the turtle flicker fix and video textures for [issue #3](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/3).
+
+If you see either problem, please send a **Bug Report** right after it happens.
+
+## Known issues
+
+- **[#2](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/2) Graphics bug in the first stage** (odd light and shadow on the characters, seen on an RTX 5070): not fixed yet. v0.2.0 adds diagnostics for it.
+- **[#3](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/3) Steam Deck graphical bugs**: not fixed yet. v0.2.0 adds the Vulkan turtle flicker fix and diagnostics for it.
+- The Shredder flicker fix and the stale geometry fix are Direct3D 12 only; Linux does not have them yet.
+- The game uses its original 16:9 presentation.
+- Linux self-update needs the AppImage to keep its release file name.
+- If a player closes the window during an online match, the others can wait up to 30 seconds before the match continues.
+- The Windows binaries are not code-signed, so SmartScreen may show a warning the first time. If you downloaded the release from this page, choose **More info**, then **Run anyway**.
 
 ## Install on Windows
 
@@ -28,80 +109,15 @@ Only this game version is supported:
 | `default.xex` | 4,808,704 bytes, SHA-256 `5FF5B37E120B1F2C3057D78BFC8C8AD6885C3FA576AECB3026E23E6044C5C3DE` |
 | `TMNT_r.xex` | 2,002,944 bytes, SHA-256 `C6C19BD1D3DE0C0AF3651DE201E8CAC47D9C380C03060734F6F649E83EE89DD9` |
 
-The launcher checks your package and explains if it is a different version.
-
 ## Linux AppImage (experimental)
 
-**Linux support is experimental.** The AppImage has not yet been validated on real Linux hardware or Steam Deck, so rendering, audio, controllers and online play on Linux are unconfirmed.
-
-It needs x86_64 Linux, glibc 2.31 or newer and a working Vulkan driver. Run `chmod +x` on the AppImage and start it from a folder you can write to. This is a native Linux build, not Proton or Wine, and rendering goes through Vulkan. The launcher and the **Install from package...** flow are the same as on Windows, and `game`, `logs` and `user_data` are created next to the AppImage file. The [Linux guide](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/blob/v0.1.0/docs/linux.md) covers requirements, Steam setup and the automatic fallback for systems where FUSE cannot mount the AppImage.
-
-## What's in it
-
-**Platforms and launcher**
-- Native Windows x64 build, and an experimental native Linux x86_64 AppImage
-- The TRG launcher, with Play, Display, Graphics, Gameplay, Online, Achievements, Controls and About pages
-- Package installation from your own game, with version checks and **Reinstall from package...**
-- Launcher self-update: the launcher checks this project's GitHub releases once per start, and nothing is installed until you choose **UPDATE NOW** and then **RESTART TO UPDATE**. Game files, `user_data`, logs and caches are kept.
-
-**Play**
-- Online multiplayer for up to four players
-- Offline achievements, saved on your PC, in the launcher and in the game with F7
-- The game's original languages: English, French, German, Italian and Spanish
-- Português Brasil, an unofficial translation added by this port
-- **Skip intro** goes straight to the title screen
-- **Exit Game** closes the program cleanly
-- Xbox controllers work without setup, and the keyboard works too
-
-**Graphics**
-- **Render Resolution** from 1x to 4x (1280×720 to 5120×2880)
-- MSAA: 2x, or 4x in Compatibility mode
-- Anti-aliasing: Off, FXAA or FXAA Extreme
-- Texture filtering: the game's own, Off, or 2x to 16x anisotropic
-- Windowed or Borderless Fullscreen, switched while playing with F11
-
-**Overlays and diagnostics**
-- F2 shows or hides the FPS display
-- F3 shows or hides the Ping display while Online play is on
-- **Detailed logging** is on by default, and **Open logs folder** is on the About page
-- Crash reporting: after a crash, the session log ends with a `CRASH REPORT` section. It stays on your PC.
-- Portable `user_data`: settings, saves, achievements and caches stay next to the program, so moving that folder moves everything
-
-**Menus**
-- Leaderboards, Xbox Live Party and Gamer Card entries are removed from the menus, because this port has no Xbox Live service
-
-## Online multiplayer
-
-Online play is implemented by this port and is not Xbox Live. Play with up to three friends through the game's own Multiplayer menus.
-
-- Add **friends** by friend code on the launcher's Online page, after turning on Online play and running the Connection test.
-- Send **invites** with **X Invite Friends** in your lobby. Invites you receive open in the game.
-- Players connect **Direct** when they can, and through a **Relay** for any pair that cannot.
-
-## Português Brasil
-
-Português Brasil is an unofficial translation added by this PC port, for the game text and the launcher. It was not part of the original Xbox 360 release.
-
-## Current limitations
-
-- The game uses its original 16:9 presentation.
-- Native ultrawide is not included in v0.1.0.
-- Internal Render Resolution is not included in v0.1.0. **Render Resolution** 1x to 4x is the supported way to raise image quality.
-- Linux Vulkan rendering remains experimental and has not yet been validated on real Linux hardware or Steam Deck.
-- Two Direct3D 12 rendering fixes, for stale geometry and a cyan flicker on the turtles, do not yet have equivalent Vulkan fixes.
-- Linux self-update needs the AppImage to keep its release file name.
-- If a player closes the window during an online match, the others can wait up to 30 seconds before the match continues.
-- The Windows binaries are not code-signed, so SmartScreen may show a warning the first time. If you downloaded the release from this page, choose **More info**, then **Run anyway**.
-
-## Reporting problems
-
-If the game does not start or crashes, please [open an issue](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues) and attach the newest `tmnt_turtles_in_time_reshelled_*.log` file from the `logs` folder next to the program, with a line about what you were doing.
+It needs x86_64 Linux, glibc 2.31 or newer and a working Vulkan driver. Run `chmod +x` on the AppImage and start it from a folder you can write to. This is a native Linux build, not Proton or Wine. `game`, `logs` and `user_data` are created next to the AppImage file. The [Linux guide](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/blob/v0.2.0/docs/linux.md) covers requirements, Steam Deck setup and the fallback for systems where FUSE cannot mount the AppImage.
 
 ## Requirements
 
 - **Windows:** Windows 10 or 11 (64-bit), a DirectX 12 graphics card, and the latest [Microsoft Visual C++ 2015-2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 - **Linux (experimental):** x86_64 with glibc 2.31 or newer and a working Vulkan driver.
-- **Both:** your own Turtles in Time Re-Shelled Xbox Live Arcade package, about 270 MB, and about 300 MB of free disk space next to the program for the game files.
+- **Both:** your own Turtles in Time Re-Shelled Xbox Live Arcade package, about 270 MB, and about 300 MB of free disk space next to the program for the game files. For the SNES features, your own SNES *Teenage Mutant Ninja Turtles IV: Turtles in Time* ROM.
 
 ## Checksums
 
@@ -109,22 +125,20 @@ The SHA-256 of each file is also published with the release in its `.sha256` fil
 
 | File | SHA-256 |
 | --- | --- |
-| `TurtlesInTimeReshelled-v0.1.0-windows-x64.zip` | `3b8d511d7818fc5e1759aba7f7a99a97df73cca200d92bf1fc20a33499c2c274` |
-| `TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.AppImage` | `51a2985b5a04b12278e1857ebc8977ac8c30270b4f57d93ea2e14e16255c7ccd` |
+| `TurtlesInTimeReshelled-v0.2.0-windows-x64.zip` | `222e06d00346462ac1ef6d2e30533382a544418bf6d495f982f5831cf02e4d61` |
+| `TurtlesInTimeReshelledRecompiled-v0.2.0-x86_64.AppImage` | `74d4e7793d46c46d1f5be2fdb253f1f5139e9b2bbe3bcdfcd8b031bfe6de2771` |
 
 ## VirusTotal
 
-The final release artifacts and the main Windows programs were scanned with VirusTotal before publication and had 0 detections at release preparation time.
+Saulo verified the final artifacts on VirusTotal:
 
-| File | Result | VirusTotal |
-| --- | --- | --- |
-| TurtlesInTimeReshelled-v0.1.0-windows-x64.zip | 0 detections | [VirusTotal report](https://www.virustotal.com/gui/file/3b8d511d7818fc5e1759aba7f7a99a97df73cca200d92bf1fc20a33499c2c274) |
-| TurtlesInTimeReshelledRecompiled-v0.1.0-x86_64.AppImage | 0 detections | [VirusTotal report](https://www.virustotal.com/gui/file/51a2985b5a04b12278e1857ebc8977ac8c30270b4f57d93ea2e14e16255c7ccd) |
-| Main Windows executable, tmnt_turtles_in_time_reshelled.exe | 0 detections | [VirusTotal report](https://www.virustotal.com/gui/file/f1a20a8e92b6bb29912129c3ec8410ac4dde699ff636c05186406c48c51ac488) |
-| trg-updater.exe | 0 detections | [VirusTotal report](https://www.virustotal.com/gui/file/89afdc30b6e67f38adbb3caef4eedabf0558633fe718c9f68e82819b06f5e677) |
-
-VirusTotal is an additional check, not a guarantee of safety, so please also verify the SHA-256 of your download.
+| File | VirusTotal |
+| --- | --- |
+| Windows ZIP | [`222e06d0…4d61`](https://www.virustotal.com/gui/file/222e06d00346462ac1ef6d2e30533382a544418bf6d495f982f5831cf02e4d61) |
+| Windows executable | [`ecd0898a…dff`](https://www.virustotal.com/gui/file/ecd0898ab3ddde6736032ea2240acc017ac3c8aa46b9848d9fa8f178193cfdff) |
+| Updater | [`9c891b6f…17b9`](https://www.virustotal.com/gui/file/9c891b6fc582daa76d3d236f0a4a1085e843fe2b159a4c4841f005383e3117b9) |
+| Linux AppImage | [`74d4e779…2771`](https://www.virustotal.com/gui/file/74d4e7793d46c46d1f5be2fdb253f1f5139e9b2bbe3bcdfcd8b031bfe6de2771) |
 
 ## Legal
 
-This is an unofficial fan-made PC port. It is not affiliated with or endorsed by the game's developer, publisher or rights holders. No copyrighted game files are included, and you must provide your own supported copy of the game.
+This is an unofficial fan-made PC port. It is not affiliated with or endorsed by the game's developer, publisher or rights holders. No copyrighted game files or SNES data are included, and you must provide your own supported copies of the games.

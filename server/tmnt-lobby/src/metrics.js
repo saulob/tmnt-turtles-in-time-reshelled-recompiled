@@ -11,7 +11,7 @@ export const HISTORY_MAX_DAYS = 365;
 // The longest range plus the same length before it, which the period comparison reads.
 export const PLAYER_RETENTION_DAYS = 2 * HISTORY_MAX_DAYS;
 export const DAILY_RETENTION_DAYS = 3 * HISTORY_MAX_DAYS;
-export const DIMENSIONS = ['platform', 'version', 'country', 'reject', 'abuse', 'occupancy', 'lifetime', ...PARTY_DIMENSIONS];
+export const DIMENSIONS = ['platform', 'version', 'country', 'reject', 'abuse', 'occupancy', 'lifetime', 'incident_reject', ...PARTY_DIMENSIONS];
 export const LIFETIMES = [['under_1m', 60e3], ['1_5m', 5 * 60e3], ['5_15m', 15 * 60e3], ['15_60m', 60 * 60e3], ['over_1h', Infinity]];
 export const PLATFORMS = ['Windows', 'Linux', 'Steam Deck'];
 
@@ -19,13 +19,18 @@ const DAY_MS = 24 * 3600 * 1000;
 // Bounds what a client can add to the table: further new versions in a day count as Other.
 const VALUES_PER_DIMENSION_PER_DAY = 64;
 const CLEANUP_ROWS = 500;
-const COUNTERS = new Set(['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects']);
+const INCIDENT_COLUMNS = ['incidents_filed', 'incidents_rejected', 'incident_status_checks', 'incident_reads',
+  'incident_messages', 'incidents_deleted', 'incident_errors'];
+const LOBBY_COLUMNS = ['lobby_list_requests', 'lobby_publishes', 'lobby_visible_peak'];
+const COUNTERS = new Set(['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...INCIDENT_COLUMNS,
+  'lobby_list_requests', 'lobby_publishes']);
 
 const ROOM_COLUMNS = ['rooms_closed', 'rooms_with_guest', 'rooms_relayed', 'party_total'];
 const DAY_COLUMNS = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', 'peak_online', 'peak_in_rooms',
-  'peak_rooms', ...ROOM_COLUMNS];
-const SUMMED = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...ROOM_COLUMNS];
-const PEAKS = ['peak_online', 'peak_in_rooms', 'peak_rooms'];
+  'peak_rooms', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS, ...LOBBY_COLUMNS];
+const SUMMED = ['sessions', 'rooms_created', 'room_joins', 'incompatible_rejects', ...ROOM_COLUMNS, ...INCIDENT_COLUMNS,
+  'lobby_list_requests', 'lobby_publishes'];
+const PEAKS = ['peak_online', 'peak_in_rooms', 'peak_rooms', 'lobby_visible_peak'];
 
 export const METRICS_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS metrics_daily (day TEXT PRIMARY KEY, sessions INTEGER NOT NULL DEFAULT 0,
@@ -33,7 +38,13 @@ export const METRICS_SCHEMA = [
      incompatible_rejects INTEGER NOT NULL DEFAULT 0, peak_online INTEGER NOT NULL DEFAULT 0,
      peak_in_rooms INTEGER NOT NULL DEFAULT 0, peak_rooms INTEGER NOT NULL DEFAULT 0,
      rooms_closed INTEGER NOT NULL DEFAULT 0, rooms_with_guest INTEGER NOT NULL DEFAULT 0,
-     rooms_relayed INTEGER NOT NULL DEFAULT 0, party_total INTEGER NOT NULL DEFAULT 0)`,
+     rooms_relayed INTEGER NOT NULL DEFAULT 0, party_total INTEGER NOT NULL DEFAULT 0,
+     incidents_filed INTEGER NOT NULL DEFAULT 0, incidents_rejected INTEGER NOT NULL DEFAULT 0,
+     incident_status_checks INTEGER NOT NULL DEFAULT 0, incident_reads INTEGER NOT NULL DEFAULT 0,
+     incident_messages INTEGER NOT NULL DEFAULT 0, incidents_deleted INTEGER NOT NULL DEFAULT 0,
+     incident_errors INTEGER NOT NULL DEFAULT 0,
+     lobby_list_requests INTEGER NOT NULL DEFAULT 0, lobby_publishes INTEGER NOT NULL DEFAULT 0,
+     lobby_visible_peak INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS metrics_daily_dimensions (day TEXT NOT NULL, dimension TEXT NOT NULL, value TEXT NOT NULL,
      count INTEGER NOT NULL, PRIMARY KEY (day, dimension, value))`,
   `CREATE TABLE IF NOT EXISTS metrics_samples (bucket INTEGER PRIMARY KEY, online INTEGER NOT NULL,
@@ -76,8 +87,64 @@ export class Metrics {
     this.sql = sql;
     this.now = now;
     for (const statement of METRICS_SCHEMA) sql.run(statement);
+    const have = new Set(sql.all('PRAGMA table_info(metrics_daily)').map((c) => c.name));
+    for (const column of [...ROOM_COLUMNS, ...INCIDENT_COLUMNS, ...LOBBY_COLUMNS]) {
+      if (!have.has(column)) sql.run(`ALTER TABLE metrics_daily ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+    }
     this.peaks = null;
     this.sample = null;
+    this.lobbyPeak = null;
+  }
+
+  incidentFiled() {
+    this.count('incidents_filed');
+  }
+
+  incidentRejected(reason) {
+    this.count('incidents_rejected');
+    if (reason) this.addDimension(metricsDay(this.now()), 'incident_reject', String(reason).slice(0, 32));
+  }
+
+  incidentStatusCheck() {
+    this.count('incident_status_checks');
+  }
+
+  incidentRead() {
+    this.count('incident_reads');
+  }
+
+  incidentMessage() {
+    this.count('incident_messages');
+  }
+
+  incidentDeleted() {
+    this.count('incidents_deleted');
+  }
+
+  incidentError() {
+    this.count('incident_errors');
+  }
+
+  lobbyListRequest() {
+    this.count('lobby_list_requests');
+  }
+
+  lobbyPublish() {
+    this.count('lobby_publishes');
+  }
+
+  // The most players listed in the public Lobby at once today; writes only what grew and nothing for an empty Lobby.
+  lobbyVisible(count) {
+    if (!Number.isInteger(count) || count <= 0) return;
+    const day = metricsDay(this.now());
+    if (this.lobbyPeak?.day !== day) {
+      const row = this.sql.get('SELECT lobby_visible_peak FROM metrics_daily WHERE day = ?', day);
+      this.lobbyPeak = { day, count: row?.lobby_visible_peak ?? 0 };
+    }
+    if (count <= this.lobbyPeak.count) return;
+    this.sql.run(`INSERT INTO metrics_daily (day, lobby_visible_peak) VALUES (?, ?)
+      ON CONFLICT(day) DO UPDATE SET lobby_visible_peak = MAX(lobby_visible_peak, excluded.lobby_visible_peak)`, day, count);
+    this.lobbyPeak.count = count;
   }
 
   count(column, day = metricsDay(this.now())) {
@@ -258,7 +325,7 @@ const emptyDay = () => Object.fromEntries(DAY_COLUMNS.map((c) => [c, 0]));
 export const percentChange = (current, previous) => (previous > 0 ? Math.round(1000 * (current - previous) / previous) / 10 : null);
 
 export const COMPARED = ['unique_players', 'sessions', 'rooms_created', 'room_joins', 'rooms_with_guest',
-  'peak_online', 'peak_in_rooms'];
+  'peak_online', 'peak_in_rooms', 'incidents_filed', 'incidents_rejected', 'lobby_list_requests', 'lobby_publishes'];
 
 export function compare(current, previous) {
   return Object.fromEntries(COMPARED.map((c) => [c, { current: current[c], previous: previous[c],

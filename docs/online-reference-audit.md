@@ -76,6 +76,7 @@ is local only (origin/main is v0.2.2).
 | Telemetry and private dashboard | Dragon `server/lobby/src/{metrics,admin,admin_page}.js` | `src/online/telemetry.*`, `server/tmnt-lobby` | adapted, local only |
 | Per-peer ping | - | `src/online/peer_ping.*` | new |
 | Party, invites, match rooms, four-peer mesh, per-pair transport | - | `src/online/{online_service,match_session}.*`, `server/tmnt-lobby/src/{hub,room}.js` | new (generalizes SSF2T's two-player pairing) |
+| Public Lobby identity: `Player-XXXX` alias and random action handle | Dragon `server/lobby/src/lobby.js` (`displayName`, `shownAs`, `showInLobby`) | `server/tmnt-lobby/src/hub.js`, `src/online/{protocol,online_service,friend_view}.*` | copied |
 | Four local test instances | SSF2T `tools/online-instance.ps1` | `tools/online-instance.ps1` | generalized to a-d |
 
 ## Worker
@@ -115,9 +116,23 @@ settings do not reset it. Online play off never needs it.
 
 The game's own lobbies run over Xbox LIVE sessions and Net-Z; the service supplies what Xbox LIVE did: friends,
 presence, invites, the party (one hidden match of up to four) and the advertisement of the party's session, which only
-its members can search and join. Nothing is listed publicly. Invites carry the full lifecycle (received, accepted,
-declined, expired, cancelled, already joined, already invited, party full, host left, version or protocol mismatch).
-Neither reference has a party model; SSF2T's two-player Player Match was replaced.
+its members can search and join. Apart from a player's own public Lobby listing, nothing is listed publicly. Invites
+carry the full lifecycle (received, accepted, declined, expired, cancelled, already joined, already invited, party full,
+host left, version or protocol mismatch). Neither reference has a party model; SSF2T's two-player Player Match was
+replaced.
+
+## Public Lobby identity
+
+Copied from Dragon's `showInLobby` and `displayName`. The configured Online name stays `Player`; the Worker alone
+computes the presentation alias `Player-XXXX` for that exact name, using four uppercase hex characters of a salted
+hash of the account under the directory's private salt. The salt is never returned. A custom name is unchanged, and the
+real name stays in the account row for room and friend matching. Friend rows and requests carry the alias as the
+optional `display_name`; the launcher prefers it and falls back to `name` for an older Worker.
+
+Each public Lobby listing carries a separate random 32 lowercase hex action handle. The handle is stable while the
+listing stays visible, rotates after Off -> On, and is used by Lobby friend actions instead of the visible name or
+friend code. It is never displayed. The row carries only the handle, presentation name, version and relation
+(`none`, `pending`, `friend`, `incoming`); incompatible builds are filtered before the row is built.
 
 ## Compatibility
 
@@ -150,8 +165,9 @@ object) is applied. `tests/online_websocket_tls_tests.cpp` runs on Linux only. E
 
 ## Cheats and desync
 
-Dragon disables every cheat online; SSF2T disables Infinite Time. This port has no cheats and no setting that changes
-what the game simulates, so nothing is locked.
+Dragon disables every cheat online; SSF2T disables Infinite Time. This port follows Dragon: turning Online play on
+switches every saved cheat Off, the Cheats page and F10 show **Cheats are disabled while Online Play is enabled**, and
+turning it off restores nothing.
 
 ## Tests
 

@@ -13,6 +13,27 @@ The pre-game launcher is [TRG Launcher](https://github.com/TekRantGaming/trg-lau
   4. **Play** (mouse, Enter or Xbox Start) calls `RequestPlay`, which is the only save: if it fails, the launcher stays open with "Could not save the settings." and nothing starts. On success it shows "Settings saved. Starting game..." at full brightness for 0.4 s, timed with ImGui and without sleeping. The launcher's controls are dimmed and disabled during that time, and its keyboard, gamepad and mouse input is released each frame, so Play, Save, Ctrl+S, Esc and the D-pad do nothing. Then, if the window size, monitor, VSync or graphics card differs from this process's window, the game is relaunched once and this process quits (`StartGame` does not save). Otherwise the pending settings are applied and the runtime starts.
   5. **Relaunched copy**: `--tmnt_skip_launcher=true` skips the launcher, and the window is created natively with the saved settings.
 
+## Layout
+
+The launcher follows the compact TRG layout used by the Dragon's Crown and 13 Sentinels ports. The metrics live in
+[`patches/trg-launcher/0009-launcher-layout.patch`](../patches/trg-launcher/0009-launcher-layout.patch) as
+`trg::layout` constants: a 42 px sidebar row (32 px minimum), 34 px controls, 8 px row padding, 6 px item gaps, a 30 px
+page title and a 60 px footer with a 190 x 42 px PLAY button. Page rows, section breaks, combos, inputs, toggles and the
+footer all read those constants, so the whole launcher stays dense and consistent.
+
+ReXGlue gives the launcher a logical ImGui coordinate space and scales it in the immediate drawer. TRG's
+`render_scale` (set from the font/DIP density) tells it how many physical pixels one coordinate covers, so sidebar icons
+are rasterized at 21 x scale physical pixels, and icon, border and text origins snap to the physical pixel grid. The
+launcher fonts use the shared `kTextBody` size (16 px), matching the newer launchers; the font atlas is still
+rasterized at the display density.
+
+Every sidebar entry has an icon on the left and its label on the right, using the newer launcher's selected-row
+treatment. The SVGs in `assets/launcher/icons` are compiled into the executable (`src/embed_files.cmake` and
+`src/page_icons.cpp`), rasterized at the exact physical pixel size the sidebar asks for and tinted in the theme, so no
+separate icon files are shipped and the texture is never upscaled. The mapping is in `PageIconAssets()`: Play, Display,
+Graphics, Gameplay, SNES, Cheats, Online, Achievements (`achievements.svg`), Controls, Bug Report, About and the optional
+DLC page.
+
 ## Settings
 
 | File | Written by | Role |
@@ -25,7 +46,7 @@ The pre-game launcher is [TRG Launcher](https://github.com/TekRantGaming/trg-lau
 - Play is blocked, and does not save, while the game files are missing or invalid or an install is running.
 - Reset all settings puts the launcher's values back to the shipped ones, pending until Save or Play.
 - Legacy repair: an unreleased development build wrote `key = on` and `key = off`, which TOML rejects and which made ReXGlue ignore the whole file. Before the file is parsed, each exact bare `on`/`off` value is rewritten as `true`/`false`. Nothing else changes. The original is kept as `settings.toml.bak`. Once the file holds no bare on/off, this does nothing.
-- The dependency is the `third_party/trg-launcher` submodule, pinned to `b384a28` (TRG Launcher 1.1.0). After cloning, run `git submodule update --init third_party/trg-launcher`. The submodule is never modified: CMake copies the clean checkout to `<build>/trg-launcher-patched` at configure time, applies the patches in `patches/trg-launcher` there (hyperlinks, download headers, the release download address allow-list with checked redirects, the Linux file picker fallbacks: portal, zenity, kdialog, and Ctrl+S in text inputs; applied with `git apply --ignore-whitespace`, so the checkout's line endings do not matter), and compiles that copy. It fails when the submodule is at another revision or carries local changes. When the submodule is not checked out, CMake falls back to the checkout named by `TMNT_TRG_LAUNCHER_DIR` (CMake cache or environment), copies it the same way and applies the patches without modifying it. The upstream repository has no LICENSE file.
+- The dependency is the `third_party/trg-launcher` submodule, pinned to `b384a28` (TRG Launcher 1.1.0). After cloning, run `git submodule update --init third_party/trg-launcher`. The submodule is never modified: CMake copies the clean checkout to `<build>/trg-launcher-patched` at configure time, applies the patches in `patches/trg-launcher` there (hyperlinks, sponsor link, action colours, the compact launcher layout, download headers, the release download address allow-list with checked redirects, the Linux file picker fallbacks: portal, zenity, kdialog, Ctrl+S in text inputs and the download watchdog; applied with `git apply --ignore-whitespace`, so the checkout's line endings do not matter), and compiles that copy. It fails when the submodule is at another revision or carries local changes. When the submodule is not checked out, CMake falls back to the checkout named by `TMNT_TRG_LAUNCHER_DIR` (CMake cache or environment), copies it the same way and applies the patches without modifying it. The upstream repository has no LICENSE file.
 
 ## Window
 
@@ -54,10 +75,12 @@ Why a restart: ReXGlue 0.10.0 has no API to resize or move an open window (its `
 - The launcher's 1280×720 target is capped to the usable desktop, so on a display where it does not fit (for example 2560×1440 at 225%, where it becomes 1024×576) the launcher is smaller.
 - Sizes that cannot fit the current display at its scaling are hidden from the Window size list, except the current one.
 - A `present_letterbox` line from an older `settings.toml` is removed when the game starts. The presenter always letterboxes the 16:9 picture, so there is no Stretch mode.
+- A `tmnt_snes_movement_speeds` line (a removed SNES feature) is removed the same way.
+- A `tmnt_snes_gameplay` line is removed the same way. That master switch is retired: the SNES gameplay rows each stand alone, and its old value never turns them off.
 
 ### Aspect Ratio and the guest picture
 
-v0.1.0 uses the original 16:9 presentation: a 1280×720 guest base and an 853×480 guest video mode. The launcher has no Aspect Ratio control. Any other `tmnt_aspect_ratio` value in `settings.toml`, and any hand-edited `video_mode_width`, is replaced by 16:9 when the game starts; the file itself is left as it is, and the Window size list shows 16:9 sizes. Additional native ratios are deferred.
+The game uses the original 16:9 presentation: a 1280×720 guest base and an 853×480 guest video mode. The launcher has no Aspect Ratio control. Any other `tmnt_aspect_ratio` value in `settings.toml`, and any hand-edited `video_mode_width`, is replaced by 16:9 when the game starts; the file itself is left as it is, and the Window size list shows 16:9 sizes. Additional native ratios are deferred.
 
 The Render resolution labels assume a 1280×720 render base at 16:9, as in the template. The real Turtles render size has not been measured yet.
 
@@ -105,13 +128,20 @@ The Render resolution labels assume a 1280×720 render base at 16:9, as in the t
 | | Frame rate in title | `tmnt_show_fps` |
 | | Render resolution in title | `tmnt_show_render_resolution` |
 | | Frame counter | `tmnt_show_frame_counter` |
+| | Unlock all stages | `tmnt_unlock_all_stages` |
 | | Player 1 - Player 4 | `tmnt_player_1_name` .. `tmnt_player_4_name` |
+| SNES | SNES soundtrack, Import SNES soundtrack, Classic Soundtrack, Remove SNES soundtrack | `tmnt_classic_soundtrack`; the import is in `<user_data>/snes_soundtrack` ([classic-soundtrack.md](classic-soundtrack.md)) |
+| | Directional Combat, SNES Throw Control, Disable Double Jump, SNES Dash | `tmnt_snes_directional_combat` and `tmnt_snes_throw_control` (`true`), `tmnt_snes_disable_double_jump` (`false`), `tmnt_snes_dash` (`"off"`, `"auto"` or `"manual"`, `"auto"`; an older `true` or `false` is rewritten to `"auto"` or `"off"` when the file is read); they need the gameplay data of a Ready import, and F9 changes them for the session only; online every PC must support them, each player's choice applies to their own turtle, and Classic Soundtrack stays local ([snes-gameplay.md](snes-gameplay.md), [online.md](online.md)) |
+| Cheats | Infinite Health, Infinite Lives, Damage Multiplier, Turbo Attack, Turbo Strong Attack, Super Armor, Spin Attack | `tmnt_cheat_*`, `tmnt_turbo_attack`, `tmnt_turbo_strong_attack` (see below) |
 | Online | Online play | `tmnt_online_enabled` |
 | | Online name | `tmnt_online_name` |
+| | Show me in Lobby | `tmnt_online_lobby_visible` |
 | | Connection test | `tmnt_online_connection_test` (the finished test and the configuration it ran for) |
 | | Ping display | `tmnt_online_ping_display` |
 | Controls | Keyboard | `mnk_mode` |
 | | Keyboard controls | `keybind_*` (one per action), reset by Keyboard defaults |
+| Achievements | (read-only) | (see below) |
+| Bug Report | Report a problem with one sanitized game log | (see [bug-reports.md](bug-reports.md)) |
 | About | Detailed logging | `detailed_logging` |
 
 ### Graphics
@@ -128,11 +158,11 @@ Multisampling only decides how the render targets the game itself draws with 2x 
 
 Shader compilation is not a launcher setting; the game uses ReXGlue's default, `async_shader_compilation = true`.
 
-- **Graphics card** lists the hardware GPUs Windows reports that can create a Direct3D 12 device, by the names DXGI gives them; software adapters are not listed. It is shown on Windows only.
-  - Its DXGI index, counted as ReXGlue counts for `d3d12_adapter` (`EnumAdapters1` order), is passed as `d3d12_adapter`. A missing key, the retired `auto` or a GPU that is no longer present selects the first listed GPU.
+- **Graphics card** lists the hardware GPUs the renderer can use: on Windows the adapters that can create a Direct3D 12 device, by the names DXGI gives them, and on Linux the Vulkan physical devices, best device first. Software adapters are not listed.
+  - The index is counted as ReXGlue counts it (`EnumAdapters1` order for `d3d12_adapter`, `vkEnumeratePhysicalDevices` order for `vulkan_device`) and is passed as that cvar. A missing key or a GPU that is no longer present selects the first listed GPU.
   - The graphics device is created before the launcher shows, so a change restarts the game once on Play, like a window change.
-  - The log shows the choice (`Graphics card: <name> (adapter N)`) and, from ReXGlue, the GPU actually used (`DXGI adapter: <name>`).
-  - Linux has no such row: `vulkan_device` indexes the instance ReXGlue creates, which the launcher cannot reproduce reliably, and Vulkan keeps its automatic discrete-GPU preference.
+  - The log shows the choice (`Graphics card: <name> (adapter N)`) and, from ReXGlue, the GPU actually used (`DXGI adapter: <name>` on Windows, the Vulkan device on Linux).
+  - On Linux the driver's own device selection stands until a card is chosen in the launcher; the launcher does not force the first adapter on a fresh install.
 - **Render resolution** labels show the presented output at each scale: Original 1280×720, 2x 2560×1440, 3x 3840×2160, 4x 5120×2880. They do not depend on Window size. 2x is a natural match for 1440p displays. The recommendation is informational only, and the default stays Original. Higher scales cost more GPU time.
 - The game takes the render resolution when its GPU starts, after Play, so a change applies to the game that Play starts. The GPU driver can lower a scale it cannot support; the game logs a warning when it does.
 - Render resolution is not a relaunch trigger. It never changes the window.
@@ -150,6 +180,7 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 | --- | --- | --- |
 | Language | `tmnt_language` | `en` English, `fr` French, `de` German, `it` Italian, `es` Spanish, `pt-BR` Português Brasil (`en`) |
 | Skip intro | `tmnt_skip_intro` | `false` Off, `true` On (`false`) |
+| Unlock all stages | `tmnt_unlock_all_stages` | `false` Off, `true` On (`false`) |
 | Frame rate in title | `tmnt_show_fps` | `false` Off, `true` On (`true`) |
 | Render resolution in title | `tmnt_show_render_resolution` | `false` Off, `true` On (`false`) |
 | Frame counter | `tmnt_show_frame_counter` | `false` Hidden, `true` Shown (`false`) |
@@ -160,30 +191,50 @@ Shader compilation is not a launcher setting; the game uses ReXGlue's default, `
 - **Skip intro** starts directly at the title screen: at boot the game loads the title world in place of the Logo world, so neither the startup logos nor the intro movie play. The loading screen and PRESS START stay, and later movies are not affected. `tmnt_title_music_level` is set by the port at start from the saved profile, not meant to be edited.
 - **Local player names** change only the name the game shows for local players 1 to 4; an invalid saved name falls back to the default. The XUID and the profile and save directory never change. A name left at its default keeps the game's own name for that user.
 
+### Cheats
+
+| Control | Cvar | Values (default) |
+| --- | --- | --- |
+| Infinite Health | `tmnt_cheat_infinite_health` | `false` Off, `true` On (`false`) |
+| Infinite Lives | `tmnt_cheat_infinite_lives` | `false` Off, `true` On (`false`) |
+| Damage Multiplier | `tmnt_cheat_damage_multiplier` | `0` Off, `2` 2x, `4` 4x (`0`) |
+| Turbo Attack | `tmnt_turbo_attack` | `false` Off, `true` On (`false`) |
+| Turbo Strong Attack | `tmnt_turbo_strong_attack` | `false` Off, `true` On (`false`) |
+| Super Armor | `tmnt_cheat_super_armor` | `false` Off, `true` On (`false`) |
+| Spin Attack | `tmnt_cheat_spin_attack` | `false` Off, `true` On (`false`) |
+
+- Turning **Online play** on switches every saved cheat Off, and the page then shows only **Cheats are disabled while Online Play is enabled**. Turning Online play off does not restore the previous values.
+- Press **F10** while playing to open the in-game Cheats menu; its changes are session overrides in `tmnt_cheat_session`, which is never saved. The game writes `tmnt_turbo_gameplay` for its own combo state; it is not a setting. The effective value is the override if there is one, otherwise the saved setting. F10 only opens and closes the menu. While Online play is on, F10 does not open the menu and shows the same message; an open menu closes. Cheats do nothing while the game is in an online session.
+- **Infinite Health** keeps local players at maximum health; **Infinite Lives** keeps the same life count across defeats; **Turbo Attack** and **Turbo Strong Attack** turn a held attack button into fresh presses; **Damage Multiplier** scales damage dealt by turtles; **Super Armor** keeps damage but removes hit reaction and knockback; **Spin Attack** starts the Spinning Pizza spin with B (following the Controls page).
+- **Unlock all stages** makes every Quick Play stage selectable without changing saved progress; it is not applied in an online session.
+
 ### Online
 
 Online play (`tmnt_online_enabled`, `false` Off by default), Online name (`tmnt_online_name`, up to 16 letters, digits, `-` or `_`),
+Show me in Lobby (`tmnt_online_lobby_visible`, `false` Off by default: lists this player in the public Lobby while Online play is on),
 Ping display (`tmnt_online_ping_display`, `false` Hidden by default, F3 in game) and the stored Connection test result
-(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, `tmnt_local_profile_user` when a controller presses START, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, PLAY waits for a
+(`tmnt_online_connection_test`, written by the launcher, not meant to be edited). `tmnt_online_joined_slots` is set by the game itself while it is in a joined online match, `tmnt_online_user` when a controller chooses ONLINE, `tmnt_local_profile_user` when a controller presses START, and `tmnt_online_party_snapshot` when a match starts; none is a setting to change. With Online play on, the page shows the Settings, Friends and Lobby tabs; PLAY waits for a
 Connection test whose result is Overall usable for the current UDP configuration. Friends and any invite you received are on the
-same page; an invite is accepted in the game, which is also where the party is made, see `docs/online.md`.
+same page; an invite is accepted in the game, which is also where the party is made, see `docs/online.md`. The Lobby
+tab lists compatible players with their port version, when the list was last updated and a **Refresh lobby** button;
+it refreshes automatically every five minutes while that tab is open.
 
 ### Page order
 
-The sidebar order is Play, Display, Graphics, Gameplay, Online, Achievements, Controls, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12.
+The sidebar order is Play, Display, Graphics, Gameplay, SNES, Cheats, Online, Achievements, Controls, Bug Report, About (DLC after Play when `kShowDlcPage` is on). Achievements is read-only: it lists the achievements ReXGlue reads from the game's XDBF and which are unlocked. The package's `ArcadeInfo.xml` names 12 achievements with IDs 1 to 12. Bug Report sends a problem description and one sanitized log to the TMNT online service; see [bug-reports.md](bug-reports.md).
 
-The Hard Corps launcher also had Cheats, Skip intro and a Frame rate choice with visual interpolation. Those were implemented with hooks into the Hard Corps engine and are not part of this project.
+The Hard Corps launcher also had a high frame rate choice with visual interpolation. That was implemented with hooks into the Hard Corps engine and is not part of this project. Skip intro and the frame rate in the title are offered here; see the Gameplay page.
 
 ### Controls
 
-The Controls page opens with **Keyboard**, which turns ReXGlue's keyboard-to-pad emulation on or off; it is on by default. The controller works either way, and the port's own hotkeys (F2 frame counter, F3 and F4 overlays, F7 achievements, F11 fullscreen, the console) do not depend on it.
+The Controls page opens with **Keyboard**, which turns ReXGlue's keyboard-to-pad emulation on or off; it is on by default. The controller works either way, and the port's own hotkeys (F2 frame counter, F3 and F4 overlays, F7 achievements, F9 SNES menu, F10 cheats, F11 fullscreen) do not depend on it. ReXGlue's console overlay has no key, so Backtick can be a gameplay key.
 
 Below it, one row per Xbox pad action: A, B, X, Y, the bumpers, the triggers, the sticks and their presses, the D-pad, and View / Menu. Guide is left out, as the pad ignores it. Click a key, then press the new one; Esc cancels. The launcher captures one key per action: a held Shift, Ctrl or Alt is not recorded as a modifier, so a binding such as the default `Shift+Up` can be restored only with Keyboard defaults. A stored binding with modifiers is shown and works in the game.
 
 - While Keyboard is Off the rows are greyed out, but the mappings are kept and come back when it is turned on again.
 - The bindings are ordinary launcher settings: saved with Save or Play, and put back by Reset all settings. **Keyboard defaults** restores exactly ReXGlue's pinned defaults, including the alternatives some of them use (`Semicolon,Space` for A, `X,Return` for Menu), and does not change the Keyboard On/Off choice. Capturing a key replaces the whole binding with that one key, so the alternatives are dropped on a rebind.
 - They are stored as ReXGlue `keybind_*` cvars, so the same settings file also sets them when the launcher is skipped.
-- Keys the port already uses are refused with a message: Escape, F2, F3, F4, F7, F10, F11, F12 and the backtick console key.
+- Keys the port already uses are refused with a message: Escape, F2, F3, F4, F7, F9, F10, F11 and F12.
 
 ### About
 
@@ -195,7 +246,8 @@ The launcher asks `https://api.github.com/repos/saulob/tmnt-turtles-in-time-resh
 
 - **Version**: `project(tmnt_turtles_in_time_reshelled VERSION x.y.z)` in `CMakeLists.txt` is the only source. It feeds the launcher subtitle, About, the updater, the Windows resource and the package names.
 - **Assets**: `TurtlesInTimeReshelled-v<version>-windows-x64.zip` and `.sha256`; on Linux `TurtlesInTimeReshelledRecompiled-v<version>-x86_64.AppImage` and `.sha256`. The ZIP holds the files at its root; a single wrapper folder is also accepted.
-- **Trust**: the GitHub asset digest, otherwise the `.sha256` asset (checked against its own digest when GitHub provides one). The size is checked before extraction and no update installs without a trusted SHA-256. Requests and every redirect stay on GitHub's HTTPS hosts (`patches/trg-launcher/0003`).
+- **Trust**: the GitHub asset digest, otherwise the `.sha256` asset (checked against its own digest when GitHub provides one). The size is checked before extraction and no update installs without a trusted SHA-256. Requests and every redirect stay on GitHub's HTTPS hosts (`patches/trg-launcher/0003` and `0010`).
+- **Network**: a stalled download is aborted after the receive timeout or the total limit, a short body is treated as interrupted, and a failed transfer removes its `.part` file and leaves the installed files untouched. Retrying starts a fresh download instead of reusing a partial one. Errors name the step (release metadata, checksum or update package).
 - **Windows**: the ZIP is extracted into a staging folder (miniz; absolute, drive, UNC, `..`, reserved-name, symlink and protected entries are refused), a manifest of release-owned files is written, and the running launcher copies `trg-updater.exe` to `%TEMP%\trg-update-*` and exits. The helper waits for the launcher, backs up and replaces the manifest files, verifies them, restarts the installed `tmnt_turtles_in_time_reshelled.exe` with `--tmnt_launcher=true` (other arguments kept, skip-launcher arguments removed) and rolls back on failure. `trg-updater.log` in that folder records the run and is kept after a failure. The helper is a static MSYS2 CLANG64 build (`tools/build-updater.ps1`) that imports Windows system DLLs only. The update replaces the files named in the manifest, never what is not in it. A release that predates updater support can be the target; the running build supplies the helper.
 - **Linux**: only the AppImage the program was started from is replaced (sibling temporary file, fsync, backup, atomic rename, restart, rollback).
 - **Never touched**: `game`, `game-install-temp`, `game-install-backup`, `user_data`, `user_data.migrating`, `logs`, `cache`, `content`, saves, `settings.toml`, `default.xex`, `TMNT_r.xex`, `TMNT.bf`, Xbox packages and any `.xex`, `.log`, `.sav`, `.bak`, `.tmp` or `.pdb` file. `tmnt_turtles_in_time_reshelled.toml` next to the program is release-owned (defaults); the player's choices live in `user_data/settings.toml`, which is protected.
@@ -216,6 +268,6 @@ The helper removes these four variables before it restarts the updated program, 
 
 | Option | Reason |
 | --- | --- |
-| Frame rate choice, cheats, skip intro | Hard Corps engine hooks; Turtles needs its own analysis first. |
+| High frame rate choice with visual interpolation | Hard Corps engine hooks; Turtles needs its own analysis first. |
 | Deadzone, vibration, stick inversion, button remap | Would need Turtles-specific guest hooks. |
 | Present effect (FSR/CAS) | Not exposed by the template either. Needs a restart. |

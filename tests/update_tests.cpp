@@ -668,7 +668,16 @@ void TestUrlPolicy() {
   CHECK(patch.find("if (!options.allow_url(current)) {") != std::string::npos);
   const std::string controller = ReadFile(std::string(TMNT_SRC_DIR) + "/updater/update_controller.cpp");
   CHECK(controller.find("options.allow_url = ") != std::string::npos);
+  CHECK(controller.find("options.connect_timeout_ms = config.connect_timeout_ms;") != std::string::npos);
+  CHECK(controller.find("IsAllowedHost(config, config.releases_url)") != std::string::npos);
   CHECK(controller.find("IsHttpsUrl") == std::string::npos);
+  const std::string controller_header = ReadFile(std::string(TMNT_SRC_DIR) + "/updater/update_controller.h");
+  CHECK(controller_header.find("int connect_timeout_ms = 15000;") != std::string::npos);
+  CHECK(controller_header.find("int receive_timeout_ms = 30000;") != std::string::npos);
+  const std::string watchdog = ReadFile(std::string(TMNT_SRC_DIR) + "/../patches/trg-launcher/0010-download-watchdog.patch");
+  CHECK(watchdog.find("class Watchdog") != std::string::npos);
+  CHECK(watchdog.find("struct HttpReport") != std::string::npos);
+  CHECK(watchdog.find("interrupted") != std::string::npos);
   const std::string config = ReadFile(std::string(TMNT_SRC_DIR) + "/update_config.cpp");
   CHECK(config.find("config.download_url_prefix = kDownloadUrlPrefix;") != std::string::npos);
 }

@@ -43,9 +43,9 @@ $AssetFiles = @('assets\launcher\header-art.png', 'assets\launcher\sponsor-heart
 # Names that mean game data, a package, saves, settings, caches, logs, symbols, updater leftovers or debugging tools.
 $ForbiddenNames = @('default.xex', 'default.xexp', 'TMNT_r.xex', 'TMNT.bf', 'Data', 'game', 'game-install-temp', 'game-install-backup', 'user_data',
     'user_data.migrating', 'content', 'cache', 'logs', 'settings.toml', 'settings.toml.bak', 'ArcadeInfo.xml', 'nxeart', '584109D2',
-    'vulkan-1.dll', '$SystemUpdate')
+    'vulkan-1.dll', '$SystemUpdate', 'snes', 'snes_soundtrack', 'soundset.bin')
 $ForbiddenPatterns = @('*.xex', '*.xexp', '*.bf', '*.log', '*.dmp', '*.pdb', '*.debug', '*.xsh', '*.xpso', '*.bak', '*.tmp', '*.sav', '*.invalid', 'trg-update-*',
-    'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*', '*~', 'settings.toml.*', '*.iso')
+    'VkLayer_*', 'renderdoc*', 'TracyClient*', '*.pyc', '*.obj', '*.lib', '*.ilk', '*.orig', '*.rej', '*.rdc', 'Thumbs.db', 'desktop.ini', '.git*', '*~', 'settings.toml.*', '*.iso', '*.sfc', '*.smc', '*.swc', '*.fig', '*.spc', '*.rsn', '*.wav', '*.ogg', '*.flac')
 # First bytes of an Xbox 360 package or executable.
 $ForbiddenMagic = @('LIVE', 'PIRS', 'CON ', 'XEX2')
 
@@ -66,6 +66,9 @@ $LocalPathRegexes = @(
     '[A-Za-z]:[\\/]msys64'
 ) | ForEach-Object { [regex]::new($_, 'IgnoreCase') }
 $MarkerNeedles = @('DEBUG_SAULO', $Latin1.GetString([Text.Encoding]::Unicode.GetBytes('DEBUG_SAULO')))
+# Diagnostics tools/debug-markers.txt ships on purpose (`release`) live in the GPU plugin; nothing else may hold a marker.
+$ReleaseGpuMarkers = [bool](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'debug-markers.txt') |
+    Where-Object { $_ -match '^\s*patches/rexglue-sdk/[0-9]{4}-[^\s]+\.windows\.patch\s+[0-9]+\s+release\s*$' })
 
 function Test-ReleaseFolder([string]$Dir) {
     $problems = New-Object System.Collections.Generic.List[string]
@@ -84,6 +87,7 @@ function Test-ReleaseFolder([string]$Dir) {
                 if ($regex.IsMatch($stripped)) { $problems.Add("user or repository path in file: $relative"); break }
             }
             foreach ($marker in $MarkerNeedles) {
+                if ($ReleaseGpuMarkers -and $relative -eq 'rexgpu-xenos.dll') { break }
                 if ($text.IndexOf($marker, [StringComparison]::Ordinal) -ge 0) { $problems.Add("DEBUG_SAULO marker in file: $relative"); break }
             }
             if ($item.Length -ge 4 -and ($ForbiddenMagic -contains $text.Substring(0, 4))) { $problems.Add("Xbox 360 package or executable: $relative") }

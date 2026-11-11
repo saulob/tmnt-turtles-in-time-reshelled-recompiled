@@ -1,0 +1,200 @@
+# The Windows/Linux feature matrix both test gates read. Tab-separated:
+#   kind  group  name  path  needles  extra
+# kind:
+#   feature   path is compiled on both platforms and every needle is outside a Windows-only #if
+#   pair      path is the Windows-only file, extra is its non-Windows counterpart
+#   test      path is a test source, extra is the CMake target that must build it
+#   contract  a portable behaviour in path; every needle must exist outside a Windows-only #if
+#   pending   a feature this branch does not contain; needles is the reason, extra is a CMake/source
+#             needle that must be absent (so a later merge fails until the row becomes a feature row)
+# needles are separated by ';'. A feature marked pending is never reported PASS.
+
+# ---- Cross-platform parity -------------------------------------------------------------------------------------------
+contract	Core	One project version	CMakeLists.txt	project(tmnt_turtles_in_time_reshelled VERSION
+contract	Core	Program source list	CMakeLists.txt	set(TMNT_SOURCES
+contract	Hygiene	Ignored game and player data	.gitignore	/game/;user_data/;*.log
+feature	Cross-platform parity	Launcher pages	src/launcher.cpp	PagePlay;PageDisplay;PageGraphics;PageGameplay;PageAchievements;PageControls;PageAbout;PageDlc;LauncherPage::kOnline;LauncherPage::kBugReport;LauncherPage::kSnes;LauncherPage::kCheats
+feature	Cross-platform parity	Launcher quit	src/launcher.cpp	Finish(cb_.quit)
+feature	Cross-platform parity	Graphics card	src/graphics_adapters.cpp	vkEnumeratePhysicalDevices;ListGraphicsAdapters
+feature	Cross-platform parity	Graphics card applied	src/settings.cpp	SetFlagByName(kBackendAdapterCvar
+feature	Cross-platform parity	Gameplay settings	src/launcher.cpp	"Skip intro";"Frame rate in title";"Render resolution";"Anti-aliasing";"Multisampling";"Texture filtering"
+feature	Cross-platform parity	Language and Portugues Brasil	src/settings.cpp	void ApplyLanguage();localization::SetActiveLanguage
+feature	Cross-platform parity	Skip intro	src/skip_intro_tmnt_r.cpp	REX_HOOK_RAW
+feature	Cross-platform parity	F2 FPS and F3 Ping	src/tmnt_turtles_in_time_reshelled_app.h	FrameCounter;Ping
+feature	Cross-platform parity	Controls	src/imgui_gamepad.cpp	SDL_InitSubSystem(SDL_INIT_GAMEPAD)
+feature	Cross-platform parity	Achievements	src/achievements_overlay.cpp	namespace tmnt
+feature	Cross-platform parity	Menu cleanup	src/fire_movie_patch.cpp	namespace tmnt
+feature	Cross-platform parity	Online Direct	src/netplay/udp_transport.cpp	sendto;recvfrom
+feature	Cross-platform parity	Online friends and invites	src/online_page.cpp	namespace tmnt
+contract	Cross-platform parity	Lobby display name	src/online/protocol.cpp	ShownNameOf;"display_name"
+contract	Cross-platform parity	Lobby public handle	src/online/protocol.h	IsLobbyHandle
+contract	Cross-platform parity	Lobby handle actions	src/online/online_service.cpp	OnlineService::AddFriendFromLobby;OnlineService::DeclineLobbyFriend
+feature	Cross-platform parity	Bug reports	src/incident_page.cpp	IncidentPage::Draw;MyReports;LogRoleText
+feature	Cross-platform parity	Detailed logging	src/log_filter.cpp	REXCVAR_DEFINE_BOOL(detailed_logging
+feature	Cross-platform parity	Open logs folder	src/launcher.cpp	Open logs folder
+feature	Cross-platform parity	Exit Game from the game	src/tmnt_turtles_in_time_reshelled_app.h	tmnt::StopOnline();void OnClosing
+feature	Cross-platform parity	Portable user_data	src/platform.cpp	getenv("APPIMAGE");PortFolder()
+feature	Cross-platform parity	Updater config	src/update_config.cpp	MakeUpdateConfig;PortVersion
+present	Cross-platform parity	Updater Windows ZIP	src/update_config.cpp	UpdatePackageKind::kZip;"-windows-x64.zip"
+present	Cross-platform parity	Updater Linux AppImage	src/update_config.cpp	UpdatePackageKind::kAppImage;"-x86_64.AppImage";HasOriginalAppImage
+feature	Cross-platform parity	Crash reports	src/crash_report.cpp	InstallPosixHandlers;Linux fatal signal
+feature	Cross-platform parity	Crash reports installed	src/platform.cpp	InstallCrashReporting(;Linux crash reporting enabled for current log.
+feature	Cross-platform parity	Vulkan failure window	src/platform.cpp	Vulkan setup required
+feature	Cross-platform parity	Localization	src/localization/ui_text.cpp	PortugueseBrazilSelected;SetActiveLanguage
+feature	Cross-platform parity	Settings persistence	src/settings.h	PlayerSettingsPath;"settings.toml"
+feature	Cross-platform parity	Launcher recovery	src/launcher.cpp	ShiftHeldAfterWindowOpened
+feature	Cross-platform parity	Launcher sidebar icons	src/launcher.cpp	PageIconTexture;RenderPageIcon
+feature	Cross-platform parity	Online name and friend code	src/online_page.cpp	kOnlineNameSetting;"Copy";CopyFriendCode
+feature	Cross-platform parity	Connection test	src/connection_test_gate.h	ConnectionTestNeeded;RecordConnectionTest
+feature	Cross-platform parity	Friends and lobby tabs	src/online_tabs.h	OnlineTab::kFriends;OnlineTab::kLobby
+feature	Cross-platform parity	Achievements page	src/launcher_achievements.cpp	LauncherAchievements;ListAchievements
+feature	Cross-platform parity	Bug report history	src/report_history.cpp	ReportHistory::Load;ReportHistory::Save
+feature	Cross-platform parity	Portable settings and identity	src/online/identity.cpp	kIdentityFileName
+feature	Cross-platform parity	Case-variant game files	src/game_files.cpp	GameEntry;SameNameNoCase
+test	Cross-platform parity	Installer test	tests/installer_tests.cpp	tmnt_installer_tests
+
+pair	Cross-platform parity	Online WebSocket	src/online/websocket_win.cpp	src/online/websocket_posix.cpp
+pair	Cross-platform parity	Clipboard	src/clipboard_win32.cpp	src/clipboard_sdl.cpp
+
+test	Cross-platform parity	Platform parity test	tests/platform_parity_tests.cpp	tmnt_platform_parity_tests
+test	Cross-platform parity	User data test	tests/user_data_tests.cpp	tmnt_user_data_tests
+test	Cross-platform parity	Relaunch test	tests/relaunch_tests.cpp	tmnt_relaunch_tests
+test	Cross-platform parity	Update test	tests/update_tests.cpp	tmnt_update_tests
+test	Cross-platform parity	Incident test	tests/incident_tests.cpp	tmnt_incident_tests
+test	Cross-platform parity	Launcher hotkey test	tests/launcher_hotkey_tests.cpp	tmnt_launcher_hotkey_tests
+test	Cross-platform parity	Launcher quit test	tests/launcher_quit_tests.cpp	tmnt_launcher_quit_tests
+test	Cross-platform parity	Update helper test	tests/update_helper_tests.cpp	tmnt_update_helper_tests
+test	Cross-platform parity	Log path test	tests/log_path_tests.cpp	tmnt_log_path_tests
+test	Cross-platform parity	Friend code test	tests/friend_field_tests.cpp	tmnt_friend_field_tests
+
+# ---- Launcher --------------------------------------------------------------------------------------------------------
+feature	Launcher	Page order and DLC	src/launcher.cpp	MakePage(LauncherPage::kPlay, "Play";MakePage(LauncherPage::kDlc, "DLC";online_page_index_
+feature	Launcher	Page icons	src/page_icons.cpp	RenderPageIcon
+contract	Launcher	Sidebar icon filenames	src/page_icons.cpp	"play.svg";"display.svg";"graphics.svg";"gameplay.svg";"snes.svg";"cheats.svg";"online.svg";"achievements.svg";"controls.svg";"bug-report.svg";"about.svg"
+contract	Launcher	Sidebar icon provenance	assets/launcher/icons/SOURCES.md	assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg;https://www.svgrepo.com/svg/82749/super-nintendo-controller;CC0;dragons-crown-pro-pc/assets/launcher/icons
+feature	Launcher	Launcher hotkeys	src/launcher.cpp	c.hints
+feature	Launcher	Launcher assets	src/launcher.cpp	LauncherHeader
+
+# ---- Graphics --------------------------------------------------------------------------------------------------------
+feature	Graphics	Vulkan adapter list	src/graphics_adapters.cpp	vkEnumeratePhysicalDevices;ListGraphicsAdapters
+feature	Graphics	MSAA compatibility	src/multisampling.h	tmnt_msaa_compatibility
+feature	Graphics	Anisotropic override	src/settings.cpp	anisotropic_override
+feature	Graphics	Render resolution	src/launcher.cpp	RenderResolutionOptions
+feature	Graphics	Window mode	src/launcher.cpp	"Borderless Fullscreen"
+present	Graphics	VSync per platform	src/settings.h	d3d12_allow_variable_refresh_rate_and_tearing;vulkan_allow_present_mode_immediate
+test	Graphics	Graphics adapter test	tests/graphics_adapter_tests.cpp	tmnt_graphics_adapter_tests
+test	Graphics	Aspect ratio test	tests/aspect_ratio_tests.cpp	tmnt_aspect_ratio_tests
+test	Graphics	Multisampling test	tests/multisampling_tests.cpp	tmnt_multisampling_tests
+
+# ---- Gameplay --------------------------------------------------------------------------------------------------------
+feature	Gameplay	Frame counter	src/frame_counter.cpp	F2
+feature	Gameplay	Title BGM level	src/title_bgm_level.cpp	tmnt_title_music_level
+feature	Gameplay	Player names	src/launcher.cpp	PlayerNameRow
+feature	Gameplay	Online ping display	src/ping_display.cpp	PingOverlay;kPingDisplayKey
+
+# ---- SNES, Classic Soundtrack and Cheats ------------------------------------------------------------------------------
+feature	SNES	SNES gameplay	src/snes_gameplay/rules.h	kDirectionalCombatSetting;kThrowControlSetting;kDoubleJumpSetting;kDashSetting
+feature	SNES	F9 SNES menu	src/snes_menu.cpp	SnesMenu;VirtualKey::kF9
+feature	SNES	ROM import and validation	src/classic_soundtrack/importer.cpp	ImportSoundtrack
+feature	Classic Soundtrack	Classic soundtrack	src/classic_soundtrack/activation.cpp	ClassicSoundtrackProvider;kMusicStreams
+feature	Classic Soundtrack	Loudness correction	src/classic_soundtrack/loudness.h	kSnesSoundtrackGain
+feature	Cheats	Cheats and F10 menu	src/cheats.h	kInfiniteHealthSetting;kInfiniteLivesSetting;kTurboAttackSetting;kTurboStrongAttackSetting;kDamageMultiplierSetting;kSuperArmorSetting;kSpinAttackSetting
+contract	Cheats	Online cheat suppression	src/cheats.h	CheatsAllowed;CheatActive;kOnlineLockoutText;SetOnline
+contract	Cheats	Online saved cheat lockout	src/cheats_settings.h	OnlinePlayOn;TurnCheatsOff;KeepCheatsOffOnline
+feature	Online	SNES online negotiation	src/online/snes_features.cpp	SupportedSnes;VerifiedLock
+
+# ---- Controls --------------------------------------------------------------------------------------------------------
+feature	Controls	Keyboard bindings	src/keybinds.h	keybind_
+feature	Controls	Gamepad navigation	src/imgui_gamepad.cpp	ImGuiGamepad::Update
+test	Controls	Launcher controller test	tests/launcher_gamepad_tests.cpp	tmnt_launcher_gamepad_tests
+feature	Controls	Launcher keyboard and gamepad	src/launcher.cpp	kNavFlags;gamepad_.Update
+feature	Controls	Save and Play hotkeys	src/launcher.cpp	Ctrl+S  Save;Enter  Play
+feature	Controls	Reserved F10	src/keybinds.h	ImGuiKey_F10
+test	Controls	Keyboard test	tests/keyboard_tests.cpp	tmnt_keyboard_tests
+test	Controls	Player names test	tests/player_names_tests.cpp	tmnt_player_names_tests
+
+# ---- Achievements ----------------------------------------------------------------------------------------------------
+feature	Achievements	Achievement overlay	src/achievement_toast.cpp	AchievementToast
+feature	Achievements	Achievement menu	src/achievement_menu.cpp	AchievementMenu
+feature	Achievements	Launcher achievements	src/launcher_achievements.cpp	LauncherAchievements
+feature	Achievements	Gamerscore and unlock state	src/achievements_overlay.cpp	earned_gamerscore;ListAchievements
+test	Achievements	Achievement menu test	tests/achievement_menu_tests.cpp	tmnt_achievement_menu_tests
+test	Achievements	Local profile test	tests/local_profile_owner_tests.cpp	tmnt_local_profile_owner_tests
+
+# ---- Online ----------------------------------------------------------------------------------------------------------
+feature	Online	Protocol	src/online/protocol.cpp	protocol_version;hello
+feature	Online	Connection test	src/online/connection_test.cpp	ConnectionTest
+feature	Online	Friends	src/online/friend_view.h	DescribeFriend
+feature	Online	Rendezvous	src/online/rendezvous.cpp	Rendezvous
+feature	Online	Lobby	src/online_page.cpp	kOnlineLobbySetting
+contract	Online	Lobby refresh	src/online/online_service.h	RefreshLobby;kLobbyAutoRefreshSeconds;kLobbyManualGapSeconds
+contract	Online	Lobby presentation	src/online_page.cpp	Players in Lobby;Refresh lobby;Updated just now
+contract	Online	Lobby card	src/online_layout.h	kLobbyListMinHeight;LobbyCardHeight
+contract	Online	Lobby card composition	src/online_page.cpp	BeginCard
+contract	Online	Lobby feedback	src/online/online_service.h	NoticeStatus
+contract	Online	Lobby rows	src/online/friend_view.h	LobbyActionOf;Send friend request;Pending;Version unknown
+feature	Online	Party and invites	src/invite_ui.cpp	OpenInvitePicker
+feature	Online	Relay frames	src/netplay/relay_frame.h	EncodeRelayFrame;DecodeRelayFrame
+feature	Online	Peer ping	src/online/peer_ping.cpp	PeerPing
+feature	Online	UPnP	src/online/upnp.cpp	upnp
+feature	Online	STUN	src/online/stun.cpp	stun
+feature	Online	Online identity	src/online/identity.cpp	LoadOrCreateIdentity
+test	Online	Wire parity test	tests/wire_parity_tests.cpp	tmnt_wire_parity_tests
+contract	Online	Online test suite registration	CMakeLists.txt	foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report snes)
+
+# ---- Friends / Lobby ---------------------------------------------------------------------------------------------------
+contract	Friends / Lobby	Request ids and keys	src/online/protocol.h	RequestKey;EncodeFriendsAcceptRequest;EncodeFriendsDeclineRequest;IsLobbyHandle
+contract	Friends / Lobby	Lobby view model	src/online/friend_view.h	DescribeLobbyPlayer;VisibleLobbyPlayers;LobbyActionOf
+contract	Friends / Lobby	Lobby request actions	src/online/online_service.cpp	AddFriendFromLobby;AcceptFriend;DeclineFriend
+test	Friends / Lobby	Service model test	tests/online_service_tests.cpp	tmnt_online_service_tests
+test	Friends / Lobby	Protocol test	tests/online_protocol_tests.cpp	tmnt_online_protocol_tests
+test	Friends / Lobby	Setting and presentation test	tests/online_setting_tests.cpp	tmnt_online_setting_tests
+
+# ---- Bug Report ------------------------------------------------------------------------------------------------------
+feature	Bug Report	Page	src/incident_page.cpp	IncidentPage::Draw;MyReports;LogRoleText
+feature	Bug Report	Linux metadata	src/incident_report.cpp	\"platform\":\"Linux\";LinuxDistributionText
+feature	Bug Report	Privacy scrubbing	src/log_scrubber.cpp	kProfileRoots;/home/
+feature	Bug Report	Report history	src/report_history.cpp	ReportHistory
+feature	Bug Report	My reports and refresh	src/my_reports.cpp	MyReports::Refresh;MyReports::ShowUpdate;receipt.credential.empty()
+feature	Bug Report	File status and read	src/incident_report.h	incident.file;incident.status;incident.read
+feature	Bug Report	Developer replies	src/my_reports.cpp	MyReports::HasNewReply;MyReports::Open
+
+# ---- Worker ----------------------------------------------------------------------------------------------------------
+contract	Worker	Worker routing	server/tmnt-lobby/wrangler.toml	name
+contract	Worker	Local test lobby	server/tmnt-lobby/local/server.js	--port;--db
+contract	Worker	Worker tests	server/tmnt-lobby/test	wire.test.js
+
+# ---- Updater ---------------------------------------------------------------------------------------------------------
+present	Updater	Windows ZIP	src/update_config.cpp	UpdatePackageKind::kZip;"-windows-x64.zip"
+feature	Updater	Linux AppImage	src/update_config.cpp	UpdatePackageKind::kAppImage;"-x86_64.AppImage";HasOriginalAppImage
+feature	Updater	AppImage install	src/updater/update_platform.cpp	ApplyAppImageUpdate;posix_spawn
+present	Updater	Update controller	src/updater/update_controller.cpp	LaunchUpdateHelper;ApplyAppImageUpdate
+feature	Updater	Timeouts and download	src/updater/update_controller.cpp	kDownloadTimeoutMs;staging_path_
+feature	Updater	Hash validation	src/updater/update_controller.cpp	IsValidSha256;NormalizeSha256
+feature	Updater	Staged job	src/updater/update_job.cpp	staging_dir;restart_executable
+present	Updater	Redirect policy	src/updater/url_policy.h	UrlHostAllowed;GitHubReleaseHosts
+contract	Updater	Relaunch command	src/relaunch_command.h	appimage && *appimage;MakeRelaunchCommand
+
+# ---- Localization ----------------------------------------------------------------------------------------------------
+feature	Localization	UI text	src/localization/ui_text.cpp	PortugueseBrazilSelected;SetActiveLanguage
+feature	Localization	Game text	src/localization/game_text.cpp	Portug
+feature	Localization	Font patch	src/localization/font_patch.cpp	FontPatch
+feature	Localization	Online strings	src/localization/pt_br_ui_text.cpp	Adicione amigos
+feature	Localization	Bug Report strings	src/localization/pt_br_ui_text.cpp	Relatar bug
+test	Localization	Localization test	tests/localization_tests.cpp	tmnt_localization_tests
+
+# ---- Linux contracts -------------------------------------------------------------------------------------------------
+contract	Linux contracts	Portable user_data	src/platform.cpp	getenv("APPIMAGE");PortFolder()
+contract	Linux contracts	Logs folder	src/log_path.cpp	port_folder / "logs";user_data_root / "logs"
+contract	Linux contracts	User data root	src/user_data.cpp	kPortableFolder;kStagingSuffix
+contract	Linux contracts	Relaunch	src/platform.cpp	posix_spawn;getenv("APPIMAGE")
+contract	Linux contracts	Crash handlers	src/crash_report.cpp	InstallPosixHandlers;Linux fatal signal
+contract	Linux contracts	Updater relaunch	src/updater/update_platform.cpp	posix_spawn;LaunchApplication
+contract	Linux contracts	Bug Report platform	src/incident_report.cpp	\"platform\":\"Linux\";LinuxDistributionText
+contract	Linux contracts	Launcher pages	src/launcher.cpp	LauncherPage::kBugReport;LauncherPage::kOnline;LauncherPage::kAchievements;LauncherPage::kControls
+contract	Linux contracts	Online paths	src/online_runtime.cpp	ConfigureOnline;g_user_dir
+contract	Linux contracts	ROM install path	src/game_files.cpp	default.xex;CheckGameFiles
+contract	Linux contracts	Settings path	src/settings.h	user_data_root / "settings.toml"
+contract	Linux contracts	Online identity path	src/online/identity.cpp	kIdentityFileName
+contract	Linux contracts	Achievements from game data	src/launcher_achievements.cpp	ListAchievements
+contract	Linux contracts	XDG folders are private	src/log_scrubber.cpp	XDG_DATA_HOME;XDG_CONFIG_HOME;XDG_CACHE_HOME

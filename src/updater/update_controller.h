@@ -34,8 +34,13 @@ struct UpdateConfig {
   std::string current_version;
   std::string releases_url;
   std::string user_agent;
+  // Every request and redirect stays on these hosts; package and checksum addresses also start with the prefix.
   std::vector<std::string> allowed_hosts = GitHubReleaseHosts();
   std::string download_url_prefix;
+  // Replaces the address policy; only the network tests set it.
+  std::function<bool(const std::string& url)> url_filter;
+  int connect_timeout_ms = 15000;
+  int receive_timeout_ms = 30000;
   UpdatePackageKind package_kind = UpdatePackageKind::kZip;
   std::function<std::string(const SemanticVersion&)> asset_name;
   std::function<std::string(const SemanticVersion&)> checksum_asset_name;

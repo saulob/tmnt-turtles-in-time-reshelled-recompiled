@@ -9,10 +9,19 @@ model pass their headless tests here, including a four-client run on loopback ag
 
 ## Playing
 
-1. Launcher > **Online** > **Online play** On. The rest of the page appears only then. **Online name** is what other
-   players see (up to 16 letters, digits, `-` or `_`).
+1. Launcher > **Online** > **Online play** On. The rest of the page appears only then, on three tabs: **Settings**,
+   **Friends** and **Lobby**. **Online name** is what other players see (up to 16 letters, digits, `-` or `_`). The
+   default name `Player` is shown in the public Lobby as `Player-XXXX`, a stable salted suffix that tells default-name
+   accounts apart; a custom name is shown unchanged.
 2. Share **Your friend code** (`XXXX-XXXX`, **Copy** puts it on the clipboard). Paste or type a friend's code under
-   **Friends** and **Send request**; they **Accept** or **Decline** it on their page.
+   **Friends** and **Send request**; they **Accept** or **Decline** it on their page. **Show me in Lobby** on the
+   **Lobby** tab lists your presentation name and game version for other players of this game; they can send you a friend
+   request from there; the request names the player by a private id, so the Lobby never gives out a friend code before
+   the request is accepted. Each listing carries a random action handle that is never shown: it stays the same while the
+   listing remains on and is replaced when it is turned Off and On again. The Lobby tab shows the compatible players,
+   when the list was last updated, and a **Refresh lobby** button; it also refreshes automatically every five minutes
+   while it is open. The listing belongs to the connection: turn it off, or close Online play, and you leave the Lobby.
+   Connection test sessions are never listed.
 3. **Connection test** > **Run test**. PLAY stays blocked until it reports **Overall usable** (see below).
 4. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
    and the guests **Quick Match** or **Custom Match**, which find only the friends' party.
@@ -110,6 +119,50 @@ party. A member's LAN addresses reach only members behind the same address. A ga
 service ends the party, the game plays on and the party ends with the game's session. Every match has one 15 s
 establishment budget.
 
+## SNES gameplay online
+
+Four SNES gameplay mechanics can be used online: **Directional Combat**, **SNES Throw Control**, **Disable Double Jump**
+and **SNES Dash** ([snes-gameplay.md](snes-gameplay.md)).
+Support is global, choices are per player. A mechanic is available in a match only when every PC supports it with the
+same data; once it is, each player's own On or Off applies to the turtle that player controls, and another player's Off
+never takes it away. **Classic Soundtrack** is not part of this: it is each PC's own presentation, follows that player's
+F9 and launcher choice at once, online too, and needs nothing from the other players. Turning Online play on switches
+every saved cheat Off and keeps them Off; turning it off restores nothing. The Cheats page and F10 show **Cheats are
+disabled while Online Play is enabled**.
+
+- **Supports.** A mechanic needs the gameplay data of a Ready import. Without it, or with an older import that only has
+  the soundtrack, it is unsupported, so nobody in that match has it; the match plays normally.
+- **Data identity.** Directional Combat is identified by the facing table, Throw Control by that table and the throw hold
+  time, Disable Double Jump by its rule version, Dash by its modes and the dash hold and tap times; the hold and tap times carry the 50 or 60 Hz clock of the imported ROM. A PAL and
+  an NTSC import share Directional Combat and Disable Double Jump; Throw Control and Dash are unavailable
+  for that match (F9 shows **Incompatible SNES data**).
+- **Dash mode.** Dash is one choice per player with three modes, Off, Auto and Manual, announced as `dash` plus
+  `dash_mode`; the room's table gives each seat its own mode. A service without the `snes_modes` capability is never sent
+  Manual (that player's Dash is Off for the match, F9 says so) and has no Disable Double Jump.
+- **Table.** Every member announces `supports`, `enabled` and the identities to the match room. The room answers each
+  member with the same table: the `supported` mechanics and, per party slot, that player's choice among them. Every
+  client checks the supported set against its own rule; it can only shrink.
+- **Who uses which row.** One online player per PC: the PC's party slot is its seat, and its controller drives its turtle.
+  Each PC applies only its own seat's row, and only to the turtle its controller drives. The game's replication master
+  for a turtle is its owner's PC, which decides that turtle's facing, throws and dash; the other PCs receive the result,
+  so every screen shows each turtle with its owner's choices.
+- **Lock per gameplay match.** When the game starts a match (`XSessionStart`) the client asks the room to lock that
+  match's round. The first request fixes the table for everyone, and each client uses it whole or, if its own check
+  cannot back the supported set, not at all (every client runs the same check). The table holds until the match ends
+  (`XSessionEnd`); F9 gameplay changes during the match are announced afterwards and the next match of the same party
+  locks a new table. A room reconnect does not change a locked table.
+- **No answer, no mechanics.** Until the locked table arrives every mechanic is off. Without an answer within 5 s, or with
+  a service that does not negotiate, the client locks all off and, when the room is reachable, asks the room to lock that
+  round all off for everyone. A client that locked all off and then learns the room locked something on leaves the party
+  (reason `snes_mismatch`).
+- **F9 online.** Classic Soundtrack shows the local On or Off and switches at once. A gameplay row shows the player's own
+  On or Off while the match supports it (with **Waiting for players** until everyone has announced), and **Unavailable**
+  with the reason otherwise: another player does not support it, the online service does not support it, or
+  **Incompatible SNES data**. During a locked match **Applies to the next online match** is shown under the gameplay rows.
+- **Older peers and services.** A client or service without this negotiation announces or answers nothing, which reads as
+  unsupported: those mechanics are unavailable to everyone and the match is otherwise unchanged. A client from before
+  the Dash modes has another Dash identity, so Dash is unavailable between it and a new client.
+
 ## Privacy and usage statistics
 
 The online service stores anonymous aggregate usage statistics: player counts, sessions, unique players, rooms created
@@ -195,6 +248,12 @@ and offline play is unaffected.
 Headless tests (implementation tests, not part of any manual procedure): `node --test "test/*.test.js"` in
 `server/tmnt-lobby`, and `tools\test.ps1 -CppTests <build>`, which also runs the C++ online tests, including a
 four-client run, against an isolated test server.
+
+## Bug reports
+
+The launcher's Bug Report page uses the same Worker and WebSocket envelope as the online service. It works with Online
+Play off and needs no account beyond the installation's existing online identity. Reports, receipts, privacy filtering,
+status tracking, My reports and the admin dashboard are documented in [bug-reports.md](bug-reports.md).
 
 ## What is not covered
 

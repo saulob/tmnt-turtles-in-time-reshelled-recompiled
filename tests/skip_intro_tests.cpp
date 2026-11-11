@@ -84,7 +84,7 @@ void TestSetting() {
 void TestGameplayRow() {
   std::printf("launcher: Gameplay row, ahead of the frame rate rows\n");
   const std::string launcher = ReadFile("src/launcher.cpp");
-  const size_t page = launcher.find("static void PageGameplay(trg::Ui& ui) {");
+  const size_t page = launcher.find("void PageGameplay(trg::Ui& ui) {");
   const size_t skip = launcher.find(
       "ui.Toggle(\"Skip intro\", \"Start directly at the title screen\", \"tmnt_skip_intro\", false, \"Off\", \"On\");");
   CHECK(page != std::string::npos && skip != std::string::npos);

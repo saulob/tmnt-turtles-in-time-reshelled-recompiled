@@ -25,6 +25,8 @@
 #include "achievement_menu.h"
 #include "active_log.h"
 #include "aspect_ratio.h"
+#include "cheat_menu.h"
+#include "cheats.h"
 #include "diagnostics.h"
 #include "frame_counter.h"
 #include "game_files.h"
@@ -41,6 +43,7 @@
 #include "log_path.h"
 #include "modal_dialog.h"
 #include "online_runtime.h"
+#include "online_setting.h"
 #include "ping_display.h"
 #include "platform.h"
 #include "player_names.h"
@@ -49,6 +52,10 @@
 #include "session_log.h"
 #include "settings.h"
 #include "system_info.h"
+#include "classic_soundtrack_overlay.h"
+#include "classic_soundtrack_runtime.h"
+#include "snes_gameplay_runtime.h"
+#include "snes_menu.h"
 #include "title_bgm_level.h"
 #include "trg/game_helpers.h"
 #include "user_data.h"
@@ -213,6 +220,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   }
 
   void LaunchModule() override {
+    tmnt::cheats::SetOnline(rex::cvar::Query<bool>(tmnt::kOnlineEnabledSetting));
     const int monitor = game_settings_.GetInt("monitor", std::atoi(rex::cvar::GetFlagByName("monitor").c_str()));
     tmnt::StartupWindowInfo startup_window;
     startup_window.fullscreen = window() != nullptr && window()->IsFullscreen();
@@ -231,6 +239,8 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     tmnt::LogStartupDiagnostics(game_settings_, tmnt::MonitorForSetting(monitor), monitor, game_data_root(),
                                startup_window);
     tmnt::PublishTitleMusicLevel(user_data_root());
+    tmnt::StartClassicSoundtrack(user_data_root());
+    tmnt::StartSnesGameplay(user_data_root());
     ReXApp::LaunchModule();
   }
 
@@ -270,12 +280,15 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     }
     if (window() && imgui_drawer()) {
       tmnt::CreateFrameCounter(imgui_drawer());
+      tmnt::CreateClassicSoundtrackOverlay(imgui_drawer());
       tmnt::CreatePingDisplay(imgui_drawer());
       tmnt::CreateInviteUi(imgui_drawer(), [this](std::function<void()> work) {
         app_context().CallInUIThreadDeferred(std::move(work));
       });
       CreateCursorSync(imgui_drawer());
       tmnt::ModalDialog::AttachEscapeKey(window());
+      cheat_menu_.Attach(window(), imgui_drawer());
+      snes_menu_.Attach(window(), imgui_drawer());
     }
   }
 
@@ -284,6 +297,8 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
     if (auto* input = runtime() ? runtime()->input_system() : nullptr) {
       input->Shutdown();
     }
+    cheat_menu_.Detach();
+    snes_menu_.Detach();
     tmnt::ModalDialog::DetachEscapeKey();
     tmnt::StopOnline();
     CloseAchievements();
@@ -373,6 +388,8 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
 
   tmnt::GameSettings game_settings_;
   tmnt::AchievementsOverlay* achievements_ = nullptr;
+  tmnt::CheatMenu cheat_menu_;
+  tmnt::SnesMenu snes_menu_;
   std::filesystem::path shipped_config_;
   tmnt::UserDataSelection user_data_;
   bool show_launcher_ = false;

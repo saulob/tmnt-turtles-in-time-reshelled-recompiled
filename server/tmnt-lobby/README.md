@@ -49,7 +49,7 @@ tests and the dev server.
 ### Flow
 
 1. `hello` signs the player in on the directory (presence, platform, version, guest image).
-2. Friends: `friends.add` with a friend code, the other player `friends.accept`s.
+2. Friends: `friends.add` with a friend code or a public Lobby handle, the other player `friends.accept`s.
 3. `party.create` makes a party of one (or `pm.host` does, implicitly). `invite.send` invites an online friend with the
    same game image and online build; all invites of one host carry the same match. `invite.accept` joins the party:
    the answer is `{match, diag, slot, join_token, generation, party}`. A fifth member is refused (`party_full`).
@@ -77,8 +77,10 @@ Directory ops (`wss://<host>/`):
 | `hello` | `proto` (4), `game`, `guest` (`base`), `build`, `player`, `token`, `name`, `version`, `platform`, `presence`, `relay` | `player`, `name`, `friend_code`, `capabilities`; a party member then also gets `party.update` |
 | `ping` | | `time` |
 | `friends.list` / `friends.requests` | | `friends[]` / `incoming[]`, `outgoing[]` |
-| `friends.add` | `code` | `player`, `name`, `state` (`pending`/`friends`) |
-| `friends.accept` / `.decline` / `.remove` | `player` | `friend` / - / - |
+| `friends.add` | `code`, or `player` (a public Lobby handle) | `name`, optional `display_name`, `state` (`pending`/`friends`), `request` when pending, and `player` (the friend code) only for `code` |
+| `friends.accept` / `.decline` / `.remove` | `request` (a pending request's id), or `player` (a friend code; `.decline` also takes a public Lobby handle); `.remove` takes only `player` | `friend` / - / - |
+| `lobby.publish` | `visible` | `visible` |
+| `lobby.list` | optional `rev` | `players[]`, `rev`, `visible`; `unchanged` when `rev` is current; errors `not_visible`, `bad_request`, `limit` |
 | `party.create` | | `match`, `diag`, `slot` 1, `join_token`, `generation` 0, `party`; `busy` when already in a party |
 | `party.leave` | | -; the host leaving ends the party (`host_left`) |
 | `party.kick` | `player` | -; host only |
@@ -101,17 +103,35 @@ The party snapshot is `{match, diag, host, generation, session, members[{slot, p
 invited[{player, name}]}`; `generation` is a revision counter, `state` is `joined` (accepted, no room socket yet),
 `connecting`, `connected` or `disconnected` (seat in grace), derived from room reports. A friend row is
 `{player, name, online, state, platform, version, guest, build, compatible}`; `state` is `offline`, `online`, `party`,
-`connecting` or `in_game`. `capabilities` is `{protocol_version, worker_build, public_endpoints, relay_supported,
-relay_max_payload, relay_frame_version, max_party}`.
+`connecting` or `in_game`. Friend rows and requests also carry `display_name` when the account kept the default
+`Player`; clients show it in place of `name`. `capabilities` is `{protocol_version, worker_build, public_endpoints,
+relay_supported, relay_max_payload, relay_frame_version, max_party, public_lobby, bug_reports, snes_features,
+snes_modes}`.
+
+A public Lobby row is `{player, name, version, state}`. `player` is a random 32 lowercase hex action handle, never a
+friend code, account, address or token, and is never shown by the launcher. `name` is the presentation name: a custom
+Online name unchanged, or `Player-XXXX` for the default `Player`, with the four uppercase hex digits derived from the
+Worker's private salt and the account, so the same account keeps the same alias. `state` is the relation `none`,
+`pending`, `friend` or `incoming`; incompatible builds are filtered out before the row is built. The handle stays the
+same while a listing remains visible and is replaced when visibility goes Off and On again.
+
+A request made with a Lobby handle never carries a friend code before it is accepted. `friends.add`, `friends.requests`
+(`incoming[]`, `outgoing[]`) and the `friend.request` event name it by `request`, a 32-hex id derived from the Worker's
+private salt and the two accounts, so both players see the same id and it survives a handle being replaced. Accept,
+decline and withdraw it with `request`. The friend codes appear only in `friends.list`, `friend.added` and the
+`friends.accept` answer, after acceptance. A request made with `code` keeps `player` (the other player's friend code)
+beside `request` for older clients. Requests stored before the `friend_requests.lobby` column existed read as code requests.
 
 Room ops (`wss://<host>/match/<match>`; the first frame must be `match.hello` within 10 s, else close `4003`):
 
 | op | fields | answer |
 |---|---|---|
-| `match.hello` | `proto`, `match`, `slot`, `token` (the `join_token`), `relay`, `generation_seen` | `generation`, `relay_token`, `members[]`, `capabilities`; errors `proto`, `not_found`, `unauthorized`, `party_full`; the previous socket of the slot is closed `4001` |
+| `match.hello` | `proto`, `match`, `slot`, `token` (the `join_token`), `relay`, `generation_seen`, optional `snes` | `generation`, `relay_token`, `members[]`, `capabilities`, `snes`; errors `proto`, `not_found`, `unauthorized`, `party_full`; the previous socket of the slot is closed `4001` |
 | `match.endpoint` | `port`, `lan[]`, optional `public_ip` + `public_port` (both or neither) | -; once per socket generation (`already_set`) |
 | `match.transport` | `peer`, `transport` (`direct`/`relay`) | -; only the lower slot of the pair (`not_owner`), immutable (`already_set`), `relay_unavailable` |
 | `match.link` | `peer`, `state` (`connecting`/`connected`/`lost`) | - |
+| `snes.update` | `snes` | `snes` (the sender's view); a change reaches the others as `match.snes` |
+| `snes.lock` | `round` (the party's gameplay match, from 1), optional `off` | `snes` with that round's `locked`; the first call per round fixes it, `off: true` fixes it all Off |
 | `match.leave` | | - |
 | `ping` | | `time` |
 
@@ -120,7 +140,15 @@ Room events: `match.members` (`members[{slot, state, name, links[{peer, transpor
 `same_network`, `service_forwards_public`), `match.transport` (`a`, `b`, `transport`, `by`; to both ends and to the host),
 `match.peer_lost`, `match.peer_back`, `match.left` (`slot`, `reason`: `left`, `disconnect`, `kicked`, `expired`),
 `match.ended` (`reason`: `host_left`, `expired`, `closed`), `relay.closed` (`peer`, `reason`: `peer_disconnected`,
-`rate_limit`, `peer_backpressure`, `peer_unavailable`, `unavailable`).
+`rate_limit`, `peer_backpressure`, `peer_unavailable`, `unavailable`), `match.snes` (`snes`, one view per recipient).
+
+SNES gameplay. Four mechanics are negotiated per room, `directional_combat`, `throw_control`, `dash` and `double_jump`;
+Classic Soundtrack is each player's own and never reaches the service. A client announces `snes: {supports{...},
+enabled{...}, compat{...}}`. Support is global: a mechanic is `supported` when every member supports it and all data ids
+are equal. Choices are per player: `players` maps each member's slot to its own choice among the supported mechanics, so
+one player's Off never takes a mechanic from another. `dash` carries `dash_mode` (`off`, `auto` or `manual`); a mode
+nobody writes is `off`. The `snes.lock` of a round stores the one table every member uses for that match; the next round
+negotiates again. `snes_modes` in `capabilities` marks a service that knows the modes and `double_jump`.
 
 Errors: `bad_request`, `too_large`, `no_session`, `proto`, `bad_game`, `bad_guest`, `unauthorized`, `not_found`,
 `not_friends`, `no_party`, `not_host`, `not_owner`, `already_set`, `offline`, `busy`, `already_invited`,
@@ -420,27 +448,38 @@ otherwise every `/admin*` path answers 404.
 
 - `GET /admin`: the dashboard, one self-contained page (inline style and script allowed by hash under a strict CSP, no
   external resources). It holds no data; it asks for the token (kept in memory, or this tab with "Keep for this tab") and
-  calls the two routes below with it. A browser cannot send a bearer header on navigation, which is why the page itself is
+  calls the routes below with it. A browser cannot send a bearer header on navigation, which is why the page itself is
   the only unauthenticated route.
 - `GET /admin/telemetry/summary[?days=1..30]`: the operational aggregates as JSON. Not shown by the dashboard.
 - `GET /admin/telemetry/session?diag=<12 hex>`: everything kept about one party (reporters, per-peer reports, merged event
   timeline). 400 for a malformed `diag`, 404 when nothing is kept. Not shown by the dashboard.
 - `GET /admin/api/summary`: live numbers and today's figures (see "Service metrics").
 - `GET /admin/api/history[?days=1..365]`: daily rows, dimensions, samples, totals and the period comparison; 30 days by default.
+- `/admin/api/incidents` and `/admin/api/incidents/<ticket>`: the Bug reports tab. The list has no logs; opening a report
+  returns its sanitized log. `POST .../status` saves a status, fixed version and developer message; `DELETE` removes the
+  report, log, status and receipt hash. See [docs/bug-reports.md](../../docs/bug-reports.md).
 
-All four need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time). They only read; nothing under
-`/admin` takes data. Clients report over the directory WebSocket, and there is no HTTP route for it.
+All of them need `Authorization: Bearer <ADMIN_TOKEN>` (401 otherwise, compared in constant time). Clients report over
+the directory WebSocket; the admin routes are the only HTTP writers and are private.
 
 ```
 npx wrangler secret put ADMIN_TOKEN       # manual; never commit a value
-curl -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>/admin/telemetry/summary
+curl -H "Authorization: Bearer $ADMIN_TOKEN" https://<worker>/admin/api/summary
 ```
 
-The dashboard follows the Dragon's Crown Pro one and reads only `/admin/api/summary` and `/admin/api/history`. It has a range
-selector (7, 30, 90, 365 days) and shows, in order: the live cards (with unique players today and in the range), the period
-comparison, multiplayer activity, Characters & parties, the usage and daily charts, daily totals, connection health, platforms,
-versions and countries, the protection counters and "How to read this". The operational telemetry routes above stay available for
-debugging and are not part of the page. Every value is written as text, never as markup.
+The dashboard reads `/admin/api/summary`, `/admin/api/history` and, in its Bug reports tab,
+`/admin/api/incidents`. It has a range selector (7, 30, 90, 365 days) and shows, in order: the live cards (with unique
+players today and in the range), the period comparison, multiplayer activity, Characters & parties, the usage and daily
+charts, daily totals, connection health, platforms, versions and countries, the protection counters and "How to read
+this". The operational telemetry routes above stay available for debugging and are not part of the page. Every value is
+written as text, never as markup.
+
+Reports live in three tables of the same directory object, created with `CREATE TABLE IF NOT EXISTS`:
+`incidents` (fields and sanitized log), `incident_quota` (salted account and address keys per accepted report, deleted
+after 24 hours) and `incident_tracking` (status, developer message and salted receipt hash). The newest 500 reports and
+5000 statuses are kept. No migration or new binding is needed.
+
+`tools/worker.ps1` deploys this folder (`npx wrangler deploy`); `tools/worker.ps1 -DryRun` bundles without uploading.
 
 ## Local
 
@@ -449,6 +488,8 @@ No dependencies and no Cloudflare account are needed (Node 22.13 or newer, for `
 ```
 cd server/tmnt-lobby
 node --test "test/*.test.js"        # protocol, friends, parties, rooms, relay, wire parity, Worker glue, real WebSockets
+node tools/probe.js local           # headless public-Lobby identity probe against a temporary local server
+node tools/probe.js wss://tmnt-lobby.saulobenigno.workers.dev/   # the same probe against the deployed Worker
 node local/server.js                # ws://127.0.0.1:8791/ and ws://127.0.0.1:8791/match/<id> (--db <file> keeps players and friends)
 node local/server.js --admin-token <16+ characters>   # also http://127.0.0.1:8791/admin (or TMNT_ADMIN_TOKEN in the environment)
 ```
@@ -464,8 +505,9 @@ host and port.
 
 ## Deploy (manual; nothing in this repository deploys)
 
-**This service has not been deployed.** Nothing of it exists on Cloudflare yet, so the first deploy creates the Worker
-`tmnt-lobby` and both Durable Object classes at once, with the migrations of `wrangler.toml` in order:
+**The service is live at `https://tmnt-lobby.saulobenigno.workers.dev/`.** The first deploy created the Worker
+`tmnt-lobby` and both Durable Object classes at once, with the migrations of `wrangler.toml` in order. After changing
+this folder, redeploy; `/health` and the launcher log must report the new `worker_build` before runtime testing.
 
 - `v1`: `new_sqlite_classes = ["TMNTLobby"]` (the directory).
 - `v2`: `new_sqlite_classes = ["TMNTMatch"]` (the match room). New classes are only ever added as a new migration; an

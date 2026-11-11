@@ -110,10 +110,10 @@ check_xex TMNT_r.xex "$TMNT_R_XEX_SHA256"
 
 echo "== Source -> $WORK"
 mkdir -p "$WORK/game/extracted" "$WORK/third_party" "$WORK/tools"
-for f in CMakeLists.txt CMakePresets.json tmnt_turtles_in_time_reshelled_manifest.toml LICENSE README.md tools/build-patched-rexruntime.sh tools/package-release.ps1 tools/package-linux.sh; do
+for f in CMakeLists.txt CMakePresets.json tmnt_turtles_in_time_reshelled_manifest.toml LICENSE README.md tools/build-patched-rexruntime.sh tools/package-release.ps1 tools/package-linux.sh tools/classic_soundtrack_tool.cpp; do
   rsync -a "$ROOT/$f" "$WORK/$f"
 done
-for d in assets config docs src tests generated packaging patches third_party/trg-launcher; do
+for d in assets config docs src tests generated packaging patches third_party/trg-launcher third_party/snes_spc; do
   mkdir -p "$WORK/$d"
   rsync -a --delete --exclude .git "$ROOT/$d/" "$WORK/$d/"
 done

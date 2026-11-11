@@ -828,7 +828,7 @@ void TestHooksAreDirect() {
   CHECK(Contains(Between(module, "REX_HOOK_RAW(sub_876AE720)", "REX_EXTERN(__imp__sub_876B75C0)"), "LiveScope scope("));
   CHECK(Contains(Between(module, "REX_HOOK_RAW(sub_876B75C0)", "REX_EXTERN(__imp__sub_875BA998)"), "LiveScope scope("));
   const std::string events = Between(module, "REX_HOOK_RAW(sub_875BA998)", "REX_EXTERN(__imp__sub_875A6770)");
-  CHECK(Contains(events, "LocalOnlineEventName(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))"));
+  CHECK(Contains(events, "LocalOnlineEventName(event, track)"));
   CHECK(Contains(events, "LiveScope scope(name);"));
   CHECK(Contains(events, "LiveScopeSuspended offline;"));
 

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "log_policy.h"
 #include "trg/settings.h"
@@ -205,6 +206,45 @@ void TestPortuguese() {
   CHECK(!Has(table, "Keeps logs for normal sessions"));
 }
 
+// Log level of every DEBUG_SAULO call in a patch: "INFO", "WARN" or "ERROR".
+std::vector<std::string> DebugSauloLogLevels(const std::string& patch) {
+  std::vector<std::string> levels;
+  for (size_t at = patch.find("REXGPU_"); at != std::string::npos; at = patch.find("REXGPU_", at + 1)) {
+    const size_t open = patch.find('(', at);
+    if (open == std::string::npos || open - at > 16) {
+      continue;
+    }
+    size_t i = open + 1;
+    while (i < patch.size() && std::string_view(" \t\r\n+").find(patch[i]) != std::string_view::npos) {
+      ++i;
+    }
+    if (patch.compare(i, 12, "\"DEBUG_SAULO") == 0) {
+      levels.push_back(patch.substr(at + 7, open - at - 7));
+    }
+  }
+  return levels;
+}
+
+// What the compact log keeps for a line logged at this level (Detailed logging Off).
+bool SurvivesCompactLog(const std::string& level) {
+  const tmnt::LogSeverity severity = level == "WARN" || level == "ERROR" ? tmnt::LogSeverity::kWarningOrAbove
+                                     : level == "INFO"                  ? tmnt::LogSeverity::kInfo
+                                                                        : tmnt::LogSeverity::kBelowInfo;
+  return tmnt::KeepWithoutDetailedLogging(severity, "DEBUG_SAULO");
+}
+
+void TestTemporaryDiagnostics() {
+  std::printf("temporary diagnostics in compact logs\n");
+  for (const char* patch : {"patches/rexglue-sdk/0092-debug-saulo-vulkan-draw-telemetry.linux.patch",
+                            "patches/rexglue-sdk/0093-debug-saulo-issue2-d3d12-telemetry.windows.patch"}) {
+    const std::vector<std::string> levels = DebugSauloLogLevels(ReadFile(patch));
+    CHECK(!levels.empty());
+    for (const std::string& level : levels) {
+      CHECK(SurvivesCompactLog(level));
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -214,6 +254,7 @@ int main() {
   TestSavedChoice();
   TestWiring();
   TestPortuguese();
+  TestTemporaryDiagnostics();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures ? 1 : 0;
 }

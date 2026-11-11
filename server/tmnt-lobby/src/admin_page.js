@@ -147,6 +147,33 @@ th { color: var(--text-secondary); font-weight: 600; }
 details summary { cursor: pointer; font-weight: 600; }
 .notes ul { margin: 0; padding-left: 18px; color: var(--text-secondary); font-size: 13px; }
 .notes li { margin: 4px 0; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 16px; border-bottom: 1px solid var(--border); }
+.tabs button[role="tab"] { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--text-secondary); padding: 8px 14px; cursor: pointer; }
+.tabs button[role="tab"]:hover { color: var(--text-primary); }
+.tabs button[role="tab"][aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs .quiet { margin-left: auto; margin-bottom: 4px; }
+.bug-list { max-height: 340px; overflow-y: auto; }
+.bug-list table { min-width: 1080px; }
+#bug-list td.bug-summary { max-width: 340px; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.ticket { border: 0; background: transparent; color: var(--accent); padding: 0; font: inherit; text-decoration: underline; }
+.bug-detail { margin-top: 16px; }
+.bug-header { margin-bottom: 20px; }
+.bug-header h2 { margin: 0; flex: 1; }
+.bug-close { margin-left: auto; }
+.bug-text { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 24px; }
+.bug-facts { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0 0 24px; font-size: 13px; }
+.bug-facts dt { color: var(--text-secondary); }
+.bug-facts dd { margin: 0; overflow-wrap: anywhere; }
+.bug-status-form { margin: 0 0 24px; }
+.bug-status-form > .muted { margin: 4px 0 12px; }
+.bug-status-form .toolbar { margin: 12px 0 0; }
+.bug-status-field { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; }
+.bug-status-field[hidden] { display: none; }
+.bug-status-field input { max-width: 200px; }
+.bug-status-field textarea { max-width: 640px; font: inherit; }
+.bug-status-form input, .bug-status-form textarea { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-0); color: var(--text-primary); }
+.bug-log { max-height: 480px; overflow: auto; margin: 0; padding: 10px; background: var(--surface-0); border: 1px solid var(--border); border-radius: 6px; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+.bug-snapshot { margin-bottom: 8px; }
 .tip {
   position: fixed;
   pointer-events: none;
@@ -187,6 +214,12 @@ const BODY = String.raw`</head>
     <p id="login-error" class="error" role="alert"></p>
   </form>
   <section id="dash" hidden>
+    <nav class="tabs" role="tablist" aria-label="Admin sections">
+      <button id="tab-dashboard" type="button" role="tab" aria-selected="true" aria-controls="view-dashboard">Dashboard</button>
+      <button id="tab-bugs" type="button" role="tab" aria-selected="false" aria-controls="view-bugs">Bugs</button>
+      <button id="signout" type="button" class="quiet">Sign out</button>
+    </nav>
+    <div id="view-dashboard" role="tabpanel" aria-labelledby="tab-dashboard">
     <div class="toolbar">
       <label for="range">Range</label>
       <select id="range">
@@ -197,7 +230,6 @@ const BODY = String.raw`</head>
       </select>
       <button id="refresh" type="button">Refresh</button>
       <span id="status" class="muted" role="status"></span>
-      <button id="signout" type="button" class="quiet">Sign out</button>
     </div>
     <div class="cards">
       <div class="card" tabindex="0" data-help="Players connected to the online service right now, counted once per connected account"><span class="label">Online now</span><span id="c-online" class="value">–</span></div>
@@ -258,6 +290,7 @@ const BODY = String.raw`</head>
     <div class="panel">
       <p class="muted">Operational counts for the selected range. They describe the service, not players.</p>
       <div class="cards" id="health"></div>
+      <div id="d-incident-status"></div>
     </div>
     <details class="panel">
       <summary>Incompatibility rejects by reason</summary>
@@ -293,7 +326,76 @@ const BODY = String.raw`</head>
         <li>Period comparison sets the selected range (including today so far) against the same number of days before it.
           No percentage is shown when the earlier period has nothing to compare with.</li>
         <li>Nothing here stores names, Friend Codes, accounts, addresses, rooms or gameplay.</li>
+        <li>Bug reports are listed in the Bugs tab. They hold the description, the sanitized log and the game and
+          operating system facts the player previewed; they never hold an account, address or receipt.</li>
       </ul>
+    </div>
+    </div>
+    <div id="view-bugs" role="tabpanel" aria-labelledby="tab-bugs" hidden>
+    <div class="panel">
+      <p class="muted">Reports players sent from the launcher, newest first. The log of a report is stored as the player previewed it and is shown and downloaded exactly as stored. No account or address is kept with a report, and the newest 500 are kept.</p>
+      <div class="toolbar">
+        <label for="bug-version">Port version</label>
+        <select id="bug-version"></select>
+        <label for="bug-build">Game image</label>
+        <select id="bug-build"></select>
+        <label for="bug-status-filter">Status</label>
+        <select id="bug-status-filter">
+            <option value="">All statuses</option>
+            <option value="new">Open</option>
+            <option value="investigating">Investigating</option>
+            <option value="fixed">Fixed</option>
+            <option value="cannot_reproduce">Cannot reproduce</option>
+            <option value="duplicate">Duplicate</option>
+            <option value="not_a_bug">Not a bug</option>
+            <option value="closed">Closed</option>
+        </select>
+        <button id="bug-refresh" type="button">Refresh reports</button>
+        <span id="bug-count" class="muted" role="status"></span>
+      </div>
+      <p id="bug-empty" class="empty" hidden>No bug reports yet.</p>
+      <div id="bug-list-wrap" class="scroll bug-list"><table id="bug-list"></table></div>
+    </div>
+    <div id="bug-detail" class="panel bug-detail" hidden>
+      <div class="toolbar bug-header">
+        <h2 id="bug-title"></h2>
+        <button id="bug-download" type="button">Download log</button>
+        <button id="bug-copy" type="button" class="quiet">Copy log</button>
+        <span id="bug-note" class="muted" role="status"></span>
+        <button id="bug-close" type="button" class="quiet bug-close">Close report</button>
+      </div>
+      <p id="bug-text" class="bug-text"></p>
+      <dl id="bug-facts" class="bug-facts"></dl>
+      <h3>Report status</h3>
+      <div class="bug-status-form">
+        <label for="bug-status">Status</label>
+        <select id="bug-status">
+            <option value="new">Open</option>
+            <option value="investigating">Investigating</option>
+            <option value="fixed">Fixed</option>
+            <option value="cannot_reproduce">Cannot reproduce</option>
+            <option value="duplicate">Duplicate</option>
+            <option value="not_a_bug">Not a bug</option>
+            <option value="closed">Closed</option>
+        </select>
+        <p id="bug-status-meaning" class="muted"></p>
+        <div id="bug-fixed-field" class="bug-status-field" hidden>
+          <label for="bug-fixed">Fixed in version</label>
+          <input id="bug-fixed" type="text" maxlength="32" autocomplete="off" placeholder="0.1.1">
+        </div>
+        <div class="bug-status-field">
+          <label for="bug-message">Message to player</label>
+          <textarea id="bug-message" rows="3" maxlength="500"></textarea>
+        </div>
+        <div class="toolbar">
+          <button id="bug-status-save" type="button">Save status</button>
+          <span id="bug-status-note" class="muted" role="status"></span>
+        </div>
+      </div>
+      <h3 id="bug-log-name"></h3>
+      <p class="muted bug-snapshot">This is the sanitized log snapshot captured when the report was sent.</p>
+      <pre id="bug-log" class="bug-log" tabindex="0"></pre>
+    </div>
     </div>
   </section>
 </main>
@@ -311,6 +413,7 @@ const JS = String.raw`(function () {
   var regionNames = null;
   try { regionNames = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { regionNames = null; }
   var timeLabel = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  var stampLabel = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   var dayLabel = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
   var ABUSE = {
     ws_upgrade_accepted: 'WebSocket upgrades accepted by the directory',
@@ -328,7 +431,15 @@ const JS = String.raw`(function () {
     telemetry_limited: 'Telemetry batches refused for the account',
     room_resume_limited: 'Match room reconnects refused',
     match_link_limited: 'Match link changes refused',
-    relay_abuse_closed: 'Relay senders or relays closed for abuse'
+    relay_abuse_closed: 'Relay senders or relays closed for abuse',
+    incident_filed: 'Bug reports accepted',
+    incident_rejected: 'Bug reports refused: invalid',
+    incident_limited: 'Bug reports refused: too many',
+    incident_hourly_limited: 'Bug reports refused: hourly limit',
+    incident_daily_limited: 'Bug reports refused: daily limit',
+    incident_lookup_limited: 'Report lookups refused: too many',
+    lobby_publish_limited: 'Lobby publishes refused',
+    lobby_list_limited: 'Lobby reads refused'
   };
   var REJECTS = { lobby_protocol: 'Sign-in refused: different lobby protocol', online_protocol: 'Party join refused: different game image or online build' };
 
@@ -360,13 +471,20 @@ const JS = String.raw`(function () {
 
   function AuthError() {}
 
-  function api(path) {
-    return fetch(path, { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' })
-      .then(function (r) {
-        if (r.status === 401) throw new AuthError();
-        if (!r.ok) throw new Error('The service answered ' + r.status + '.');
-        return r.json();
-      });
+  function api(path, init) {
+    var options = { cache: 'no-store', credentials: 'omit' };
+    if (init) {
+      for (var key in init) options[key] = init[key];
+    }
+    options.headers = Object.assign({ Authorization: 'Bearer ' + token }, (init && init.headers) || {},
+      init && init.body !== undefined ? { 'Content-Type': 'application/json' } : {});
+    return fetch(path, options).then(function (r) {
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error('The service answered ' + r.status + '.');
+      var type = r.headers && r.headers.get ? (r.headers.get('Content-Type') || '') : '';
+      if (!type || type.indexOf('json') >= 0) return r.json();
+      return r.text();
+    });
   }
 
   var tip = $('tip');
@@ -578,7 +696,8 @@ const JS = String.raw`(function () {
   }
 
   var COMPARE = [['unique_players', 'Unique players'], ['sessions', 'Sessions'], ['rooms_created', 'Rooms created'], ['room_joins', 'Successful joins'],
-    ['rooms_with_guest', 'Rooms with a guest'], ['peak_online', 'Peak online'], ['peak_in_rooms', 'Peak in rooms']];
+    ['rooms_with_guest', 'Rooms with a guest'], ['peak_online', 'Peak online'], ['peak_in_rooms', 'Peak in rooms'],
+    ['incidents_filed', 'Bug reports filed'], ['incidents_rejected', 'Bug reports rejected']];
 
   function shiftDay(day, offset) {
     var date = new Date(day + 'T12:00:00Z');
@@ -675,15 +794,32 @@ const JS = String.raw`(function () {
     rows(compositions, 'Most common compositions · top 12', d.party_composition || [], function (v) { return v.split('+').join(' + '); });
   }
 
-  function health(history) {
+  function health(summary, history) {
     var t = history.totals;
     var abuseCounts = history.dimensions.abuse;
+    var incidents = summary.incidents || { total: 0, by_status: {} };
     var node = $('health');
     clear(node);
     node.appendChild(card('Reconnects not counted as sessions', fmt(sum(abuseCounts, ['hello_reconnect_deduped']))));
     node.appendChild(card('Incompatibility rejects', fmt(t.incompatible_rejects)));
     node.appendChild(card('Rooms that used the relay', fmt(t.rooms_relayed) + ' · ' + share(t.rooms_relayed, t.rooms_closed)));
     node.appendChild(card('Room operations refused', fmt(sum(abuseCounts, ['party_create_limited', 'party_join_limited']))));
+    node.appendChild(card('Lobby list requests', fmt(t.lobby_list_requests)));
+    node.appendChild(card('Lobby publishes', fmt(t.lobby_publishes)));
+    node.appendChild(card('Peak players listed in Lobby', fmt(t.lobby_visible_peak)));
+    node.appendChild(card('Lobby reads refused', fmt(sum(abuseCounts, ['lobby_list_limited']))));
+    node.appendChild(card('Bug reports filed', fmt(t.incidents_filed)));
+    node.appendChild(card('Bug reports rejected', fmt(t.incidents_rejected)));
+    node.appendChild(card('Report status checks', fmt(t.incident_status_checks)));
+    node.appendChild(card('Report reads', fmt(t.incident_reads)));
+    node.appendChild(card('Developer replies', fmt(t.incident_messages)));
+    node.appendChild(card('Reports deleted', fmt(t.incidents_deleted)));
+    node.appendChild(card('Report service failures', fmt(t.incident_errors)));
+    node.appendChild(card('Reports stored now', fmt(incidents.total)));
+    var statuses = incidents.by_status || {};
+    rows($('d-incident-status'), 'Reports by status', Object.keys(statuses).map(function (status) {
+      return { value: status, count: statuses[status] };
+    }), function (value) { return BUG_STATUSES[value] || value; });
   }
 
   function dailyTable(daily) {
@@ -691,7 +827,8 @@ const JS = String.raw`(function () {
     clear(table);
     var cols = [['day', 'Day'], ['sessions', 'Sessions'], ['unique_players', 'Unique players'], ['peak_online', 'Peak online'], ['peak_in_rooms', 'Peak in rooms'],
       ['peak_rooms', 'Peak rooms'], ['rooms_created', 'Rooms created'], ['room_joins', 'Joins'], ['rooms_with_guest', 'With guest'],
-      ['rooms_relayed', 'Relay rooms'], ['incompatible_rejects', 'Rejects']];
+      ['rooms_relayed', 'Relay rooms'], ['incompatible_rejects', 'Rejects'], ['lobby_list_requests', 'Lobby reads'],
+      ['lobby_publishes', 'Lobby publishes'], ['lobby_visible_peak', 'Lobby peak']];
     var head = el('tr');
     cols.forEach(function (c) { head.appendChild(el('th', '', c[1])); });
     var thead = el('thead');
@@ -732,6 +869,227 @@ const JS = String.raw`(function () {
     node.appendChild(table);
   }
 
+  var OBJECT_MAKE = 'createObjectURL';
+  var OBJECT_DROP = 'revokeObjectURL';
+  var bugReports = [];
+  var bugTicket = '';
+  var bugLoadingTicket = '';
+  var bugLogText = '';
+  var BUG_STATUSES = {
+    new: ['Open', 'The report has not been reviewed yet.'],
+    investigating: ['Investigating', 'The report is being investigated.'],
+    fixed: ['Fixed', 'The problem has been corrected.'],
+    cannot_reproduce: ['Cannot reproduce', 'The problem could not be reproduced with the available information.'],
+    duplicate: ['Duplicate', 'The same problem is already tracked by another report.'],
+    not_a_bug: ['Not a bug', 'The reported behavior is expected or is not a bug of this port.'],
+    closed: ['Closed', 'The report was intentionally finished without a specific fix or another more precise status. It does not mean Fixed.']
+  };
+
+  function bugStatusLabel(status) { return BUG_STATUSES[status] ? BUG_STATUSES[status][0] : status; }
+  function bugBuildLabel(guest) { return guest; }
+
+  function bugOptions(id, key, label) {
+    var select = $(id);
+    var chosen = select.value;
+    var seen = {};
+    bugReports.forEach(function (r) { seen[r[key]] = true; });
+    clear(select);
+    var all = el('option', '', 'All');
+    all.value = '';
+    select.appendChild(all);
+    Object.keys(seen).sort().forEach(function (value) {
+      var option = el('option', '', label ? label(value) : value);
+      option.value = value;
+      select.appendChild(option);
+    });
+    select.value = seen[chosen] ? chosen : '';
+  }
+
+  function bugShown() {
+    var version = $('bug-version').value;
+    var build = $('bug-build').value;
+    var status = $('bug-status-filter').value;
+    return bugReports.filter(function (r) {
+      return (!version || r.launcher_version === version) && (!build || r.guest === build) && (!status || r.status === status);
+    });
+  }
+
+  function bugFact(list, name, value) {
+    list.appendChild(el('dt', '', name));
+    list.appendChild(el('dd', '', value || '\u2014'));
+  }
+
+  function showBugStatusMeaning() {
+    var status = $('bug-status').value;
+    $('bug-status-meaning').textContent = BUG_STATUSES[status] ? BUG_STATUSES[status][1] : '';
+    $('bug-fixed-field').hidden = status !== 'fixed';
+  }
+
+  function bugStatusForm(r) {
+    $('bug-status').value = r.status;
+    $('bug-fixed').value = r.fixed_version || '';
+    $('bug-message').value = r.player_message || '';
+    $('bug-status-note').textContent = '';
+    showBugStatusMeaning();
+  }
+
+  function bugDetail(r) {
+    bugTicket = r.ticket;
+    bugLoadingTicket = '';
+    bugLogText = r.log_text;
+    $('bug-title').textContent = r.ticket;
+    $('bug-text').textContent = r.description;
+    var facts = $('bug-facts');
+    clear(facts);
+    bugFact(facts, 'Report ID', r.ticket);
+    bugFact(facts, 'Submitted', stampLabel.format(r.ms) + ' (Sao Paulo)');
+    bugFact(facts, 'Port version', r.launcher_version);
+    bugFact(facts, 'Game image', bugBuildLabel(r.guest));
+    bugFact(facts, 'Platform', r.platform);
+    bugFact(facts, 'Operating system', r.operating_system);
+    bugFact(facts, 'Runtime', r.runtime);
+    bugFact(facts, 'Original log file', r.log_file);
+    bugFact(facts, 'Log clipped', r.log_clipped === 'yes' ? 'Yes, only its end was sent' : 'No');
+    $('bug-log-name').textContent = 'Sanitized log';
+    $('bug-log').textContent = bugLogText;
+    $('bug-note').textContent = '';
+    bugStatusForm(r);
+    $('bug-detail').hidden = false;
+    renderBugList();
+  }
+
+  function openBugReport(ticket) {
+    bugLoadingTicket = ticket;
+    return api('/admin/api/incidents/' + encodeURIComponent(ticket)).then(function (report) {
+      if (report.ticket === bugLoadingTicket) bugDetail(report);
+    }).catch(function (error) {
+      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
+      if (ticket !== bugLoadingTicket) return;
+      bugLoadingTicket = '';
+      $('bug-count').textContent = 'Could not open ' + ticket + '.';
+    });
+  }
+
+  function closeBugReport() {
+    bugTicket = '';
+    bugLoadingTicket = '';
+    bugLogText = '';
+    $('bug-detail').hidden = true;
+    renderBugList();
+  }
+
+  function toggleBugReport(ticket) {
+    if (ticket === bugTicket) closeBugReport();
+    else openBugReport(ticket);
+  }
+
+  function downloadBugLog() {
+    var ticket = bugTicket;
+    if (!ticket) return Promise.resolve();
+    return fetch('/admin/api/incidents/' + encodeURIComponent(ticket) + '/log', { headers: { Authorization: 'Bearer ' + token }, cache: 'no-store', credentials: 'omit' }).then(function (r) {
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error('log');
+      var named = /filename="([^"]+)"/.exec(r.headers.get('Content-Disposition') || '');
+      return r.blob().then(function (blob) {
+        var object = URL[OBJECT_MAKE](blob);
+        var link = el('a');
+        link.href = object;
+        link.download = named ? named[1] : ticket + '.log';
+        link.click();
+        setTimeout(function () { URL[OBJECT_DROP](object); }, 1000);
+      });
+    }).catch(function (error) {
+      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
+      $('bug-note').textContent = 'Could not download the log.';
+    });
+  }
+
+  function copyBugLog() {
+    if (!bugLogText) return Promise.resolve();
+    var say = function (text) { $('bug-note').textContent = text; };
+    if (!navigator.clipboard || !navigator.clipboard.writeText) { say('Copying is not possible in this browser.'); return Promise.resolve(); }
+    return navigator.clipboard.writeText(bugLogText).then(function () { say('Log copied.'); }, function () { say('Could not copy the log.'); });
+  }
+
+  function saveBugStatus() {
+    var ticket = bugTicket;
+    if (!ticket) return Promise.resolve();
+    var status = $('bug-status').value;
+    var change = { status: status, fixed_version: status === 'fixed' ? $('bug-fixed').value.trim() : '', player_message: $('bug-message').value };
+    return fetch('/admin/api/incidents/' + encodeURIComponent(ticket) + '/status', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify(change), cache: 'no-store', credentials: 'omit' }).then(function (r) {
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error('status');
+      return r.json();
+    }).then(function (saved) {
+      bugReports.forEach(function (r) {
+        if (r.ticket === ticket) { r.status = saved.status; r.status_updated_at = saved.status_updated_at; }
+      });
+      renderBugList();
+      if (ticket !== bugTicket) return;
+      bugStatusForm(saved);
+      $('bug-status-note').textContent = 'Saved.';
+    }).catch(function (error) {
+      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
+      if (ticket === bugTicket) $('bug-status-note').textContent = 'Could not save the status. Check the version and the message.';
+    });
+  }
+
+  function bugTicketCell(r) {
+    var td = el('td');
+    var button = el('button', 'ticket', r.ticket);
+    button.type = 'button';
+    button.addEventListener('click', function () { toggleBugReport(r.ticket); });
+    td.appendChild(button);
+    return td;
+  }
+
+  function renderBugList() {
+    var shown = bugShown();
+    var node = $('bug-list');
+    clear(node);
+    var head = el('tr');
+    ['Report ID', 'Submitted', 'Port', 'Game image', 'Platform', 'Operating system', 'Description', 'Status'].forEach(function (c) { head.appendChild(el('th', '', c)); });
+    node.appendChild(head);
+    shown.forEach(function (r) {
+      var tr = el('tr', r.ticket === bugTicket ? 'selected' : '');
+      tr.appendChild(bugTicketCell(r));
+      tr.appendChild(el('td', '', stampLabel.format(r.ms)));
+      tr.appendChild(el('td', '', r.launcher_version));
+      tr.appendChild(el('td', '', bugBuildLabel(r.guest)));
+      tr.appendChild(el('td', '', r.platform));
+      tr.appendChild(el('td', '', r.operating_system));
+      tr.appendChild(el('td', 'bug-summary', r.preview));
+      tr.appendChild(el('td', '', bugStatusLabel(r.status)));
+      node.appendChild(tr);
+    });
+    $('bug-empty').textContent = 'No bug reports yet.';
+    $('bug-empty').hidden = bugReports.length > 0;
+    $('bug-list-wrap').hidden = bugReports.length === 0;
+    $('bug-count').textContent = !bugReports.length ? ''
+      : shown.length === bugReports.length ? fmt(shown.length) + ' reports' : fmt(shown.length) + ' of ' + fmt(bugReports.length) + ' reports';
+  }
+
+  function loadBugReports() {
+    $('bug-count').textContent = 'Loading...';
+    return api('/admin/api/incidents').then(function (r) {
+      bugReports = Array.isArray(r.incidents) ? r.incidents : [];
+      bugOptions('bug-version', 'launcher_version');
+      bugOptions('bug-build', 'guest', bugBuildLabel);
+      renderBugList();
+    }).catch(function (error) {
+      if (error instanceof AuthError) { signOut('The token was not accepted.'); return; }
+      $('bug-count').textContent = error && error.message ? error.message : 'Could not load the reports.';
+    });
+  }
+
+  function showView(name) {
+    $('view-dashboard').hidden = name !== 'dashboard';
+    $('view-bugs').hidden = name !== 'bugs';
+    $('tab-dashboard').setAttribute('aria-selected', String(name === 'dashboard'));
+    $('tab-bugs').setAttribute('aria-selected', String(name === 'bugs'));
+    if (name === 'bugs') loadBugReports();
+  }
+
   function render(summary, history) {
     $('c-online').textContent = fmt(summary.live.online);
     $('c-in-rooms').textContent = fmt(summary.live.in_rooms);
@@ -746,7 +1104,7 @@ const JS = String.raw`(function () {
     comparison(history);
     activity(history);
     parties(history);
-    health(history);
+    health(summary, history);
     usageChart($('usage'), history);
     barChart($('h-sessions'), history.daily, 'sessions', 'Sessions');
     barChart($('h-unique'), history.daily, 'unique_players', 'Unique players');
@@ -778,6 +1136,7 @@ const JS = String.raw`(function () {
   function showDashboard() {
     $('login').hidden = true;
     $('dash').hidden = false;
+    showView('dashboard');
     load();
     if (timer) clearInterval(timer);
     timer = setInterval(function () { if (!document.hidden) load(); }, 60000);
@@ -807,6 +1166,17 @@ const JS = String.raw`(function () {
   $('refresh').addEventListener('click', load);
   $('range').addEventListener('change', load);
   $('signout').addEventListener('click', function () { signOut(''); });
+  $('tab-dashboard').addEventListener('click', function () { showView('dashboard'); });
+  $('tab-bugs').addEventListener('click', function () { showView('bugs'); });
+  $('bug-refresh').addEventListener('click', loadBugReports);
+  $('bug-version').addEventListener('change', renderBugList);
+  $('bug-build').addEventListener('change', renderBugList);
+  $('bug-status-filter').addEventListener('change', renderBugList);
+  $('bug-close').addEventListener('click', closeBugReport);
+  $('bug-download').addEventListener('click', downloadBugLog);
+  $('bug-copy').addEventListener('click', copyBugLog);
+  $('bug-status').addEventListener('change', showBugStatusMeaning);
+  $('bug-status-save').addEventListener('click', saveBugStatus);
 
   token = storedToken();
   if (token) { $('remember').checked = true; showDashboard(); }

@@ -24,8 +24,11 @@ inline CornerPanel CornerPanelAt(float display_width, float font_size, float tex
   return panel;
 }
 
-// The frame counter takes the first slot; Ping goes under it when both are shown.
+// The frame counter takes the first slot, the SNES soundtrack message goes under it while it shows, and Ping under both.
 constexpr int FrameCounterSlot() { return 0; }
-constexpr int PingSlot(bool frame_counter_shown) { return frame_counter_shown ? 1 : 0; }
+constexpr int ClassicSoundtrackSlot(bool frame_counter_shown) { return frame_counter_shown ? 1 : 0; }
+constexpr int PingSlot(bool frame_counter_shown, bool classic_soundtrack_notice_shown = false) {
+  return (frame_counter_shown ? 1 : 0) + (classic_soundtrack_notice_shown ? 1 : 0);
+}
 
 }  // namespace tmnt

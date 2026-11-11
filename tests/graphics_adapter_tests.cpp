@@ -226,6 +226,7 @@ void TestRegistration() {
   const size_t resolution = launcher.find("ui.Combo(\"Render resolution\"");
   CHECK(card != std::string::npos && resolution != std::string::npos && card < resolution);
   CHECK(Has(launcher, "\"tmnt_graphics_adapter\", value.c_str(), adapters"));
+  CHECK(!Has(launcher, "settings_.Set(\"tmnt_graphics_adapter\", value)"));
   CHECK(!Has(launcher, "kGraphicsAdapterAuto") && !Has(launcher, "Automatic (Recommended)"));
 
   const std::string app = ReadFile(src + "/tmnt_turtles_in_time_reshelled_app.h");

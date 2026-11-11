@@ -53,7 +53,6 @@ Achieved more than 8,000 points. \r\n	Fez mais de 8.000 pontos.
 Achievement Unlocked	Conquista Desbloqueada
 Achievements	Conquistas
 Add a friend	Adicionar amigo
-Add friends and see who is online. Play them from the game's own online menus.	Adicione amigos e veja quem está online. Jogue com eles pelos menus online do próprio jogo.
 All files	Todos os arquivos
 Already friends.	Vocês já são amigos.
 Anisotropic filtering keeps textures sharp at oblique angles. Game leaves it to the game.	A filtragem anisotrópica mantém as texturas nítidas em ângulos oblíquos. Jogo deixa a escolha para o jogo.
@@ -258,7 +257,7 @@ Left stick press	Apertar alavanca esquerda
 Left stick right	Alavanca esquerda para a direita
 Left stick up	Alavanca esquerda para cima
 Left trigger	Gatilho esquerdo
-Lets the game's own online menus create and join matches with your friends. Players meet through the online service; the game itself runs directly between your PCs whenever it can.	Permite criar e entrar em partidas com seus amigos pelos menus online do próprio jogo. Os jogadores se encontram pelo serviço online; o jogo roda diretamente entre seus PCs sempre que possível.
+Lets the game's own Online menu create and join matches. Players meet in the lobby; the game itself runs directly between your PCs whenever it can.	Permite que o menu Online do próprio jogo crie e entre em partidas. Os jogadores se encontram no lobby; o jogo em si roda diretamente entre os seus PCs sempre que possível.
 Libraries	Bibliotecas
 Limited: direct connections may be blocked by your network	Limitado: as conexões diretas podem estar bloqueadas pela sua rede
 Limited: some players may not be able to connect to you	Limitado: alguns jogadores podem não conseguir se conectar com você
@@ -273,7 +272,7 @@ Multisampling	Multisampling
 Name is too long for the game (15-byte limit).	O nome é longo demais para o jogo (limite de 15 bytes).
 Names shown in Local Game. Online Game uses your Online name.	Nomes mostrados no Jogo Local. O Jogo Online usa o seu nome Online.
 New friend request	Novo pedido de amizade
-No friends yet. Add someone with their friend code.	Nenhum amigo ainda. Adicione alguém com o código de amigo.
+No friends yet. A friend in a room appears in the game's Online menu.	Nenhum amigo ainda. Um amigo em uma sala aparece no menu Online do jogo.
 No friends yet. Add them on the launcher's Online page.	Nenhum amigo ainda. Adicione amigos na página Online do launcher.
 No game folder	Sem pasta do jogo
 No game folder was given: start the game with --game_data_root.	Nenhuma pasta do jogo foi informada: inicie o jogo com --game_data_root.
@@ -395,7 +394,7 @@ Shown	Visível
 Shows the game's frame rate in the corner. F2 toggles it while playing.	Mostra a taxa de quadros do jogo no canto. F2 alterna durante o jogo.
 Shows the game's frame rate in the window title: Turtles in Time Re-Shelled Recompiled | FPS: 60.00	Mostra a taxa de quadros do jogo no título da janela: Turtles in Time Re-Shelled Recompiled | FPS: 60.00
 Shows the game's render resolution in the window title	Mostra a resolução de render do jogo no título da janela
-Shows the round trip to the other player in game. F3 switches it while playing.	Mostra, durante o jogo, o tempo de ida e volta até o outro jogador. F3 liga ou desliga enquanto você joga.
+Shows the round trip to the other players in game. F3 switches it while playing.	Mostra, durante o jogo, o tempo de ida e volta até os outros jogadores. F3 liga ou desliga enquanto você joga.
 Skip intro	Pular introdução
 Slow as a Turtle	Lento como uma Tartaruga
 Smooths jagged edges after the frame is drawn. Extreme is softer but cleaner.	Suaviza as bordas serrilhadas depois que o quadro é desenhado. Extreme deixa a imagem mais suave, porém mais limpa.
@@ -566,7 +565,7 @@ VSync	VSync
 Wait for the current install to finish.	Aguarde a instalação atual terminar.
 Wait for the install to finish.	Aguarde a instalação terminar.
 What other players see: up to 16 letters, digits, - or _.	O que os outros jogadores veem: até 16 letras, dígitos, - ou _.
-Language, on-screen information and player names.	Idioma, informações na tela e nomes dos jogadores.
+Language, on-screen information, Quick Play stages and player names.	Idioma, informaçoes na tela, fases do Quick Play e nomes dos jogadores.
 Where the game data is read from.	De onde os dados do jogo são lidos.
 Window size	Tamanho da janela
 Window, monitor and how the picture fits your screen.	Janela, monitor e como a imagem se ajusta à tela.
@@ -588,6 +587,220 @@ Your launcher choices, as plain text. Loaded after tmnt_turtles_in_time_reshelle
 Your online identity could not be created.	Não foi possível criar sua identidade online.
 Your request is waiting for an answer.	Seu pedido está aguardando resposta.
 Your router may stop some players from connecting to you.	Seu roteador pode impedir que alguns jogadores se conectem a você.
+Bug Report	Relatar bug
+Report a problem and send it with one game log.	Relate um problema e envie-o com um log do jogo.
+No personal user data is intentionally included.	Nenhum dado pessoal do usuário é incluído intencionalmente.
+Before anything is sent, the launcher takes addresses, user and computer names, private folders, passwords, online secrets and other players' details out of the selected log. Automatic filtering cannot promise to catch everything, so open the preview if you want to check what goes out.	Antes de qualquer envio, o launcher remove do log selecionado endereços, nomes de usuário e de computador, pastas particulares, senhas, segredos online e dados de outros jogadores. A filtragem automática não garante pegar tudo, por isso abra a visualização se quiser conferir o que será enviado.
+1. Report the problem	1. Relate o problema
+2. Choose one game log	2. Escolha um log do jogo
+3. Preview what will be sent	3. Visualize o que será enviado
+4. Send	4. Envie
+What were you doing, what went wrong, and does it happen every time?	O que você estava fazendo, o que deu errado e isso acontece sempre?
+No game log is available yet, so a report cannot be sent. Start the game once and try again. With Detailed logging off on the About page, only sessions that crashed keep a log.	Ainda não há nenhum log do jogo, então não é possível enviar um relatório. Inicie o jogo uma vez e tente de novo. Com o Registro detalhado desligado na página Sobre, só as sessões que travaram mantêm um log.
+The newest logs of the game, most recent first. Only the one you choose is sent.	Os logs mais recentes do jogo, do mais novo para o mais antigo. Só o log escolhido é enviado.
+Send this log	Enviar este log
+Selected log	Log selecionado
+Last written	Última gravação
+Size	Tamanho
+View selected log	Ver log selecionado
+Preview	Visualizar envio
+Shows exactly what will be sent, after the privacy filter.	Mostra exatamente o que será enviado, depois do filtro de privacidade.
+Please describe the problem, minimum 10 characters	Descreva o problema, mínimo de 10 caracteres
+There is no game log to send.	Não há nenhum log do jogo para enviar.
+Current launcher session	Sessão atual do launcher
+Current session · Launcher + gameplay	Sessão atual · Launcher + jogo
+Last gameplay	Última partida
+Gameplay session	Sessão de jogo
+Launcher only	Somente launcher
+My reports	Meus relatórios
+Only reports sent from this PC are listed here.	Somente relatórios enviados por este PC aparecem aqui.
+No reports sent from this PC	Nenhum relatório enviado por este PC
+New	Novo
+Investigating	Investigando
+Fixed	Corrigido
+Cannot reproduce	Não foi possível reproduzir
+Duplicate	Duplicado
+Not a bug	Não é um bug
+Closed	Fechado
+Fixed in version	Corrigido na versão
+Message from developer	Mensagem do desenvolvedor
+Updated	Atualizado
+Refresh	Atualizar
+Checking...	Verificando...
+Could not check for updates. The last known status is shown.	Não foi possível verificar. O último status conhecido é mostrado.
+View details	Ver detalhes
+Hide details	Ocultar detalhes
+Report ID	ID do relatório
+Submitted	Enviado em
+Status	Status
+Status updated	Status atualizado em
+What was sent	O que foi enviado
+Hide report	Ocultar relatório
+Loading...	Carregando...
+This report is no longer available online.	Este relatório não está mais disponível online.
+Remove from this PC	Remover deste PC
+Removes it from this list only. The report stays with the developer.	Remove apenas desta lista. O relatório continua com o desenvolvedor.
+Remove this report from this PC?	Remover este relatório deste PC?
+A report has an update	Um relatório foi atualizado
+Its status changed since you last looked.	O status mudou desde a última vez que você olhou.
+A report has a new reply	Um relatório recebeu uma nova resposta
+The developer replied to one of your reports.	O desenvolvedor respondeu a um dos seus relatórios.
+New reply	Nova resposta
+No longer available	Não está mais disponível
+This report was removed from the online service. The last known status is shown.	Este relatório foi removido do serviço online. O último status conhecido é mostrado.
+Show	Mostrar
+The report was sent, but it could not be added to My reports on this PC.	O relatório foi enviado, mas não pôde ser adicionado a Meus relatórios neste PC.
+Open preview	Abrir visualização
+Close preview	Fechar visualização
+That log could not be read. Choose another one and try again.	Não foi possível ler esse log. Escolha outro e tente de novo.
+Send report	Enviar relatório
+Sends the selected log after the privacy filter is applied.	Envia o log selecionado depois da aplicação do filtro de privacidade.
+Sending...	Enviando...
+Sending your report...	Enviando seu relatório...
+This takes a few seconds.	Isso leva alguns segundos.
+Report ID:	ID do relatório:
+Report sent successfully	Relatório enviado com sucesso
+Copy report ID	Copiar ID do relatório
+Report ID copied.	ID do relatório copiado.
+Daily report limit reached	Limite diário de relatórios atingido
+Too many reports were sent recently	Muitos relatórios foram enviados recentemente
+Please try again later	Tente novamente mais tarde
+Cannot reach the online service	Não foi possível acessar o serviço online
+Check your connection and press Send report again; your text is kept.	Verifique sua conexão e pressione Enviar relatório de novo; seu texto foi mantido.
+The report was not accepted	O relatório não foi aceito
+Change the description or choose another log, then send it again.	Altere a descrição ou escolha outro log e envie de novo.
+The online service could not take the report	O serviço online não conseguiu receber o relatório
+This is not your fault. Try again in a few minutes; your text is kept.	Isso não é culpa sua. Tente de novo em alguns minutos; seu texto foi mantido.
+Description	Descrição
+Launcher version	Versão do launcher
+Game image	Imagem do jogo
+Platform	Plataforma
+Runtime	Runtime
+Operating system	Sistema operacional
+Log shortened to its end	Log reduzido ao trecho final
+Log after privacy filtering	Log depois do filtro de privacidade
+Settings	Configurações
+Lobby	Lobby
+Show me in Lobby	Mostrar meu nome no Lobby
+Enable this option to let other Turtles in Time Re-Shelled players see your Online name and send you a friend request.	Ative esta opção para que outros jogadores de Turtles in Time Re-Shelled vejam seu nome online e possam enviar um pedido de amizade.
+Other Turtles in Time Re-Shelled players can see your Online name and send you a friend request.	Outros jogadores de Turtles in Time Re-Shelled podem ver seu nome online e enviar um pedido de amizade.
+Players in Lobby	Jogadores no Lobby
+Send friend request	Enviar pedido de amizade
+Pending	Pendente
+Refresh lobby	Atualizar lobby
+Refreshing...	Atualizando...
+Updated just now	Atualizado agora
+Updated %s min ago	Atualizado há %s min
+Version unknown	Versão desconhecida
+Play with others over the Internet: friends and the connection test.	Jogue com outras pessoas pela internet: amigos e o teste de conexão.
+No players are currently visible in the Lobby.	Nenhum jogador está visível no Lobby no momento.
+Could not refresh the Lobby.	Não foi possível atualizar o Lobby.
+The Lobby is not available right now.	O Lobby não está disponível no momento.
+Friend	Amigo
+Compatible	Compatível
+Incompatible	Incompatível
+The online service cannot take reports yet	O serviço online ainda não consegue receber relatórios
+Direct reports need a newer online service. Your text is kept; try again after the service is updated.	Relatórios diretos precisam de um serviço online mais novo. Seu texto foi mantido; tente de novo depois que o serviço for atualizado.
+Classic Soundtrack	Trilha sonora clássica
+Plays the SNES soundtrack instead of the Re-Shelled music	Toca a trilha sonora do SNES no lugar da música do Re-Shelled
+SNES soundtrack	Trilha sonora SNES
+Import SNES soundtrack	Importar trilha sonora SNES
+Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards.	Sua própria ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time (.sfc, .smc ou .zip). A música é importada neste PC; depois a ROM não é mais necessária.
+Import again...	Importar de novo...
+Import...	Importar...
+Remove SNES soundtrack	Remover trilha sonora SNES
+Deletes the imported music and SNES Gameplay data. Your ROM file is not touched.	Apaga a música e os dados de Jogabilidade SNES importados. Seu arquivo de ROM não é alterado.
+Remove...	Remover...
+Remove the imported SNES soundtrack?	Remover a trilha sonora SNES importada?
+Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM	Selecione sua ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time
+SNES ROM	ROM de SNES
+Importing SNES soundtrack...	Importando trilha sonora SNES...
+Could not remove the imported SNES soundtrack.	Não foi possível remover a trilha sonora SNES importada.
+Removed the imported SNES soundtrack.	Trilha sonora SNES importada removida.
+SNES soundtrack: On	Trilha sonora SNES: Ligada
+SNES soundtrack: Unavailable	Trilha sonora SNES: Indisponível
+Not imported	Não importada
+Ready	Pronta
+Importing	Importando
+Re-import required	Reimportação necessária
+Invalid ROM	ROM inválida
+Unsupported ROM	ROM não suportada
+Unsupported soundtrack	Trilha sonora não suportada
+Corrupt soundtrack data	Dados da trilha sonora corrompidos
+Import failed	Falha na importação
+The file is not a SNES ROM the importer can read. Choose an unmodified .sfc, .smc or .zip dump.	O arquivo não é uma ROM de SNES que o importador consiga ler. Escolha um dump sem modificações em .sfc, .smc ou .zip.
+This SNES ROM is not Teenage Mutant Ninja Turtles IV: Turtles in Time.	Esta ROM de SNES não é Teenage Mutant Ninja Turtles IV: Turtles in Time.
+The music in this ROM differs from the known USA, Europe and Australia versions.	A música desta ROM é diferente das versões conhecidas dos EUA, da Europa e da Austrália.
+The music data in this ROM is damaged. Try another dump.	Os dados de música desta ROM estão danificados. Tente outro dump.
+The imported music could not be saved. Check that the user data folder can be written.	Não foi possível salvar a música importada. Verifique se a pasta de dados do usuário pode ser gravada.
+SNES soundtrack imported from the USA ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM dos EUA. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Europe ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Europa. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Australia ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Austrália. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from a compatible ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada de uma ROM compatível. Ative a Trilha sonora clássica para usá-la.
+Could not save the Classic soundtrack setting.	Não foi possível salvar a configuração da Trilha sonora clássica.
+Cheats	Trapaças
+Optional gameplay modifiers	Modificadores opcionais de jogabilidade
+Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.	Pressione F10 durante o jogo para abrir o menu de Trapaças. As alterações feitas ali valem apenas para a sessão atual.
+PLAYER	JOGADOR
+COMBAT	COMBATE
+CHEATS	TRAPAÇAS
+F10 Close	F10 Fechar
+Not saved to the launcher	Não salvo no launcher
+No effect in online matches	Sem efeito em partidas online
+Cheats are disabled while Online Play is enabled	As trapaças ficam desativadas enquanto o jogo online está ativado
+Online: every player needs compatible SNES gameplay data, and each player's choices apply to their own turtle. Classic Soundtrack is local.	Online: todos os jogadores precisam de dados de jogabilidade SNES compatíveis, e as escolhas de cada jogador valem para a própria tartaruga. A Trilha sonora clássica é local.
+Online: each player's gameplay choices apply to their own turtle	Online: as escolhas de jogabilidade de cada jogador valem para a própria tartaruga
+Applies to the next online match	Vale para a próxima partida online
+Unavailable	Indisponível
+Unavailable: another player does not support this feature	Indisponível: outro jogador não oferece suporte a este recurso
+Unavailable: the online service does not support this feature	Indisponível: o serviço online não oferece suporte a este recurso
+Waiting for players	Aguardando os jogadores
+Incompatible SNES data	Dados SNES incompatíveis
+Turbo Strong Attack	Ataque forte turbo
+Repeatedly uses the strong attack while the strong attack button is held	Repete o ataque forte enquanto o botão estiver pressionado
+Damage Multiplier	Multiplicador de dano
+Multiplies damage dealt by players	Multiplica o dano causado pelos jogadores
+Super Armor	Super Armor
+Take damage without attack interruption or knockback	Recebe dano sem interromper ataques ou sofrer knockback
+Spin Attack	Ataque giratório
+Use Spin Attack at any time with B or	Use o Ataque giratório com B ou
+Controller: B	Controle: B
+Keyboard:	Teclado:
+Unlock all stages	Desbloquear todas as fases
+Makes every Quick Play stage selectable without changing saved progress	Torna todas as fases do Quick Play selecionáveis sem alterar o progresso salvo
+Infinite Health	Vida infinita
+Keeps player health at maximum	Mantém a vida do jogador no máximo
+Infinite Lives	Vidas infinitas
+Lives do not decrease when a player is defeated	As vidas não diminuem quando o jogador é derrotado
+Turbo Attack	Ataque turbo
+Repeatedly attacks while the attack button is held	Repete o ataque enquanto o botão de ataque estiver pressionado
+SNES	SNES
+Features based on the original SNES version	Recursos baseados na versão original de SNES
+Press F9 while playing to open the SNES menu. Changes made there apply only to the current session.	Pressione F9 durante o jogo para abrir o menu SNES. As alterações feitas ali valem apenas para a sessão atual.
+Imported SNES ROM used for classic audio and optional gameplay mechanics	ROM de SNES importada usada para áudio clássico e mecânicas opcionais de jogabilidade
+AUDIO	ÁUDIO
+GAMEPLAY	JOGABILIDADE
+Directional Combat	Combate direcional
+Use SNES-style combat facing and attack direction	Usa direção de combate e ataques no estilo SNES
+SNES Throw Control	Controle de arremesso SNES
+Use predictable SNES-style throw selection	Usa seleção previsível de arremessos no estilo SNES
+Disable Double Jump	Desativar pulo duplo
+Use SNES jump behavior without Re-Shelled's double jump	Usa o pulo do SNES, sem o pulo duplo do Re-Shelled
+SNES Dash	Dash SNES
+Off uses Re-Shelled movement. Auto dashes after holding a direction. Manual dashes with a double tap.	Desligado usa a movimentação do Re-Shelled. Automático corre depois de segurar uma direção. Manual corre com um toque duplo.
+Auto	Automático
+Manual	Manual
+Unavailable: the online service does not support Manual Dash	Indisponível: o serviço online não oferece suporte ao Dash manual
+Unavailable: import your SNES ROM above.	Indisponível: importe sua ROM de SNES acima.
+Unavailable: import the SNES ROM again to add its gameplay data.	Indisponível: importe a ROM de SNES de novo para adicionar os dados de jogabilidade.
+Unavailable: the gameplay code in this ROM is not a known USA, Europe or Australia version.	Indisponível: o código de jogabilidade desta ROM não é de uma versão conhecida dos EUA, da Europa ou da Austrália.
+USA	EUA
+Europe	Europa
+Australia	Austrália
+F9 Close	F9 Fechar
+SNES ROM not imported	ROM de SNES não importada
+SNES gameplay data unavailable: re-import the ROM in the launcher	Dados de jogabilidade SNES indisponíveis: reimporte a ROM no launcher
+SNES gameplay data unavailable: unsupported ROM version	Dados de jogabilidade SNES indisponíveis: versão da ROM não suportada
 )PTBR";
 
 }  // namespace tmnt::localization

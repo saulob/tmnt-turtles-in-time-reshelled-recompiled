@@ -8,6 +8,7 @@
 #include <rex/hook.h>
 
 #include "achievement_menu_rules.h"
+#include "cheats.h"
 #include "guest_memory.h"
 
 namespace tmnt {
@@ -89,4 +90,5 @@ REX_HOOK_RAW(sub_826EF030) {
   const uint32_t state = ctx.r4.u32;
   __imp__sub_826EF030(ctx, base);
   FilterGuestInput(base, user, state);
+  if (ctx.r3.u32 == 0) cheats::ApplyTurboAttack(base, user, state);
 }

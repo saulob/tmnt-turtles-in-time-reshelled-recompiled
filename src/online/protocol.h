@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "online/party_report.h"
+#include "online/snes_features.h"
 
 namespace tmnt::online {
 
@@ -18,11 +19,20 @@ inline constexpr char kGuestBase[] = "base";
 // Raised whenever a change stops this build from playing with the previous one.
 inline constexpr int kOnlineBuild = 1;
 
+// The random handle a public Lobby row uses for its actions.
+inline bool IsLobbyHandle(std::string_view text) {
+  if (text.size() != 32) return false;
+  for (const char c : text) {
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+
 enum class FriendState { kOffline, kOnline, kParty, kPlayerMatch, kConnecting, kInGame };
 
 struct Friend {
   std::string player;  // the friend code, XXXX-XXXX
-  std::string name;
+  std::string name;    // display name: display_name from the service when present
   bool online = false;
   FriendState state = FriendState::kOffline;
   std::string platform;
@@ -31,9 +41,28 @@ struct Friend {
   bool compatible = true;
 };
 
+// A pending friend request. A request made from the public Lobby has no friend code until it is accepted: `player` is
+// then empty and the service's opaque `id` names it.
 struct Request {
   std::string player;
+  std::string name;  // display name: display_name from the service when present
+  std::string id;
+};
+
+// What friends.accept and friends.decline address a request by.
+inline const std::string& RequestKey(const Request& request) { return request.player.empty() ? request.id : request.player; }
+
+// A player who chose to be listed in the public Lobby. `player` is the random public handle Add friend sends to; it is
+// never shown. `relation` is the service's view of this listing; empty from an older Worker.
+struct LobbyPlayer {
+  std::string player;
   std::string name;
+  std::string relation;
+  FriendState state = FriendState::kOnline;
+  std::string platform;
+  std::string version;
+  std::string guest;
+  bool compatible = true;
 };
 
 // The game's Player Match settings that both sides must agree on, as small named integers.
@@ -135,6 +164,10 @@ struct ServiceCapabilities {
   bool public_endpoints = false;
   bool relay_supported = false;
   int relay_max_payload = 0;
+  bool public_lobby = false;  // the service has the public Lobby (lobby.publish, lobby.list)
+  bool bug_reports = false;   // the service takes problem reports (incident.file, incident.status, incident.read)
+  bool snes_features = false;
+  bool snes_modes = false;
 };
 
 struct PeerInfo {
@@ -169,6 +202,7 @@ struct ServerMessage {
     kPartyEnded,
     kMatchTransport,
     kRelayClosed,
+    kMatchSnes,
   };
   Kind kind = Kind::kResponse;
 
@@ -199,6 +233,11 @@ struct ServerMessage {
   PeerInfo peer;
   std::string transport;  // match.transport: "direct" or "relay"
   std::optional<ServiceCapabilities> capabilities;  // hello
+  std::optional<MatchSnes> snes;  // match.hello and snes.update answers, match.snes
+  std::optional<std::vector<LobbyPlayer>> lobby_players;  // lobby.list; absent when unchanged
+  bool lobby_unchanged = false;                           // lobby.list: the revision the client sent is still current
+  int64_t lobby_rev = -1;                                 // lobby.list: -1 when the answer carried none
+  std::optional<bool> lobby_visible;                      // lobby.publish and lobby.list: whether this connection is listed
 };
 
 // Nothing for text that is not a known, well-formed server message.
@@ -218,11 +257,17 @@ struct HelloFields {
 
 std::string EncodeHello(int seq, const HelloFields& hello);
 std::string EncodePing(int seq);
+std::string EncodeLobbyPublish(int seq, bool visible);
+// `held_rev` is the revision of the list the client already shows; the service then answers "unchanged" while it stands.
+std::string EncodeLobbyList(int seq, std::optional<int64_t> held_rev = std::nullopt);
 std::string EncodeFriendsList(int seq);
 std::string EncodeFriendsRequests(int seq);
 std::string EncodeFriendsAdd(int seq, const std::string& code);
+std::string EncodeFriendsAddPlayer(int seq, const std::string& player);
 std::string EncodeFriendsAccept(int seq, const std::string& player);
 std::string EncodeFriendsDecline(int seq, const std::string& player);
+std::string EncodeFriendsAcceptRequest(int seq, const std::string& request);
+std::string EncodeFriendsDeclineRequest(int seq, const std::string& request);
 std::string EncodeFriendsRemove(int seq, const std::string& player);
 std::string EncodePlayerMatchHost(int seq, const PlayerMatchRules& rules, const std::string& qos_hex = {}, int slots = 4);
 std::string EncodePlayerMatchCancel(int seq);
@@ -236,7 +281,11 @@ std::string EncodeInviteSend(int seq, const std::string& player);
 std::string EncodeInviteAccept(int seq, const std::string& invite);
 std::string EncodeInviteDecline(int seq, const std::string& invite);
 std::string EncodeMatchHello(int seq, const std::string& match, int slot, const std::string& join_token,
-                             int generation_seen);
+                             int generation_seen, const SnesGameplayCapabilities& snes = {});
+std::string EncodeSnesUpdate(int seq, const SnesGameplayCapabilities& snes);
+// The game started its `round`th match of the party: the room fixes that match's table for everyone. `off` asks for all
+// Off when nothing is fixed for the round yet.
+std::string EncodeSnesLock(int seq, int round, bool off = false);
 // `port` is the gameplay socket's local port; `public_ip`:`public_port` is that socket's STUN-mapped endpoint, left out
 // when `public_port` is 0.
 std::string EncodeMatchEndpoint(int seq, uint16_t port, const std::vector<std::string>& lan,

@@ -169,8 +169,8 @@ void TestRejection() {
     CHECK(tmnt::KeyboardBindingFor(key, false, false, false).empty());
   }
   // Reserved: the port and the SDK already use these while playing.
-  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4, ImGuiKey_F7, ImGuiKey_F10, ImGuiKey_F11,
-                       ImGuiKey_F12, ImGuiKey_Escape, ImGuiKey_GraveAccent}) {
+  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F4, ImGuiKey_F7, ImGuiKey_F9, ImGuiKey_F10, ImGuiKey_F11,
+                       ImGuiKey_F12, ImGuiKey_Escape}) {
     CHECK(tmnt::KeyboardBindingIsReserved(key));
     CHECK(tmnt::KeyboardBindingFor(key, false, false, false).empty());
     // A reserved key is refused with a modifier too.
@@ -185,7 +185,8 @@ void TestRejection() {
   // Esc cancels the capture, so it is never stored; F12 stays unbound.
   CHECK(!tmnt::KeyboardBindingIsValid("Escape"));
   CHECK(!tmnt::KeyboardBindingIsValid("F12"));
-  CHECK(!tmnt::KeyboardBindingIsValid("Backtick"));
+  CHECK(tmnt::KeyboardBindingIsValid("Backtick"));
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_GraveAccent, false, false, false) == "Backtick");
 }
 
 void TestEscapeCancelsCapture() {
@@ -242,6 +243,22 @@ void TestSaved() {
   CHECK(tmnt::SavedKeyboardBinding(store, *Find("keybind_start")) == "X,Return");
   // Alternatives in a default survive the read and the label.
   CHECK(tmnt::KeyboardBindingLabel(tmnt::SavedKeyboardBinding(store, *Find("keybind_back"))) == "Z or Tab");
+}
+
+void TestSpinAttackBinding() {
+  std::printf("spin attack key follows keybind_b\n");
+  PendingStore store;
+  const tmnt::KeyboardAction& action = tmnt::kSpinAttackKeyAction;
+  CHECK(std::string(action.key) == "keybind_b");
+  CHECK(tmnt::KeyboardBindingSlashLabel(tmnt::SavedKeyboardBinding(store, action)) == "Quote / Backspace");
+  CHECK(tmnt::KeyboardBindingLabel(tmnt::SavedKeyboardBinding(store, action)) == "Quote or Backspace");
+  store.Set("keybind_b", "H");
+  CHECK(tmnt::KeyboardBindingSlashLabel(tmnt::SavedKeyboardBinding(store, action)) == "H");
+  store.Set("keybind_b", "Shift+Up");
+  CHECK(tmnt::KeyboardBindingSlashLabel(tmnt::SavedKeyboardBinding(store, action)) == "Shift+Up");
+  CHECK(tmnt::UsableKeyboardBinding("", action) == "Quote,Backspace");
+  CHECK(tmnt::UsableKeyboardBinding("NotAKey", action) == "Quote,Backspace");
+  CHECK(tmnt::UsableKeyboardBinding("G", action) == "G");
 }
 
 void TestPendingAndReset() {
@@ -389,7 +406,8 @@ void TestLauncherCtrlSSave() {
   CHECK(Has(patch, "+  if (io.WantTextInput) return;"));
   CHECK(Has(patch, "-  } else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {"));
   const std::string cmake = ReadSource("../CMakeLists.txt");
-  CHECK(Has(cmake, "does not handle Ctrl+S before the text-input guard"));
+  CHECK(Has(cmake, "does not handle Ctrl+S"));
+  CHECK(Has(cmake, "before the text-input guard"));
   CHECK(Has(cmake, "\"${_trg_patched_dir}/src/launcher.cpp\""));
   const std::string sdk = ReadSource("../third_party/trg-launcher/src/launcher.cpp");
   CHECK(Has(sdk, "SetStatus(ok ? \"Settings saved.\""));
@@ -408,6 +426,7 @@ int main() {
   TestValidity();
   TestLabel();
   TestSaved();
+  TestSpinAttackBinding();
   TestPendingAndReset();
   TestSerialization();
   TestSources();

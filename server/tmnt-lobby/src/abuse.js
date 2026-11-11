@@ -18,6 +18,8 @@ export const PROTECTION = {
   partyReportAll: { burst: 30, perSecond: 1 / 30 },
   partyReportAccount: { burst: 3, perSecond: 1 / 120 },
   partyReportAddress: { burst: 12, perSecond: 1 / 30 },
+  lobbyList: { burst: 6, perSecond: 1 / 5 },
+  incidentReadAddress: { burst: 10, perSecond: 1 / 30 },
   trackedKeys: 4096,
   flushMs: 5 * 60 * 1000,
 };
@@ -26,7 +28,9 @@ export const DIAGNOSTICS = new Set([
   'ws_upgrade_accepted', 'ws_upgrade_limited', 'ws_upgrade_ip_cap', 'hello_accepted', 'hello_limited',
   'party_create_accepted', 'party_create_limited', 'party_join_limited', 'invite_limited', 'friend_request_limited',
   'telemetry_limited', 'room_resume_limited', 'relay_abuse_closed', 'hello_reconnect_deduped', 'party_report_limited',
-  'match_link_limited',
+  'match_link_limited', 'lobby_list_limited', 'lobby_publish_limited',
+  'incident_filed', 'incident_rejected', 'incident_limited', 'incident_hourly_limited', 'incident_daily_limited',
+  'incident_lookup_limited',
 ]);
 
 const MAX_COUNT = 1_000_000;

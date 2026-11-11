@@ -35,7 +35,7 @@ Plain arrow keys are the right stick, not menu navigation. Menus use WASD and Sh
 The keyboard emulates the pad alongside any connected controller. It is on by default and can be
 turned off with **Keyboard** on the launcher's Controls page; the controller keeps working either
 way. Every binding below can be changed on that page ([launcher.md](launcher.md)); the table lists
-the defaults. The port's own hotkeys (F2, F3, F7, F11, the console) do not depend on this setting.
+the defaults. The port's own hotkeys (F2, F3, F7, F9, F10, F11) do not depend on this setting.
 
 | Pad control | Keys |
 |---|---|
@@ -61,7 +61,9 @@ Quick menu check: Enter, WASD, Shift + Arrow, Space, Backspace.
 
 - **F2** toggles the frame counter.
 - **F3** toggles the Ping display while Online play is on.
-- **F4** does nothing: ReXGlue's developer overlays on F3 and F4 are removed.
+- **F9** opens and closes the SNES menu while playing; it changes Classic Soundtrack, Directional Combat, SNES Throw Control, Disable Double Jump and SNES Dash for this session only ([classic-soundtrack.md](classic-soundtrack.md)). The launcher settings are not changed.
+- **F10** opens and closes the Cheats menu while playing; it changes the cheats for this session only ([launcher.md](launcher.md)). Whenever Online play is enabled it opens nothing and shows **Cheats are disabled while Online Play is enabled**; holding the key does not repeat the message.
+- **F4** does nothing: ReXGlue's developer overlays on F3 and F4 are removed, and so is its console overlay on Backtick.
 - **F11** toggles Windowed and Borderless Fullscreen of the game window. In the launcher it toggles the launcher's own fullscreen. It is handled by a window input listener (`src/window_host.cpp`) above the app's listener, so it is not passed to the game or to the keyboard device. Auto-repeat is ignored. Details are in [display.md](display.md).
 - The mouse cursor follows the last input device during gameplay. Mouse movement, a mouse button or the wheel shows it; keyboard or controller activity hides it. Mouse-driven overlays (F10 menu, Achievements, notice, runtime menus) always show it. It is handled in `src/window_host.cpp`.
 

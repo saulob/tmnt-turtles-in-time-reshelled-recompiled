@@ -702,8 +702,9 @@ test('alarms: a room that is busy does not set its alarm on every message', () =
 test('compatibility: protocol, capabilities, replies and relay numbers are unchanged', () => {
   const env = makeHub();
   assert.equal(PROTOCOL, 4);
-  assert.deepEqual(Object.keys(CAPABILITIES).sort(), ['max_party', 'protocol_version', 'public_endpoints', 'relay_frame_version',
-    'relay_max_payload', 'relay_supported', 'worker_build']);
+  assert.deepEqual(Object.keys(CAPABILITIES).sort(), ['bug_reports', 'max_party', 'protocol_version', 'public_endpoints',
+    'public_lobby', 'relay_frame_version', 'relay_max_payload', 'relay_supported', 'snes_features', 'snes_modes',
+    'worker_build']);
   const client = env.connect(identity(1));
   const hello = client.hello();
   assert.deepEqual(Object.keys(hello).sort(), ['capabilities', 'code', 'friend_code', 'name', 'player', 're', 'time']);

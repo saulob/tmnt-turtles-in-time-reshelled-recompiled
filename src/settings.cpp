@@ -19,6 +19,8 @@
 #include "trg/settings.h"
 
 #include "aspect_ratio.h"
+#include "cheats.h"
+#include "cheats_settings.h"
 #include "connection_test_gate.h"
 #include "crash_report.h"
 #include "diagnostics.h"
@@ -31,7 +33,9 @@
 #include "legacy_settings.h"
 #include "multisampling.h"
 #include "player_names.h"
+#include "quick_play_unlock.h"
 #include "retired_settings.h"
+#include "snes_gameplay/rules.h"
 #include "system_info.h"
 #include "updater/sha256.h"
 
@@ -42,6 +46,30 @@ REXCVAR_DEFINE_BOOL(tmnt_launcher, true, "TMNT",
 REXCVAR_DEFINE_BOOL(tmnt_skip_launcher, false, "TMNT",
                     "Skip the launcher once (set when the launcher restarts the game)");
 REXCVAR_DEFINE_BOOL(tmnt_skip_intro, false, "TMNT", "Start directly at the title screen");
+REXCVAR_DEFINE_BOOL(tmnt_classic_soundtrack, false, "TMNT",
+                    "In development: replace the music with the imported SNES soundtrack");
+REXCVAR_DEFINE_BOOL(tmnt_snes_directional_combat, true, "TMNT",
+                    "SNES: SNES combat facing and attack direction; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_snes_throw_control, true, "TMNT", "SNES: predictable SNES throw selection; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_snes_disable_double_jump, false, "TMNT",
+                    "SNES: no Re-Shelled double jump; a second jump request in the air is ignored");
+REXCVAR_DEFINE_STRING(tmnt_snes_dash, "auto", "TMNT", "SNES: how the dash starts: off, auto (hold) or manual (double tap)");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_health, false, "TMNT",
+                    "Cheat: local players' turtles keep their maximum health; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_infinite_lives, false, "TMNT",
+                    "Cheat: a defeated local player keeps the same number of lives; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_turbo_attack, false, "TMNT",
+                    "Cheat: holding the attack button repeats the attack during play; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_turbo_strong_attack, false, "TMNT",
+                    "Cheat: holding the strong attack button repeats the strong attack during play; not applied online");
+REXCVAR_DEFINE_INT32(tmnt_cheat_damage_multiplier, 0, "TMNT",
+                     "Cheat: multiplies the damage players deal, 0 Off, 2 or 4; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_super_armor, false, "TMNT",
+                    "Cheat: a hit still deals damage but neither interrupts an attack nor knocks back; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_cheat_spin_attack, false, "TMNT",
+                    "Cheat: B starts the Spinning Pizza spin attack during play; not applied online");
+REXCVAR_DEFINE_BOOL(tmnt_unlock_all_stages, false, "TMNT",
+                    "Quick Play lists every stage; saved progress is not changed");
 REXCVAR_DEFINE_BOOL(tmnt_show_fps, true, "TMNT", "Show the frame rate in the window title");
 REXCVAR_DEFINE_BOOL(tmnt_show_render_resolution, false, "TMNT",
                     "Show the render resolution in the window title");
@@ -91,6 +119,7 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_language",
       kOnlineEnabledSetting,
       kOnlineNameSetting,
+      kOnlineLobbySetting,
       kOnlinePingSetting,
       kConnectionTestSetting,
       "resolution_scale",
@@ -98,6 +127,19 @@ std::vector<std::string> GameSettingKeys() {
       "tmnt_msaa_compatibility",
       "anisotropic_override",
       "tmnt_skip_intro",
+      "tmnt_classic_soundtrack",
+      snes::kDirectionalCombatSetting,
+      snes::kThrowControlSetting,
+      snes::kDoubleJumpSetting,
+      snes::kDashSetting,
+      cheats::kInfiniteHealthSetting,
+      cheats::kInfiniteLivesSetting,
+      cheats::kTurboAttackSetting,
+      cheats::kTurboStrongAttackSetting,
+      cheats::kDamageMultiplierSetting,
+      cheats::kSuperArmorSetting,
+      cheats::kSpinAttackSetting,
+      kUnlockAllStagesSetting,
       "tmnt_show_fps",
       "tmnt_show_render_resolution",
       "tmnt_show_frame_counter",
@@ -250,7 +292,8 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
   std::size_t repaired = 0;
-  const std::string fixed = RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired);
+  const std::string fixed = MigrateBoolToDashMode(
+      RepairBareString(RepairLegacyToggles(text, repaired), kConnectionTestSetting, repaired), snes::kDashSetting, repaired);
   if (repaired == 0) {
     return;
   }
@@ -284,14 +327,22 @@ void RepairLegacyPlayerSettings(const std::filesystem::path& path) {
 
 namespace {
 
-// Stretch has no launcher control any more: the presenter always letterboxes the chosen format.
+// A retired setting has no cvar and no launcher control; an old file may still hold its line, which does nothing.
 void RemoveRetiredPlayerSettings(const std::filesystem::path& path) {
-  constexpr std::string_view kRetired = "present_letterbox";
   std::ifstream in(path, std::ios::binary);
   const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   in.close();
-  const std::string kept = RemoveSettingLines(text, kRetired);
-  if (kept == text) {
+  std::string kept = text;
+  std::string removed;
+  for (const std::string_view key : kRetiredPlayerSettings) {
+    std::string next = RemoveSettingLines(kept, key);
+    if (next != kept) {
+      removed += removed.empty() ? "" : ", ";
+      removed += key;
+      kept = std::move(next);
+    }
+  }
+  if (removed.empty()) {
     return;
   }
 
@@ -301,17 +352,17 @@ void RemoveRetiredPlayerSettings(const std::filesystem::path& path) {
     std::ofstream out(temp, std::ios::binary);
     out << kept;
     if (!out) {
-      REXLOG_ERROR("Cannot write the player settings without {} to {}", kRetired, Utf8(temp.filename()));
+      REXLOG_ERROR("Cannot write the player settings without {} to {}", removed, Utf8(temp.filename()));
       return;
     }
   }
   std::error_code ec;
   std::filesystem::rename(temp, path, ec);
   if (ec) {
-    REXLOG_ERROR("Cannot replace {} with the player settings without {}", Utf8(path.filename()), kRetired);
+    REXLOG_ERROR("Cannot replace {} with the player settings without {}", Utf8(path.filename()), removed);
     return;
   }
-  REXLOG_INFO("Removed the retired {} setting from {}", kRetired, Utf8(path.filename()));
+  REXLOG_INFO("Removed the retired setting(s) {} from {}", removed, Utf8(path.filename()));
 }
 
 }  // namespace
@@ -377,6 +428,7 @@ void GameSettings::Set(std::string_view key, std::string value) {
 }
 
 bool GameSettings::Save() {
+  cheats::KeepCheatsOffOnline(*this);
   for (const PlayerNameSetting& player : kPlayerNames) {
     const auto name = pending_.find(player.key);
     if (name != pending_.end() && !IsValidPlayerName(name->second)) {
@@ -420,6 +472,11 @@ bool GameSettings::SaveNow(const SettingValues& values) {
   if (!file.Save()) {
     REXLOG_ERROR("Cannot write player settings to {}", Utf8(player_file_.filename()));
     return false;
+  }
+  for (const auto& [key, value] : values) {
+    if (const auto saved = saved_.find(key); saved != saved_.end()) {
+      saved->second = value;
+    }
   }
   return true;
 }
@@ -531,6 +588,17 @@ void LogStartupDiagnostics(const GameSettings& settings, const MonitorInfo& disp
       OnOff(settings.GetBool("tmnt_show_render_resolution", false));
   diagnostics.launcher_gameplay.frame_counter =
       settings.GetBool("tmnt_show_frame_counter", false) ? "Shown" : "Hidden";
+  diagnostics.launcher_gameplay.classic_soundtrack = OnOff(settings.GetBool("tmnt_classic_soundtrack", false));
+  diagnostics.launcher_gameplay.infinite_health = OnOff(settings.GetBool(cheats::kInfiniteHealthSetting, false));
+  diagnostics.launcher_gameplay.infinite_lives = OnOff(settings.GetBool(cheats::kInfiniteLivesSetting, false));
+  diagnostics.launcher_gameplay.turbo_attack = OnOff(settings.GetBool(cheats::kTurboAttackSetting, false));
+  diagnostics.launcher_gameplay.turbo_strong_attack =
+      OnOff(settings.GetBool(cheats::kTurboStrongAttackSetting, false));
+  const int multiplier = cheats::ParseDamageMultiplier(settings.GetInt(cheats::kDamageMultiplierSetting, 0));
+  diagnostics.launcher_gameplay.damage_multiplier = multiplier == 0 ? "Off" : std::to_string(multiplier) + "x";
+  diagnostics.launcher_gameplay.super_armor = OnOff(settings.GetBool(cheats::kSuperArmorSetting, false));
+  diagnostics.launcher_gameplay.spin_attack = OnOff(settings.GetBool(cheats::kSpinAttackSetting, false));
+  diagnostics.launcher_gameplay.unlock_all_stages = OnOff(settings.GetBool(kUnlockAllStagesSetting, false));
 
   diagnostics.launcher_graphics.graphics_card = selected_card;
   diagnostics.launcher_graphics.render_resolution =

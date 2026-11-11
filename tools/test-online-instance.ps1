@@ -17,6 +17,12 @@ function LineValue([string]$text, [string]$label) {
     if ($line) { ($line -replace ('^\s*' + [regex]::Escape($label) + ':\s*'), '').Trim() } else { '' }
 }
 
+$RepoRoot = Split-Path $PSScriptRoot -Parent
+$RootBefore = @(Get-ChildItem -LiteralPath $RepoRoot -Force | ForEach-Object Name | Sort-Object)
+$RelativeName = 'tmnt-test-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
+$RelativeFolder = Join-Path (Join-Path $RepoRoot 'build\online-instances') $RelativeName
+
+Push-Location $RepoRoot
 try {
     $main = Join-Path $Work 'main'
     $instances = Join-Path $Work 'instances'
@@ -119,9 +125,33 @@ try {
     try { & $Script -Name 'bad name!' -InstanceRoot $instances -PrepareOnly 6>&1 | Out-Null } catch { $rejected = $true }
     Check $rejected 'an invalid instance name is refused'
     Check (-not (Get-Process -Name 'tmnt_turtles_in_time_reshelled' -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$Work*" })) 'nothing was started'
+
+    $insideRepo = $false
+    try { & $Script -Name a -InstanceRoot (Join-Path $RepoRoot 'A') -PrepareOnly 6>&1 | Out-Null } catch { $insideRepo = $true }
+    Check $insideRepo 'an InstanceRoot inside the repository but outside build is refused'
+    $escaped = $false
+    try { & $Script -Name a -InstanceRoot '..\..\A' -PrepareOnly 6>&1 | Out-Null } catch { $escaped = $true }
+    Check $escaped 'a relative InstanceRoot cannot climb out of build\online-instances'
+
+    & $Script -Name a -CopyFrom $main -InstanceRoot $RelativeName -PrepareOnly 6>&1 | Out-Null
+    Check (Test-Path -LiteralPath (Join-Path $RelativeFolder 'a\user_data')) 'a relative InstanceRoot lands under build\online-instances'
 } finally {
+    Pop-Location
     Remove-Item -LiteralPath $Work -Recurse -Force -ErrorAction SilentlyContinue
+    if ($RelativeFolder.StartsWith((Join-Path $RepoRoot 'build\online-instances\tmnt-test-'), [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $RelativeFolder -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
+
+$RootAfter = @(Get-ChildItem -LiteralPath $RepoRoot -Force | ForEach-Object Name | Sort-Object)
+$RootDiff = @(Compare-Object $RootBefore $RootAfter | ForEach-Object { "$($_.SideIndicator) $($_.InputObject)" })
+Check ($RootDiff.Count -eq 0) ("the repository root is unchanged by the instance script: " + ($RootDiff -join ', '))
+
+$KnownRoot = '.claude', '.git', '.gitattributes', '.github', '.gitignore', '.gitmodules', '.recomp.json', 'assets', 'build', 'build-release',
+    'CMakeLists.txt', 'CMakePresets.json', 'config', 'dist', 'docs', 'game', 'generated', 'LICENSE', 'out', 'packaging', 'patches',
+    'README.md', 'server', 'src', 'tests', 'third_party', 'tmnt_turtles_in_time_reshelled_manifest.toml', 'tools'
+$Stray = @($RootAfter | Where-Object { $KnownRoot -notcontains $_ -and $_ -notmatch '^(cmake-build-.*|\.vs|\.vscode|\.idea|CLAUDE\.md|\.cache)$' })
+Check ($Stray.Count -eq 0) ("unexpected top-level entries in the repository root: " + ($Stray -join ', '))
 
 Write-Host "online instance script: $checks checks, $failures failures"
 if ($failures) { exit 1 }

@@ -37,6 +37,8 @@ void TestRequestsAreWellFormed() {
         Contains(hello, "\"platform\":\"Windows\""));
   CHECK(Contains(EncodeHello(1, {"base", 1, "p", "t", "n", "", "", false}), "\"presence\":false"));
   CHECK(EncodeFriendsAdd(4, "ABCD-2345") == "{\"op\":\"friends.add\",\"seq\":4,\"code\":\"ABCD-2345\"}");
+  CHECK(EncodeFriendsAddPlayer(4, "0123456789abcdef0123456789abcdef") ==
+        "{\"op\":\"friends.add\",\"seq\":4,\"player\":\"0123456789abcdef0123456789abcdef\"}");
   CHECK(EncodePlayerMatchHost(5, {{"rounds", 2}, {"timer", 1}}, {}, 2) ==
         "{\"op\":\"pm.host\",\"seq\":5,\"slots\":2,\"rules\":{\"rounds\":2,\"timer\":1}}");
   CHECK(EncodePlayerMatchHost(6, {}) == "{\"op\":\"pm.host\",\"seq\":6,\"slots\":4,\"rules\":{}}");
@@ -72,19 +74,26 @@ void TestRequestsAreWellFormed() {
   CHECK(EncodePartyCreate(1) == "{\"op\":\"party.create\",\"seq\":1}" && EncodePartyLeave(2) == "{\"op\":\"party.leave\",\"seq\":2}");
   CHECK(EncodePartyKick(3, "ABCD-2345") == "{\"op\":\"party.kick\",\"seq\":3,\"player\":\"ABCD-2345\"}");
   CHECK(EncodeInviteAccept(4, "i1") == "{\"op\":\"invite.accept\",\"seq\":4,\"invite\":\"i1\"}");
+  CHECK(EncodeLobbyPublish(5, true) == "{\"op\":\"lobby.publish\",\"seq\":5,\"visible\":true}");
+  CHECK(EncodeLobbyPublish(5, false) == "{\"op\":\"lobby.publish\",\"seq\":5,\"visible\":false}");
+  CHECK(EncodeLobbyList(6) == "{\"op\":\"lobby.list\",\"seq\":6}");
+  CHECK(EncodeLobbyList(6, int64_t(9)) == "{\"op\":\"lobby.list\",\"seq\":6,\"rev\":9}");
+  CHECK(EncodeLobbyList(6, int64_t(-1)) == "{\"op\":\"lobby.list\",\"seq\":6}");
 }
 
 void TestAnswersDecode() {
   auto ok = DecodeServerMessage("{\"re\":7,\"code\":\"ok\",\"friend_code\":\"ABCD-2345\"}");
   CHECK(ok && ok->kind == ServerMessage::Kind::kResponse && ok->seq == 7 && ok->code == "ok" && ok->friend_code == "ABCD-2345");
   auto list = DecodeServerMessage(
-      "{\"re\":8,\"code\":\"ok\",\"friends\":[{\"player\":\"ABCD-2345\",\"name\":\"A\",\"online\":true,\"state\":\"party\","
-      "\"platform\":\"Linux\",\"version\":\"0.3.0\",\"guest\":\"other\",\"compatible\":false},"
+      "{\"re\":8,\"code\":\"ok\",\"friends\":[{\"player\":\"ABCD-2345\",\"name\":\"Player\",\"display_name\":\"Player-A41C\","
+      "\"online\":true,\"state\":\"party\",\"platform\":\"Linux\",\"version\":\"0.3.0\",\"guest\":\"other\",\"compatible\":false},"
       "{\"player\":\"EFGH-6789\",\"name\":\"B\",\"online\":false,\"state\":\"offline\"}]}");
   CHECK(list && list->friends && list->friends->size() == 2);
-  CHECK(list && (*list->friends)[0].state == FriendState::kParty && !(*list->friends)[0].compatible &&
-        (*list->friends)[0].platform == "Linux" && (*list->friends)[0].guest == "other");
-  CHECK(list && !(*list->friends)[1].online && (*list->friends)[1].state == FriendState::kOffline);
+  CHECK(list && (*list->friends)[0].name == "Player-A41C" && (*list->friends)[0].state == FriendState::kParty &&
+        !(*list->friends)[0].compatible && (*list->friends)[0].platform == "Linux" &&
+        (*list->friends)[0].guest == "other");
+  CHECK(list && (*list->friends)[1].name == "B" && !(*list->friends)[1].online &&
+        (*list->friends)[1].state == FriendState::kOffline);
   auto hosted = DecodeServerMessage("{\"re\":3,\"code\":\"ok\",\"session\":\"00112233445566aa\"}");
   CHECK(hosted && hosted->session == "00112233445566aa" && !hosted->access);
   auto search = DecodeServerMessage(
@@ -97,6 +106,33 @@ void TestAnswersDecode() {
   CHECK(!DecodeServerMessage("{\"re\":4,\"code\":\"ok\",\"sessions\":[{\"player\":\"A\"}]}")->sessions);
   auto error = DecodeServerMessage("{\"re\":2,\"code\":\"party_full\"}");
   CHECK(error && error->code == "party_full" && !error->access && !error->friends);
+  auto lobby = DecodeServerMessage(
+      "{\"re\":9,\"code\":\"ok\",\"players\":[{\"player\":\"0123456789abcdef0123456789abcdef\",\"name\":\"Player\","
+      "\"display_name\":\"Player-A41C\",\"version\":\"0.2.2\",\"state\":\"pending\"}],\"rev\":12,\"visible\":true}");
+  CHECK(lobby && lobby->lobby_players && lobby->lobby_players->size() == 1);
+  CHECK(lobby && (*lobby->lobby_players)[0].name == "Player-A41C" &&
+        (*lobby->lobby_players)[0].player == "0123456789abcdef0123456789abcdef" &&
+        (*lobby->lobby_players)[0].relation == "pending" && (*lobby->lobby_players)[0].version == "0.2.2" &&
+        (*lobby->lobby_players)[0].compatible);
+  CHECK(lobby && lobby->lobby_rev == 12 && lobby->lobby_visible && !lobby->lobby_unchanged);
+  auto old_lobby = DecodeServerMessage(
+      "{\"re\":9,\"code\":\"ok\",\"players\":[{\"player\":\"ABCD-2345\",\"name\":\"Player1\",\"state\":\"online\","
+      "\"platform\":\"Windows\",\"version\":\"0.2.2\",\"guest\":\"base\",\"compatible\":false}],\"rev\":12,\"visible\":true}");
+  CHECK(old_lobby && (*old_lobby->lobby_players)[0].name == "Player1" &&
+        (*old_lobby->lobby_players)[0].state == FriendState::kOnline &&
+        (*old_lobby->lobby_players)[0].relation.empty() && !(*old_lobby->lobby_players)[0].compatible);
+  auto requests = DecodeServerMessage(
+      "{\"re\":11,\"code\":\"ok\",\"incoming\":[{\"player\":\"ABCD-2345\",\"name\":\"Player\","
+      "\"display_name\":\"Player-09F2\"}],\"outgoing\":[{\"player\":\"EFGH-6789\",\"name\":\"Player1\"}]}");
+  CHECK(requests && requests->incoming && requests->incoming->size() == 1 &&
+        (*requests->incoming)[0].name == "Player-09F2");
+  CHECK(requests && requests->outgoing && requests->outgoing->size() == 1 &&
+        (*requests->outgoing)[0].name == "Player1");
+  auto unchanged = DecodeServerMessage("{\"re\":10,\"code\":\"ok\",\"unchanged\":true,\"rev\":12,\"visible\":false}");
+  CHECK(unchanged && unchanged->lobby_unchanged && !unchanged->lobby_players && unchanged->lobby_rev == 12 &&
+        unchanged->lobby_visible && !*unchanged->lobby_visible);
+  auto bad_lobby = DecodeServerMessage("{\"re\":10,\"code\":\"ok\",\"players\":[{\"name\":\"A\"}]}");
+  CHECK(bad_lobby && !bad_lobby->lobby_players);
   CHECK(DescribeServiceError("party_full") == "The party is full." && DescribeServiceError("no_party") == "Start a party first.");
 }
 
@@ -122,15 +158,24 @@ void TestEventsDecode() {
     CHECK(partial && partial->peer.public_ip.empty() && partial->peer.public_port == 0);
   }
   CHECK(!DecodeServerMessage("{\"ev\":\"challenge\",\"player\":\"ABCD-2345\",\"name\":\"A\"}"));
-  auto status = DecodeServerMessage("{\"ev\":\"friend.status\",\"friend\":{\"player\":\"ABCD-2345\",\"name\":\"A\",\"online\":true,\"state\":\"in_game\"}}");
-  CHECK(status && status->kind == Kind::kFriendStatus && status->friend_view.state == FriendState::kInGame);
+  auto status = DecodeServerMessage("{\"ev\":\"friend.status\",\"friend\":{\"player\":\"ABCD-2345\",\"name\":\"Player\","
+                                    "\"display_name\":\"Player-A41C\",\"online\":true,\"state\":\"in_game\"}}");
+  CHECK(status && status->kind == Kind::kFriendStatus && status->friend_view.state == FriendState::kInGame &&
+        status->friend_view.name == "Player-A41C");
   CHECK(DecodeServerMessage("{\"ev\":\"match.ended\",\"reason\":\"host_left\"}")->kind == Kind::kMatchEnded);
   const auto lost = DecodeServerMessage("{\"ev\":\"match.peer_lost\",\"slot\":3}");
   CHECK(lost && lost->kind == Kind::kMatchPeerLost && lost->slot == 3);
   CHECK(DecodeServerMessage("{\"ev\":\"match.peer_back\",\"slot\":3}")->kind == Kind::kMatchPeerBack);
   const auto left = DecodeServerMessage("{\"ev\":\"match.left\",\"slot\":4,\"reason\":\"disconnect\"}");
   CHECK(left && left->kind == Kind::kMatchLeft && left->slot == 4 && left->reason == "disconnect");
-  CHECK(DecodeServerMessage("{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"name\":\"A\"}")->kind == Kind::kFriendRequest);
+  const auto request = DecodeServerMessage(
+      "{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"name\":\"Player\",\"display_name\":\"Player-A41C\"}");
+  CHECK(request && request->kind == Kind::kFriendRequest && request->request.name == "Player-A41C");
+  CHECK(DecodeServerMessage("{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"name\":\"A\"}")->request.name == "A");
+  const auto added = DecodeServerMessage(
+      "{\"ev\":\"friend.added\",\"friend\":{\"player\":\"ABCD-2345\",\"name\":\"Player\","
+      "\"display_name\":\"Player-09F2\",\"online\":true,\"state\":\"online\"}}");
+  CHECK(added && added->kind == Kind::kFriendAdded && added->friend_view.name == "Player-09F2");
   CHECK(DecodeServerMessage("{\"ev\":\"friend.offline\",\"player\":\"ABCD-2345\"}")->kind == Kind::kFriendOffline);
   CHECK(DecodeServerMessage("{\"ev\":\"friend.removed\",\"player\":\"ABCD-2345\"}")->kind == Kind::kFriendRemoved);
 }
@@ -296,8 +341,41 @@ void TestRelaySignalling() {
   CHECK(DescribeServiceError("relay_unavailable") == "The connection through the online service is not available.");
 }
 
+void TestLobbyRequestsCarryNoFriendCode() {
+  const std::string id(32, 'a');
+  const auto event = DecodeServerMessage("{\"ev\":\"friend.request\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(event && event->kind == ServerMessage::Kind::kFriendRequest && event->request.player.empty() &&
+        event->request.id == id && event->request.name == "Bob" && RequestKey(event->request) == id);
+  const auto both = DecodeServerMessage(
+      "{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(both && RequestKey(both->request) == "ABCD-2345" && both->request.id == id);
+  const auto legacy = DecodeServerMessage("{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"name\":\"Bob\"}");
+  CHECK(legacy && legacy->request.id.empty() && RequestKey(legacy->request) == "ABCD-2345");
+  CHECK(!DecodeServerMessage("{\"ev\":\"friend.request\",\"name\":\"Bob\"}"));
+
+  const auto rows = DecodeServerMessage(
+      "{\"re\":5,\"code\":\"ok\",\"incoming\":[{\"request\":\"" + id + "\",\"name\":\"Bob\",\"ms\":1},"
+      "{\"player\":\"EFGH-6789\",\"name\":\"Kim\"}],\"outgoing\":[{\"request\":\"" + std::string(32, 'b') +
+      "\",\"name\":\"Cat\",\"display_name\":\"Player-0A1B\"}]}");
+  CHECK(rows && rows->incoming && rows->incoming->size() == 2 && (*rows->incoming)[0].player.empty() &&
+        RequestKey((*rows->incoming)[0]) == id && RequestKey((*rows->incoming)[1]) == "EFGH-6789");
+  CHECK(rows && rows->outgoing && (*rows->outgoing)[0].name == "Player-0A1B" && (*rows->outgoing)[0].player.empty());
+  CHECK(!DecodeServerMessage("{\"re\":5,\"code\":\"ok\",\"incoming\":[{\"name\":\"Bob\"}],\"outgoing\":[]}")->incoming);
+
+  const auto added = DecodeServerMessage("{\"re\":6,\"code\":\"ok\",\"state\":\"pending\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(added && added->state == "pending" && added->friend_code.empty());
+
+  CHECK(Contains(EncodeFriendsAcceptRequest(3, id), "\"op\":\"friends.accept\"") &&
+        Contains(EncodeFriendsAcceptRequest(3, id), "\"request\":\"" + id + "\"") &&
+        !Contains(EncodeFriendsAcceptRequest(3, id), "\"player\""));
+  CHECK(Contains(EncodeFriendsDeclineRequest(3, id), "\"op\":\"friends.decline\"") &&
+        Contains(EncodeFriendsDeclineRequest(3, id), "\"request\":\"" + id + "\"") &&
+        !Contains(EncodeFriendsDeclineRequest(3, id), "\"player\""));
+}
+
 int main() {
   std::printf("online protocol tests\n");
+  TestLobbyRequestsCarryNoFriendCode();
   TestRelaySignalling();
   TestRequestsAreWellFormed();
   TestAnswersDecode();

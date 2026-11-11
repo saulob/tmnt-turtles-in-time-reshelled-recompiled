@@ -7,12 +7,13 @@
 import { AbuseCounts, PROTECTION, RateLimiter, storedBudget } from './abuse.js';
 import { toHex } from './sha256.js';
 import {
-  BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, ProtocolError, RELAY, fail, ipGroup, isInt, isLocalAddress, isObject,
-  joinTokenHash, parseEndpoint, parseMatchHello, parseRelayFrame, takeRelayBudget, takeToken,
+  BUCKETS, CAPABILITIES, LIMITS, MAX_PARTY, ProtocolError, RELAY, combineSnes, fail, ipGroup, isInt, isLocalAddress,
+  isObject, joinTokenHash, normalizeSnes, offSnesTable, parseEndpoint, parseMatchHello, parseRelayFrame, snesTable,
+  takeRelayBudget, takeToken,
 } from './protocol.js';
 
 const HOST_SLOT = 1;
-const SIGNAL_OPS = new Set(['match.endpoint', 'match.transport', 'match.link']);
+const SIGNAL_OPS = new Set(['match.endpoint', 'match.transport', 'match.link', 'snes.update', 'snes.lock']);
 const LINK_STATES = ['connecting', 'connected', 'lost'];
 const TOLD_DROPS = new Set(['src_mismatch', 'dst_invalid', 'dst_unavailable', 'bad_token', 'pair_direct', 'relay_closed']);
 const HASH = /^[0-9a-f]{64}$/;
@@ -291,6 +292,48 @@ export class MatchRoom {
   broadcastMembers(exceptCid = null) {
     this.bumpRevision();
     this.broadcast({ ev: 'match.members', members: this.membersView(), generation: this.num('rev') }, exceptCid);
+  }
+
+  // What each member announced, kept per slot; a member that has not announced yet has no entry.
+  snesOf(slot) {
+    const text = this.getMeta(`snes_${slot}`);
+    return text === null ? null : normalizeSnes(JSON.parse(text));
+  }
+
+  // The room's SNES gameplay table now: empty until every member has announced.
+  snesTableNow() {
+    const entries = this.members().map((m) => [m.slot, this.snesOf(m.slot)]);
+    if (entries.length < 2 || !entries.every(([, s]) => s)) return offSnesTable();
+    return snesTable(entries);
+  }
+
+  // The table fixed for gameplay match `round` of the party (the latest one by default), or null.
+  snesLock(round = Number(this.getMeta('snes_lock_round') ?? 0)) {
+    const text = round ? this.getMeta(`snes_locked_${round}`) : null;
+    return text === null ? null : { round, ...JSON.parse(text) };
+  }
+
+  // One member's view: the others combined (only once every one of them has announced), the table now and, once a member
+  // has started the game, the table that match is locked to.
+  snesView(slot, round) {
+    const others = this.members().filter((m) => m.slot !== slot).map((m) => this.snesOf(m.slot));
+    const lock = this.snesLock(round);
+    const locked = lock ? { locked: lock } : {};
+    if (!this.snesOf(slot) || !others.length || !others.every(Boolean)) return { ...offSnesTable(), ...locked };
+    return { peer: combineSnes(others), ...this.snesTableNow(), ...locked };
+  }
+
+  setSnes(slot, snes) {
+    const text = JSON.stringify(snes);
+    if (this.getMeta(`snes_${slot}`) === text) return false;
+    this.setMeta(`snes_${slot}`, text);
+    return true;
+  }
+
+  broadcastSnes(exceptSlot = 0) {
+    for (const s of this.liveSockets()) {
+      if (s.att.slot !== exceptSlot) this.send(s.conn, { ev: 'match.snes', snes: this.snesView(s.att.slot) });
+    }
   }
 
   // A member's LAN addresses are private and of use only behind the same public address.
@@ -586,6 +629,7 @@ export class MatchRoom {
     }
     const sockets = this.sockets().filter((s) => s.att.hello && s.att.slot === slot);
     this.host.sql.run('DELETE FROM members WHERE slot = ?', slot);
+    this.clearMeta(`snes_${slot}`);
     this.host.sql.run('DELETE FROM links WHERE slot = ? OR peer = ?', slot, slot);
     this.host.sql.run('DELETE FROM pairs WHERE a = ? OR b = ?', slot, slot);
     for (const key of [...this.closedPairs]) if (key.split('-').includes(String(slot))) this.closedPairs.delete(key);
@@ -598,6 +642,7 @@ export class MatchRoom {
       }
       this.broadcast({ ev: 'match.left', slot, reason });
       this.broadcastMembers();
+      this.broadcastSnes();
     });
     if (tellHub && (reason === 'left' || reason === 'disconnect')) this.tell('roomLeft', slot, reason);
   }
@@ -775,6 +820,7 @@ const HANDLERS = {
     this.reopenPairs(member.slot);
     this.clearMeta('empty_since');
     if (this.getMeta('ever') === null) this.setMeta('ever', 1);
+    this.setSnes(member.slot, normalizeSnes(msg.snes));
     Object.assign(att, { hello: true, slot: member.slot, generation });
     conn.setAttachment(att);
     this.host.log(`room hello match=${this.id} slot=${member.slot} generation=${generation}`);
@@ -782,13 +828,37 @@ const HANDLERS = {
     this.later(() => {
       if (wasLost) this.broadcast({ ev: 'match.peer_back', slot: member.slot }, att.cid);
       this.broadcastMembers(att.cid);
+      this.broadcastSnes(member.slot);
       for (const other of this.members()) {
         if (other.slot === member.slot || !other.endpoint_gen || other.endpoint_gen !== other.generation) continue;
         if (this.socketOf(other)) this.send(conn, this.peerEvent(other, { ip: att.ip, pub_ip: member.pub_ip }));
       }
       this.reportState(member.slot);
     });
-    return { generation, relay_token: this.relayToken(), members: this.membersView(), capabilities: CAPABILITIES };
+    return {
+      generation, relay_token: this.relayToken(), members: this.membersView(), capabilities: CAPABILITIES,
+      snes: this.snesView(member.slot),
+    };
+  },
+
+  // The first member to start gameplay match `round` fixes its table for everyone; later calls and announcements change
+  // nothing. `off`: a member that gave up waiting for the answer runs the match all Off, so the others must too.
+  'snes.lock'(att, msg) {
+    const member = this.current(att);
+    if (!isInt(msg.round, 1, 1000000)) fail('bad_request', 'round expected');
+    if (this.getMeta(`snes_locked_${msg.round}`) === null) {
+      this.setMeta(`snes_locked_${msg.round}`, JSON.stringify(msg.off === true ? offSnesTable() : this.snesTableNow()));
+      if (msg.round > Number(this.getMeta('snes_lock_round') ?? 0)) this.setMeta('snes_lock_round', msg.round);
+      this.clearMeta(`snes_locked_${msg.round - 2}`);
+      this.later(() => this.broadcastSnes(member.slot));
+    }
+    return { snes: this.snesView(member.slot, msg.round) };
+  },
+
+  'snes.update'(att, msg) {
+    const member = this.current(att);
+    if (this.setSnes(member.slot, normalizeSnes(msg.snes))) this.later(() => this.broadcastSnes(member.slot));
+    return { snes: this.snesView(member.slot) };
   },
 
   ping() {

@@ -39,12 +39,25 @@ int g_checks = 0;
     }                                                               \
   } while (0)
 
+#define CHECK_MSG(cond, message)                                      \
+  do {                                                                \
+    ++g_checks;                                                       \
+    if (!(cond)) {                                                    \
+      ++g_failures;                                                   \
+      std::printf("  FAIL %s:%d  %s\n", __FILE__, __LINE__, message); \
+    }                                                                 \
+  } while (0)
+
 constexpr char kToken[] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 constexpr char kFriendA[] = "ABCD-2345";
 constexpr char kFriendB[] = "EFGH-6789";
 constexpr char kSession[] = "00112233445566aa";
 
 bool Contains(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+bool HasNotice(const std::vector<std::string>& notices, const std::string& text) {
+  return std::find(notices.begin(), notices.end(), text) != notices.end();
+}
 
 std::string ReadSource(const char* name) {
   std::ifstream in(std::string(TMNT_SOURCE_DIR) + "/src/" + name, std::ios::binary);
@@ -94,6 +107,18 @@ std::string FriendJson(const char* player, const char* name, bool online, const 
   return std::string("{\"player\":\"") + player + "\",\"name\":\"" + name + "\",\"online\":" + (online ? "true" : "false") +
          ",\"state\":\"" + (online ? state : "offline") + "\",\"platform\":\"Windows\",\"version\":\"0.2.2\",\"guest\":\"" +
          guest + "\",\"compatible\":" + (compatible ? "true" : "false") + "}";
+}
+
+std::string LobbyJson(const char* player, const char* name, const char* state = "online", bool compatible = true) {
+  return std::string("{\"player\":\"") + player + "\",\"name\":\"" + name + "\",\"state\":\"" + state +
+         "\",\"platform\":\"Windows\",\"version\":\"0.2.2\",\"guest\":\"base\",\"compatible\":" +
+         (compatible ? "true" : "false") + "}";
+}
+
+std::string LobbyRowJson(const char* handle, const char* name, const char* relation = "none",
+                         const char* display_name = nullptr) {
+  return std::string("{\"player\":\"") + handle + "\",\"name\":\"" + name + "\",\"version\":\"0.2.2\",\"state\":\"" +
+         relation + "\"" + (display_name ? std::string(",\"display_name\":\"") + display_name + "\"" : std::string()) + "}";
 }
 
 struct Rig {
@@ -226,11 +251,31 @@ struct Rig {
 
   void Enable(const char* name = "Saulo") { service->Apply({true, name}); }
 
+  void EnableLobby(const char* name = "Saulo", bool visible = false) {
+    service->Apply({true, name, visible});
+  }
+
   void SignIn(const char* name = "Saulo") {
     Enable(name);
     Tick();
     Event(ChannelEvent::Kind::kOpen);
     Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"");
+  }
+
+  void SignInLobby(const char* name = "Saulo", bool visible = false) {
+    EnableLobby(name, visible);
+    Tick();
+    Event(ChannelEvent::Kind::kOpen);
+    Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"," +
+                       "\"capabilities\":{\"protocol_version\":4,\"worker_build\":\"test-worker-2\","
+                       "\"public_lobby\":true,\"bug_reports\":true}");
+  }
+
+  void JoinLobby(const char* name = "Saulo") {
+    SignInLobby(name, true);
+    Tick(0.1);
+    Reply("lobby.publish", "\"visible\":true");
+    Tick(0.1);
   }
 
   void SignInWithFriends() {
@@ -328,7 +373,8 @@ void TestAddFriendValidatesBeforeSending() {
   CHECK(rig.Count("friends.add") == 1);
   CHECK(Contains(rig.LastRequest("friends.add"), "\"code\":\"JKLM-3456\""));
   rig.Reply("friends.add", "\"player\":\"JKLM-3456\",\"name\":\"Kim\",\"state\":\"pending\"");
-  CHECK(rig.service->snapshot().notice == "Friend request sent.");
+  CHECK(rig.service->snapshot().notice.empty());
+  CHECK(HasNotice(rig.service->TakeNotices(), "Friend request sent."));
 
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "", "not_found");
@@ -339,19 +385,19 @@ void TestFriendRequestReachesTheServiceAndIsLogged() {
   Rig rig;
   rig.SignInWithFriends();
   CHECK(rig.service->AddFriend(" jklm-3456\r\n") == FriendRequestResult::kSent);
-  CHECK(rig.CountLogs("online friend request sent code=JKLM-3456") == 1);
+  CHECK(rig.CountLogs("online friend request sent friend_code=JKLM-3456") == 1);
   CHECK(rig.Count("friends.add") == 1);
   rig.Reply("friends.add", "\"player\":\"JKLM-3456\",\"name\":\"Kim\",\"state\":\"pending\"");
-  CHECK(rig.CountLogs("friend request accepted by service code=JKLM-3456 state=pending") == 1);
+  CHECK(rig.CountLogs("friend request accepted by service friend_code=JKLM-3456 state=pending") == 1);
 
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "", "not_found");
-  CHECK(rig.CountLogs("online friend request failed code=NPQR-7892 reason=not_found") == 1);
+  CHECK(rig.CountLogs("online friend request failed friend_code=NPQR-7892 reason=not_found") == 1);
 
   CHECK(rig.service->AddFriend("nonsense") == FriendRequestResult::kInvalid);
-  CHECK(rig.CountLogs("online friend request failed code=- reason=invalid") == 1);
+  CHECK(rig.CountLogs("online friend request failed friend_code=- reason=invalid") == 1);
   CHECK(rig.service->AddFriend(rig.me) == FriendRequestResult::kOwnCode);
-  CHECK(rig.CountLogs("failed code=" + rig.me + " reason=own_code") == 1);
+  CHECK(rig.CountLogs("failed friend_code=" + rig.me + " reason=own_code") == 1);
   for (const std::string& line : rig.logs) CHECK(!Contains(line, kToken));
 }
 
@@ -364,13 +410,72 @@ void TestPendingAndReverseRequests() {
   CHECK(rig.service->AddFriend("JKLM-3456") == FriendRequestResult::kAlreadyPending);
   CHECK(rig.service->snapshot().notice == "Friend request already pending.");
   CHECK(rig.Count("friends.add") == 1);
-  CHECK(rig.CountLogs("failed code=JKLM-3456 reason=already_pending") == 1);
+  CHECK(rig.CountLogs("failed friend_code=JKLM-3456 reason=already_pending") == 1);
 
   rig.Feed("{\"ev\":\"friend.request\",\"player\":\"NPQR-7892\",\"name\":\"Zoe\"}");
   rig.Reply("friends.requests", "\"incoming\":[{\"player\":\"NPQR-7892\",\"name\":\"Zoe\"}],\"outgoing\":[]");
+  rig.service->TakeNotices();
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "\"player\":\"NPQR-7892\",\"name\":\"Zoe\",\"state\":\"friends\"");
-  CHECK(rig.service->snapshot().notice == "You are now friends.");
+  CHECK(rig.service->snapshot().notice.empty());
+  CHECK(HasNotice(rig.service->TakeNotices(), "You are now friends."));
+}
+
+void TestDisplayNameIsPreferredForFriendsAndRequests() {
+  Rig rig;
+  rig.SignIn();
+  rig.Reply("friends.list",
+            "\"friends\":[{\"player\":\"" + std::string(kFriendA) +
+                "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\",\"online\":true,\"state\":\"online\"}]");
+  rig.Reply("friends.requests",
+            "\"incoming\":[{\"player\":\"" + std::string(kFriendB) +
+                "\",\"name\":\"Player\",\"display_name\":\"Player-09F2\"}],\"outgoing\":[]");
+  const Snapshot shown = rig.service->snapshot();
+  CHECK(shown.friends.size() == 1 && shown.friends[0].name == "Player-A41C");
+  CHECK(shown.incoming.size() == 1 && shown.incoming[0].name == "Player-09F2");
+
+  rig.Feed("{\"ev\":\"friend.request\",\"player\":\"" + std::string(kFriendA) +
+           "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\"}");
+  CHECK(Contains(rig.service->snapshot().notice, "Player-A41C wants to be your friend"));
+
+  rig.Feed("{\"ev\":\"friend.added\",\"friend\":{\"player\":\"" + std::string(kFriendB) +
+           "\",\"name\":\"Player\",\"display_name\":\"Player-09F2\",\"online\":true,\"state\":\"online\"}}");
+  CHECK(HasNotice(rig.service->TakeNotices(), "Player-09F2 is now your friend."));
+}
+
+void TestLobbyHandleRelationAndActions() {
+  Rig rig;
+  rig.JoinLobby();
+  CHECK(rig.CountLogs("online worker build=test-worker-2") == 1);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  const std::string handle = "0123456789abcdef0123456789abcdef";
+  rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Player-A41C", "pending") +
+                              "],\"rev\":9,\"visible\":true");
+  const Snapshot state = rig.service->snapshot();
+  CHECK(state.lobby.players.size() == 1 && state.lobby.players[0].player == handle);
+  CHECK(state.lobby.players[0].name == "Player-A41C" && state.lobby.players[0].relation == "pending" &&
+        state.lobby.players[0].compatible);
+  const std::vector<const LobbyPlayer*> visible = VisibleLobbyPlayers(state.lobby);
+  CHECK(visible.size() == 1 && visible[0]->name == "Player-A41C");
+  CHECK(DescribeLobbyPlayer(state, state.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+
+  CHECK(rig.service->AddFriendFromLobby(handle) == FriendRequestResult::kSent);
+  const std::string add = rig.LastRequest("friends.add");
+  CHECK(Contains(add, "\"player\":\"" + handle + "\"") && !Contains(add, "\"code\":"));
+
+  rig.Reply("friends.add", "\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\",\"state\":\"pending\"");
+  CHECK(HasNotice(rig.service->TakeNotices(), "Friend request sent."));
+  const Snapshot pending = rig.service->snapshot();
+  CHECK(pending.lobby.pending_handles.size() == 1);
+  CHECK(DescribeLobbyPlayer(pending, pending.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+
+  rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Player-A41C", "pending") +
+                              "],\"rev\":10,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.pending_handles.empty());
+
+  rig.service->DeclineLobbyFriend(handle);
+  CHECK(Contains(rig.LastRequest("friends.decline"), "\"player\":\"" + handle + "\""));
 }
 
 void TestFriendRequestNeedsAConnection() {
@@ -416,6 +521,138 @@ void TestFriendRequestsAreAnswered() {
   CHECK(Contains(rig.LastRequest("friends.remove"), kFriendA));
   rig.service->DeclineFriend(kFriendB);
   CHECK(Contains(rig.LastRequest("friends.decline"), kFriendB));
+}
+
+void TestLobbyRequestsAreAnsweredByTheirId() {
+  const std::string id(32, 'c');
+  const std::string waiting(32, 'd');
+  Rig rig;
+  rig.SignInWithFriends();
+  rig.Feed("{\"ev\":\"friend.request\",\"request\":\"" + id + "\",\"name\":\"Zed\"}");
+  CHECK(Contains(rig.service->snapshot().notice, "Zed wants to be your friend"));
+  rig.Reply("friends.requests", "\"incoming\":[{\"request\":\"" + id + "\",\"name\":\"Zed\"}],\"outgoing\":[]");
+  CHECK(rig.service->snapshot().incoming.size() == 1 && rig.service->snapshot().incoming[0].player.empty());
+
+  const std::string key = RequestKey(rig.service->snapshot().incoming[0]);
+  CHECK(key == id);
+  rig.service->AcceptFriend(key);
+  CHECK(rig.service->snapshot().incoming.empty());
+  const std::string accept = rig.LastRequest("friends.accept");
+  CHECK(Contains(accept, "\"request\":\"" + id + "\"") && !Contains(accept, "\"player\""));
+  rig.Reply("friends.accept");
+
+  rig.Reply("friends.requests", "\"incoming\":[{\"request\":\"" + id + "\",\"name\":\"Zed\"}],\"outgoing\":[]");
+  CHECK(rig.service->snapshot().incoming.size() == 1);
+  rig.service->DeclineFriend(key);
+  CHECK(rig.service->snapshot().incoming.empty());
+  const std::string decline = rig.LastRequest("friends.decline");
+  CHECK(Contains(decline, "\"request\":\"" + id + "\"") && !Contains(decline, "\"player\""));
+  rig.Reply("friends.decline");
+
+  rig.Reply("friends.requests", "\"incoming\":[],\"outgoing\":[{\"request\":\"" + waiting + "\",\"name\":\"Kim\"}]");
+  CHECK(rig.service->snapshot().outgoing.size() == 1 && rig.service->snapshot().outgoing[0].name == "Kim");
+  const std::string withdrawn = RequestKey(rig.service->snapshot().outgoing[0]);
+  rig.service->DeclineFriend(withdrawn);
+  CHECK(rig.service->snapshot().outgoing.empty());
+  CHECK(Contains(rig.LastRequest("friends.decline"), "\"request\":\"" + waiting + "\""));
+}
+
+void TestLobbyRefreshIsOneReadAtATimeAndRetriesAfterAFailure() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK_MSG(rig.Count("lobby.list") == 1 && rig.service->snapshot().lobby.refreshing, "Refreshing... did not start a read");
+
+  rig.service->RefreshLobby();
+  rig.service->RefreshLobby();
+  rig.Tick(10.0);
+  CHECK_MSG(rig.Count("lobby.list") == 1, "a second Lobby read started while one was in flight");
+
+  rig.Reply("lobby.list", {}, "unavailable");
+  const Snapshot failed = rig.service->snapshot();
+  CHECK_MSG(failed.lobby.failed && !failed.lobby.refreshing && LobbyMessage(failed.lobby) == "Could not refresh the Lobby.",
+            "a failed Lobby read did not show the error");
+  rig.service->NoteLobbyViewed();
+  rig.Tick(kLobbyRetrySeconds - 12.0);
+  CHECK_MSG(rig.Count("lobby.list") == 1, "the Lobby retried before the retry delay");
+  rig.Tick(kLobbyRetrySeconds);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK_MSG(rig.Count("lobby.list") == 2, "the Lobby did not retry after a failed read");
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":3,\"visible\":true");
+  const Snapshot recovered = rig.service->snapshot();
+  CHECK_MSG(!recovered.lobby.failed && recovered.lobby.fetched && recovered.lobby.updated_seconds_ago < 1.0,
+            "a successful read did not clear the error and refresh the timestamp");
+  CHECK(LobbyUpdatedText(int(recovered.lobby.updated_seconds_ago / 60.0)) == "Updated just now");
+}
+
+void TestLobbyCountFollowsTheDisplayedCompatibleRows() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  const auto count_after = [&](const std::string& rows, int rev) {
+    rig.Tick(6.0);
+    rig.service->RefreshLobby();
+    rig.Tick(0.1);
+    rig.Reply("lobby.list", "\"players\":[" + rows + "],\"rev\":" + std::to_string(rev) + ",\"visible\":true");
+    return VisibleLobbyPlayers(rig.service->snapshot().lobby).size();
+  };
+  CHECK_MSG(count_after({}, 1) == 0, "Players in Lobby (0) was not shown for an empty list");
+  CHECK_MSG(count_after(LobbyJson("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "Saulo"), 2) == 1, "one compatible player was not counted");
+  const std::string two = LobbyJson("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1", "Saulo") + "," + LobbyJson("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2", "Player1");
+  CHECK_MSG(count_after(two, 3) == 2, "two compatible players were not counted");
+  const std::string mixed = two + "," + LobbyJson("c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3", "Other", "online", false);
+  CHECK_MSG(count_after(mixed, 4) == 2, "Lobby refresh count did not match displayed compatible players");
+  CHECK(rig.service->snapshot().lobby.players.size() == 3);
+}
+
+void TestLobbyRowsOfEveryRelationShowOnlySafeText() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  const std::string handle(32, 'e');
+  rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Player", "none", "Player-A41C") + "," +
+                              LobbyRowJson("1111111111111111111111111111111f", "Kim", "pending") + "," +
+                              LobbyRowJson("2222222222222222222222222222222f", "Zed", "incoming") + "," +
+                              LobbyRowJson("3333333333333333333333333333333f", "Cat", "friend") + "],\"rev\":5,\"visible\":true");
+  const Snapshot state = rig.service->snapshot();
+  const char* expected[] = {"Send friend request", "Pending", "Accept", "Friend"};
+  for (size_t i = 0; i < state.lobby.players.size(); ++i) {
+    const LobbyPlayer& player = state.lobby.players[i];
+    const LobbyRowView view = DescribeLobbyPlayer(state, player);
+    const LobbyAction action = LobbyActionOf(view.relation);
+    CHECK_MSG(std::string(action.text) == expected[i], "a Lobby row offers the wrong action for its relationship");
+    for (const std::string& shown : {view.status, std::string(action.text), LobbyVersionLabel(player)}) {
+      CHECK_MSG(shown.find(player.player) == std::string::npos && shown.find(kFriendA) == std::string::npos,
+                "the Lobby UI text shows a handle or a friend code");
+    }
+  }
+  CHECK(state.lobby.players[0].name == "Player-A41C");
+  CHECK(DescribeLobbyPlayer(state, state.lobby.players[2]).relation == LobbyRelation::kIncoming);
+  CHECK(LobbyActionOf(LobbyRelation::kIncoming).decline && !LobbyActionOf(LobbyRelation::kOutgoing).enabled);
+}
+
+void TestOldAndNewWorkerRequestShapesBothWork() {
+  const std::string handle(32, 'f');
+  for (const bool new_worker : {false, true}) {
+    Rig rig;
+    rig.JoinLobby();
+    rig.service->NoteLobbyViewed();
+    rig.Tick(0.1);
+    rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Kim") + "],\"rev\":1,\"visible\":true");
+    CHECK(rig.service->AddFriendFromLobby(handle) == FriendRequestResult::kSent);
+    rig.Reply("friends.add", new_worker ? "\"request\":\"" + std::string(32, 'a') + "\",\"name\":\"Kim\",\"state\":\"pending\""
+                                        : "\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Kim\",\"state\":\"pending\"");
+    CHECK_MSG(HasNotice(rig.service->TakeNotices(), "Friend request sent."), "a Lobby request answer was not understood");
+    rig.Reply("friends.requests", new_worker ? "\"incoming\":[],\"outgoing\":[{\"request\":\"" + std::string(32, 'a') + "\",\"name\":\"Kim\"}]"
+                                             : "\"incoming\":[],\"outgoing\":[{\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Kim\"}]");
+    const Snapshot state = rig.service->snapshot();
+    CHECK(state.outgoing.size() == 1 && state.outgoing[0].name == "Kim" && state.outgoing[0].player.empty() == new_worker);
+    CHECK(!RequestKey(state.outgoing[0]).empty());
+  }
 }
 
 void TestUnreachableServiceRetriesWithoutLosingState() {
@@ -1852,6 +2089,135 @@ void TestEveryReportedReasonIsAKnownCode() {
   }
 }
 
+void TestLobbyIsReadOnlyWhileItsPageIsShown() {
+  Rig rig;
+  rig.SignInLobby("Saulo", true);
+  CHECK(rig.service->snapshot().lobby.supported);
+  rig.Tick(30.0);
+  rig.Reply("lobby.publish", "\"visible\":true");
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 0);
+
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+  CHECK(rig.service->snapshot().lobby.refreshing);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB") + "],\"rev\":7,\"visible\":true");
+  const Snapshot after = rig.service->snapshot();
+  CHECK(after.lobby.fetched && !after.lobby.failed && !after.lobby.refreshing);
+  CHECK(after.lobby.players.size() == 1 && after.lobby.players[0].name == "SauloB");
+  CHECK(after.lobby.players[0].compatible && after.lobby.players[0].state == FriendState::kOnline);
+  CHECK(after.lobby.updated_seconds_ago >= 0.0);
+
+  // The 5-minute automatic read, the 5-second manual gap, and the revision answer.
+  rig.Tick(299.0);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+  rig.Tick(2.0);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 2);
+  rig.Reply("lobby.list", "\"unchanged\":true,\"rev\":7,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.players.size() == 1);
+  CHECK(rig.service->snapshot().lobby.updated_seconds_ago < 1.0);
+
+  rig.Tick(1.0);
+  rig.service->RefreshLobby();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 2);
+  rig.Tick(5.0);
+  rig.service->RefreshLobby();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 3);
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":8,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.players.empty());
+}
+
+void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
+  Rig rig;
+  rig.SignInLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.publish") == 0);
+  CHECK(rig.Count("lobby.list") == 0);
+
+  rig.EnableLobby("Saulo", true);
+  rig.Tick(0.1);
+  const std::string publish = rig.LastRequest("lobby.publish");
+  CHECK(Contains(publish, "\"visible\":true"));
+  rig.Feed("{\"re\":" + std::to_string(SeqOf(publish)) + ",\"code\":\"ok\",\"visible\":true}");
+  CHECK(rig.service->snapshot().lobby.visible);
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":4,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.players.empty());
+
+  rig.EnableLobby("Saulo", false);
+  rig.Tick(0.1);
+  const std::string hide = rig.LastRequest("lobby.publish");
+  CHECK(Contains(hide, "\"visible\":false"));
+  rig.Reply("lobby.publish", "\"visible\":false");
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+
+  rig.Event(ChannelEvent::Kind::kClosed, "closed");
+  const Snapshot lost = rig.service->snapshot();
+  CHECK(!lost.lobby.visible && !lost.lobby.fetched && lost.lobby.players.empty());
+}
+
+void TestLobbyPlayerRowsDriveTheFriendActions() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB", "online", false) + "," +
+                              LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":true");
+  const Snapshot state = rig.service->snapshot();
+  const LobbyRowView a = DescribeLobbyPlayer(state, state.lobby.players[0]);
+  const LobbyRowView b = DescribeLobbyPlayer(state, state.lobby.players[1]);
+  CHECK(a.incompatible && !a.can_add && a.relation == LobbyRelation::kNone);
+  CHECK(!b.incompatible && b.can_add);
+  CHECK(a.status.empty());
+  CHECK(LobbyMessage(state.lobby).empty());
+
+  // A request from a Lobby row is Pending at once, before the next list read.
+  CHECK(rig.service->AddFriend(kFriendB) == FriendRequestResult::kSent);
+  const Snapshot pending = rig.service->snapshot();
+  const LobbyRowView pending_row = DescribeLobbyPlayer(pending, pending.lobby.players[1]);
+  CHECK(pending_row.relation == LobbyRelation::kOutgoing);
+
+  // A refused request takes the optimistic Pending back.
+  rig.Reply("friends.add", {}, "not_found");
+  const Snapshot refused = rig.service->snapshot();
+  const LobbyRowView refused_row = DescribeLobbyPlayer(refused, refused.lobby.players[1]);
+  CHECK(refused_row.relation == LobbyRelation::kNone && refused_row.can_add);
+}
+
+void TestLobbyFriendRequestFeedbackIsStatusOnly() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":true");
+  rig.service->TakeNotices();
+
+  CHECK(rig.service->AddFriend(kFriendB) == FriendRequestResult::kSent);
+  rig.Reply("friends.add", "\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Zed\",\"state\":\"pending\"");
+  const Snapshot after = rig.service->snapshot();
+  CHECK(after.notice.empty());
+  CHECK(after.lobby.players.size() == 1);
+  CHECK(DescribeLobbyPlayer(after, after.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+  const std::vector<std::string> feedback = rig.service->TakeNotices();
+  CHECK(std::count(feedback.begin(), feedback.end(), "Friend request sent.") == 1);
+
+  // A refused request is still an inline Lobby problem.
+  CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
+  rig.Reply("friends.add", {}, "not_found");
+  const Snapshot error = rig.service->snapshot();
+  CHECK(Contains(error.notice, "No player has that friend code"));
+  CHECK(HasNotice(rig.service->TakeNotices(), "No player has that friend code."));
+}
+
 void TestOnlineOffCreatesNoPartyOrRoom() {
   Rig rig;
   CHECK(!rig.service->CreateParty() && !rig.service->InviteToParty("BBBB-2222") && !rig.service->AcceptPartyInvite("i"));
@@ -1870,9 +2236,16 @@ int main() {
   TestAddFriendValidatesBeforeSending();
   TestFriendRequestReachesTheServiceAndIsLogged();
   TestPendingAndReverseRequests();
+  TestDisplayNameIsPreferredForFriendsAndRequests();
+  TestLobbyHandleRelationAndActions();
   TestFriendRequestNeedsAConnection();
   TestCopiedFriendCodeCanBePastedByAnotherInstance();
   TestFriendRequestsAreAnswered();
+  TestLobbyRequestsAreAnsweredByTheirId();
+  TestLobbyRefreshIsOneReadAtATimeAndRetriesAfterAFailure();
+  TestLobbyCountFollowsTheDisplayedCompatibleRows();
+  TestLobbyRowsOfEveryRelationShowOnlySafeText();
+  TestOldAndNewWorkerRequestShapesBothWork();
   TestUnreachableServiceRetriesWithoutLosingState();
   TestFatalSignInErrorsDoNotRetryAtOnce();
   TestMalformedServerMessagesAreIgnored();
@@ -1934,6 +2307,10 @@ int main() {
   TestConnectionTestSendsOneBeaconWithoutSecrets();
   TestConnectionTestBeaconNeedsNoSessionOrConnection();
   TestEveryReportedReasonIsAKnownCode();
+  TestLobbyIsReadOnlyWhileItsPageIsShown();
+  TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection();
+  TestLobbyPlayerRowsDriveTheFriendActions();
+  TestLobbyFriendRequestFeedbackIsStatusOnly();
   TestOnlineOffCreatesNoPartyOrRoom();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

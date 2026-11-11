@@ -1,10 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <string_view>
 
 namespace tmnt {
+
+inline constexpr std::array<std::string_view, 3> kRetiredPlayerSettings{"present_letterbox", "tmnt_snes_gameplay",
+                                                                          "tmnt_snes_movement_speeds"};
 
 inline bool IsSettingLine(std::string_view line, std::string_view key) {
   const std::size_t first = line.find_first_not_of(" \t");

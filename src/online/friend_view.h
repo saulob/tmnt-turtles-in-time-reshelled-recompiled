@@ -21,6 +21,59 @@ struct FriendRowView {
 // has measured one.
 FriendRowView DescribeFriend(const Snapshot& state, const Friend& entry);
 
+// What the Lobby page does with a listed player, from this player's own friends and requests: Add friend only while no
+// relationship exists, so the Lobby and the Friends tab never disagree.
+enum class LobbyRelation { kNone, kFriend, kOutgoing, kIncoming };
+
+struct LobbyRowView {
+  std::string status;  // the line under the player's name
+  bool incompatible = false;
+  LobbyRelation relation = LobbyRelation::kNone;
+  bool can_add = false;
+};
+
+LobbyRowView DescribeLobbyPlayer(const Snapshot& state, const LobbyPlayer& player);
+
+// "v1.1.1", or "Version unknown" when the client did not advertise one.
+inline std::string LobbyVersionLabel(const LobbyPlayer& player) {
+  return player.version.empty() ? "Version unknown" : "v" + player.version;
+}
+inline std::string LobbyUpdatedText(int minutes) {
+  return minutes < 1 ? "Updated just now" : "Updated " + std::to_string(minutes) + " min ago";
+}
+
+struct LobbyAction {
+  const char* text = nullptr;
+  bool enabled = false;
+  bool primary = false;
+  bool decline = false;
+};
+inline LobbyAction LobbyActionOf(LobbyRelation relation) {
+  switch (relation) {
+    case LobbyRelation::kNone: return {"Send friend request", true, false};
+    case LobbyRelation::kOutgoing: return {"Pending", false, false};
+    case LobbyRelation::kFriend: return {"Friend", false, false};
+    case LobbyRelation::kIncoming: return {"Accept", true, true, true};
+  }
+  return {};
+}
+
+// The Lobby rows this build can play with; internal incompatibility data never reaches the visible list.
+inline std::vector<const LobbyPlayer*> VisibleLobbyPlayers(const LobbySnapshot& lobby) {
+  std::vector<const LobbyPlayer*> players;
+  for (const LobbyPlayer& player : lobby.players) {
+    if (player.compatible) players.push_back(&player);
+  }
+  return players;
+}
+
+// What the Lobby shows in place of a list; empty when it shows one.
+inline std::string LobbyMessage(const LobbySnapshot& lobby) {
+  if (!lobby.supported) return "The Lobby is not available right now.";
+  if (lobby.failed) return "Could not refresh the Lobby.";
+  return {};
+}
+
 // A row of the party invite list: every friend, with only the ones who can receive an invite selectable.
 struct InviteChoice {
   std::string player;

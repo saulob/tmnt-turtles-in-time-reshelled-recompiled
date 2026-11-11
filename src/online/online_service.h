@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -20,6 +21,12 @@
 namespace tmnt::online {
 
 inline constexpr char kDefaultServiceUrl[] = "wss://tmnt-lobby.saulobenigno.workers.dev/";
+
+// The Lobby list is read while its page is open: rarely by itself, at once for a friend event or Refresh lobby, one read
+// at a time.
+inline constexpr double kLobbyAutoRefreshSeconds = 300.0;
+inline constexpr double kLobbyManualGapSeconds = 5.0;
+inline constexpr double kLobbyRetrySeconds = 30.0;
 
 struct ServiceConfig {
   std::string url = kDefaultServiceUrl;
@@ -55,11 +62,26 @@ struct ServiceConfig {
   std::function<void(const std::string& path)> test_beacon;
   // Called once the party of an accepted invite that names a game session is joined.
   std::function<void(const AcceptedInvite&)> invite_accepted;
+  // The SNES features this player supports and has turned on right now; called with the service locked.
+  std::function<SnesGameplayCapabilities()> snes;
 };
 
 struct UserSettings {
   bool enabled = false;
   std::string name = kDefaultOnlineName;
+  bool lobby_visible = false;  // list this player in the public Lobby
+};
+
+// The public Lobby as the Online page shows it. Its failures stay here: they never change Snapshot::connection.
+struct LobbySnapshot {
+  bool supported = false;  // the service has the public Lobby
+  bool visible = false;    // the service confirmed this player is listed
+  bool fetched = false;
+  bool failed = false;     // the last read failed
+  bool refreshing = false; // a read is on its way
+  double updated_seconds_ago = -1.0;  // since the last successful read; negative before the first
+  std::vector<std::string> pending_handles;  // Lobby requests sent and not yet reflected by a read
+  std::vector<LobbyPlayer> players;
 };
 
 // The game-session advertisement this player is making or looking for, driven by the game's own menus.
@@ -81,6 +103,7 @@ struct Snapshot {
   std::vector<Request> outgoing;  // friend requests still waiting
   std::vector<Invite> invites;    // friends' invitations to their party, oldest first
   PlayerMatchSnapshot player_match;
+  LobbySnapshot lobby;
   std::optional<Party> party;
   int my_slot = 0;
   std::string room_state;  // none, connecting, online
@@ -126,9 +149,17 @@ class OnlineService {
   void Update(double now);
 
   FriendRequestResult AddFriend(const std::string& code);
-  void AcceptFriend(const std::string& player);
-  void DeclineFriend(const std::string& player);  // also withdraws an outgoing request
+  // A friend request sent from a public Lobby row, addressed by its random handle rather than a friend code.
+  FriendRequestResult AddFriendFromLobby(const std::string& player);
+  void AcceptFriend(const std::string& key);  // key is RequestKey
+  void DeclineFriend(const std::string& key);  // also withdraws an outgoing request; key is RequestKey
+  // Declines an incoming request or withdraws an outgoing one addressed by a public Lobby handle.
+  void DeclineLobbyFriend(const std::string& player);
   void RemoveFriend(const std::string& player);
+  // Called on every frame the Lobby page is shown: the list is read while that goes on, and not otherwise.
+  void NoteLobbyViewed();
+  // The Refresh lobby button; a read already running, or one that just ran, answers for it.
+  void RefreshLobby();
 
   // The party: the host starts one, invites friends, and everyone who accepts joins the same hidden match.
   bool CreateParty();
@@ -200,13 +231,30 @@ class OnlineService {
   void NotePartySnapshot(const PartySnapshot& snapshot);
   const std::string& url() const { return config_.url; }
 
+  // The game ended a gameplay match (XSessionEnd): its SNES table is released so the next match negotiates again.
+  void NoteGameEnd();
+  // The party has other players, or the game is in a match.
+  bool InOnlineMatch() const;
+
+  // The SNES gameplay mechanics as this party negotiated them. `locked` is the table of the running gameplay match,
+  // from the game's session start to its end; `locked->For(my_slot)` is what this player's own turtle uses.
+  struct SnesNegotiation {
+    bool online = false;
+    int my_slot = 0;
+    std::optional<SnesMatchTable> locked;
+    SnesGameplaySet supported;
+    std::array<SnesStatus, kSnesFeatureCount> status{};
+    bool dash_manual_available = true;
+  };
+  SnesNegotiation Snes() const;
+
  private:
   enum class Step { kIdle, kOpening, kGreeting, kOnline };
   enum class RoomStep { kNone, kOpening, kGreeting, kOnline };
   enum class Purpose {
     kHello, kFriends, kRequests, kAdd, kAccept, kDecline, kRemove, kPlayerMatchHost, kPlayerMatchCancel,
     kPlayerMatchSearch, kPlayerMatchJoin, kPartyCreate, kPartyLeave, kPartyKick, kInviteSend, kInviteAccept,
-    kInviteDecline, kRoomHello, kTelemetry, kPartyReport
+    kInviteDecline, kRoomHello, kTelemetry, kPartyReport, kLobbyPublish, kLobbyList
   };
   struct Pending {
     Purpose purpose = Purpose::kHello;
@@ -235,6 +283,8 @@ class OnlineService {
   void SendLocked(const std::string& text);
   bool Connected() const { return step_ == Step::kOnline; }
   void Notice(const std::string& text);
+  // A successful action's feedback for the launcher's status line only, not the page.
+  void NoticeStatus(const std::string& text);
   void Log(const std::string& line);
   void FlushLog();
   void Disable();
@@ -272,6 +322,19 @@ class OnlineService {
   void FinishGameStart(const std::string& reason);
   void SendTestBeacon(const ConnectionReport& report);
   void DropAcceptedInviteLocked(const std::string& reason);
+  void PumpLobby();
+  void SoonLobbyRefresh();
+  void ForgetLobby();
+  void ResetLobbyConnection();
+  SnesGameplayCapabilities LocalSnes() const;
+  SnesGameplaySet VerifiedSnesLocked() const;
+  void PumpSnes(double now);
+  void SetMatchSnes(const std::optional<MatchSnes>& snes);
+  void LockSnes();
+  void AdoptSnesLock(const SnesMatchTable& table, const char* source);
+  bool InMatchLocked() const;
+  void CheckSnesLock();
+  void ResetSnes();
 
   class Locked;
 
@@ -333,6 +396,22 @@ class OnlineService {
   double notice_at_ = 0;
   std::vector<std::string> notices_;
 
+  bool lobby_published_ = false;  // what the service confirmed on this connection
+  bool lobby_publish_sent_ = false;
+  bool lobby_publish_in_flight_ = false;
+  double lobby_publish_retry_at_ = 0;
+  bool lobby_refused_ = false;  // the service answered a Lobby request as an operation it does not know
+  bool lobby_list_in_flight_ = false;
+  bool lobby_fetched_ = false;
+  bool lobby_failed_ = false;
+  int64_t lobby_rev_ = -1;
+  double lobby_viewed_at_ = -1e9;
+  double lobby_list_started_at_ = -1e9;
+  double lobby_updated_at_ = -1e9;
+  double next_lobby_list_ = 0;
+  std::vector<LobbyPlayer> lobby_players_;
+  std::vector<std::string> lobby_pending_handles_;
+
   std::optional<PartyAccess> access_;
   std::optional<Party> party_;
   uint32_t match_generation_ = 0;
@@ -353,6 +432,23 @@ class OnlineService {
   int room_hello_seq_ = 0;
   int room_hello_failures_ = 0;
   std::vector<RoomMember> room_members_;
+  std::optional<MatchSnes> match_snes_;
+  SnesGameplayCapabilities announced_snes_;
+  SnesGameplayCapabilities sent_snes_;
+  bool snes_announced_ = false;
+  bool room_snes_supported_ = true;
+  bool room_snes_modes_ = true;
+  int snes_update_seq_ = 0;
+  double snes_retry_at_ = 0;
+  std::optional<SnesMatchTable> snes_locked_;
+  int snes_round_ = 0;
+  bool game_running_ = false;
+  bool snes_lock_pending_ = false;
+  bool snes_lock_from_service_ = false;
+  bool snes_fallback_owed_ = false;
+  bool snes_mismatch_ = false;
+  int snes_lock_seq_ = 0;
+  double snes_lock_deadline_ = 0;
   std::unique_ptr<MatchSession> session_;
   Telemetry telemetry_;
   TelemetryContext telemetry_context_;

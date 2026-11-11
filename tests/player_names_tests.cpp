@@ -200,7 +200,7 @@ void TestSettingsAndLauncher() {
 
   const std::string launcher = ReadSource("launcher.cpp");
   CHECK(Count(launcher, "ui.Section(Tr(\"Local player names\")") == 1);
-  const size_t gameplay = launcher.find("static void PageGameplay");
+  const size_t gameplay = launcher.find("void PageGameplay(trg::Ui& ui) {");
   const size_t achievements = launcher.find("void PageAchievements");
   const size_t controls = launcher.find("static void PageControls");
   const size_t names = launcher.find("ui.Section(Tr(\"Local player names\")");

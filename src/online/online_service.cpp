@@ -25,12 +25,15 @@ constexpr double kSearchFreshSeconds = 1.0;
 constexpr double kSearchTimeoutSeconds = 5.0;
 constexpr double kTelemetryFlushSeconds = 15.0;
 constexpr double kGameStartTimeoutSeconds = 30.0;
+constexpr double kSnesRetrySeconds = 5.0;
+constexpr double kSnesLockWaitSeconds = 5.0;
 constexpr double kTelemetryAckSeconds = 20.0;
 constexpr double kBeaconTimeoutMs = 3000;
 constexpr int kRoomHelloRetries = 5;
 constexpr double kAcceptedInviteSeconds = 60.0;
 constexpr double kSearchIdleSeconds = 10.0;
 constexpr double kIdentityRetrySeconds = 0.25;
+constexpr double kLobbyViewedSeconds = 1.0;
 
 bool Fatal(const std::string& code) {
   return code == "proto" || code == "bad_game" || code == "bad_guest" || code == "unauthorized";
@@ -132,6 +135,9 @@ void OnlineService::Disable() {
   test_probe_.reset();
   retry_at_ = 0;
   retry_delay_ = 1.0;
+  ResetLobbyConnection();
+  lobby_publish_retry_at_ = 0;
+  lobby_viewed_at_ = -1e9;
 }
 
 void OnlineService::Update(double now) {
@@ -152,6 +158,7 @@ void OnlineService::Update(double now) {
   if (step_ == Step::kIdle && !channel_ && now >= retry_at_) OpenChannel(now);
   PumpChannel(now);
   PumpRoom(now);
+  PumpSnes(now);
   if (session_) {
     session_->Update(now);
     if (session_->fatal()) {
@@ -172,6 +179,7 @@ void OnlineService::Update(double now) {
     FlushTelemetry(now);
   }
   PumpPartyReport();
+  PumpLobby();
   if (SessionName() != greeted_name_ && !party_ && now - name_since_ >= kNameSettleSeconds) {
     if (channel_) channel_->Close();
     channel_.reset();
@@ -239,12 +247,25 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       break;
     case Purpose::kAdd:
       if (!ok) {
+        outgoing_.erase(std::remove_if(outgoing_.begin(), outgoing_.end(),
+                                       [&](const Request& r) { return r.player == pending.player; }),
+                        outgoing_.end());
+        lobby_pending_handles_.erase(
+            std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), pending.player),
+            lobby_pending_handles_.end());
+        SoonLobbyRefresh();
         Notice(DescribeServiceError(message.code));
-        Log("online friend request failed code=" + pending.player + " reason=" + message.code);
+        Log("online friend request failed friend_code=" + pending.player + " reason=" + message.code);
       } else {
-        Notice(message.state == "friends" ? "You are now friends." : "Friend request sent.");
-        Log("online friend request accepted by service code=" + pending.player + " state=" + message.state);
+        if (message.state == "friends") {
+          lobby_pending_handles_.erase(
+              std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), pending.player),
+              lobby_pending_handles_.end());
+        }
+        NoticeStatus(message.state == "friends" ? "You are now friends." : "Friend request sent.");
+        Log("online friend request accepted by service friend_code=" + pending.player + " state=" + message.state);
         Refresh();
+        SoonLobbyRefresh();
       }
       break;
     case Purpose::kAccept:
@@ -331,6 +352,47 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
         telemetry_inflight_ = {};
       }
       break;
+    case Purpose::kLobbyPublish:
+      lobby_publish_in_flight_ = false;
+      if (!ok) {
+        lobby_publish_retry_at_ = now + kLobbyRetrySeconds;
+        lobby_refused_ = lobby_refused_ || message.code == "bad_request";
+        Log("online lobby publish refused code=" + message.code);
+        break;
+      }
+      lobby_published_ = lobby_publish_sent_;
+      Log(std::string("online lobby visible=") + Flag(lobby_published_));
+      break;
+    case Purpose::kLobbyList:
+      lobby_list_in_flight_ = false;
+      if (!settings_.lobby_visible) break;
+      if (!ok || (!message.lobby_unchanged && !message.lobby_players)) {
+        lobby_failed_ = true;
+        next_lobby_list_ = now + kLobbyRetrySeconds;
+        lobby_refused_ = lobby_refused_ || (!ok && message.code == "bad_request");
+        Log("online lobby read failed code=" + (ok ? std::string("malformed") : message.code));
+        break;
+      }
+      lobby_failed_ = false;
+      if (!message.lobby_unchanged) {
+        if (!lobby_fetched_ || message.lobby_players->size() != lobby_players_.size()) {
+          Log("online lobby players=" + std::to_string(message.lobby_players->size()));
+        }
+        lobby_players_ = *message.lobby_players;
+        lobby_rev_ = message.lobby_rev;
+      }
+      lobby_updated_at_ = now;
+      lobby_fetched_ = true;
+      lobby_pending_handles_.erase(
+          std::remove_if(lobby_pending_handles_.begin(), lobby_pending_handles_.end(),
+                         [&](const std::string& handle) {
+                           const auto row = std::find_if(lobby_players_.begin(), lobby_players_.end(),
+                                                         [&](const LobbyPlayer& p) { return p.player == handle; });
+                           return row == lobby_players_.end() || row->relation == "friend" || row->relation == "pending" ||
+                                  row->relation == "incoming";
+                         }),
+          lobby_pending_handles_.end());
+      break;
     case Purpose::kPartyLeave:
     case Purpose::kPartyKick:
     case Purpose::kInviteDecline:
@@ -353,6 +415,9 @@ void OnlineService::OnGreeted(const ServerMessage& message, double now) {
   Log(std::string("online signed in") + (was_reconnecting ? " (reconnected)" : "") + " name=" + greeted_name_ +
       " code=" + friend_code_);
   capabilities_ = message.capabilities.value_or(ServiceCapabilities{});
+  if (!capabilities_.worker_build.empty()) Log("online worker build=" + capabilities_.worker_build);
+  Log(std::string("online lobby service supported=") + Flag(capabilities_.public_lobby));
+  ResetLobbyConnection();
   if (was_reconnecting) Emit({"worker_reconnect", 0, {}});
   party_check_ = true;
   Refresh();
@@ -367,17 +432,20 @@ void OnlineService::OnServerEvent(const ServerMessage& message, double now) {
     case Kind::kFriendRequest:
       Notice(message.request.name + " wants to be your friend.");
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendAdded:
-      Notice(message.friend_view.name + " is now your friend.");
+      NoticeStatus(message.friend_view.name + " is now your friend.");
       UpdateFriend(message.friend_view);
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendRemoved:
       friends_.erase(std::remove_if(friends_.begin(), friends_.end(),
                                     [&](const Friend& f) { return f.player == message.player; }),
                      friends_.end());
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendStatus:
       UpdateFriend(message.friend_view);
@@ -436,6 +504,7 @@ void OnlineService::OnLinkLost(const std::string& why, double now) {
   invites_.clear();
   // A joined party lives on its room, which this link does not carry.
   if (accepted_invite_ && !accepted_invite_->ready) DropAcceptedInviteLocked("link_lost");
+  ResetLobbyConnection();
   for (Friend& f : friends_) {
     f.online = false;
     f.state = FriendState::kOffline;
@@ -813,6 +882,8 @@ void OnlineService::RestoreInflightTelemetry() {
 
 void OnlineService::NoteGameStart() {
   Locked lock(*this);
+  game_running_ = true;
+  LockSnes();
   if (!session_ || !party_ || game_start_.active) return;
   game_start_ = {true, now_};
   const std::vector<PeerView> peers = session_->peers();
@@ -874,6 +945,70 @@ void OnlineService::Refresh() {
   Send(Purpose::kRequests, [](int seq) { return EncodeFriendsRequests(seq); });
 }
 
+void OnlineService::NoteLobbyViewed() {
+  Locked lock(*this);
+  lobby_viewed_at_ = now_;
+}
+
+void OnlineService::RefreshLobby() {
+  Locked lock(*this);
+  if (!Connected() || !settings_.lobby_visible || !capabilities_.public_lobby || lobby_refused_) return;
+  if (lobby_list_in_flight_ || now_ - lobby_list_started_at_ < kLobbyManualGapSeconds) return;
+  lobby_viewed_at_ = now_;
+  next_lobby_list_ = now_;
+}
+
+// The list is read only while the Lobby page is shown and this player is listed. Visibility is sent only when it differs
+// from what the service confirmed. A player who is not listed sees no list, as in the reference launcher.
+void OnlineService::PumpLobby() {
+  if (!capabilities_.public_lobby || lobby_refused_) return;
+  if (settings_.lobby_visible != lobby_published_ && !lobby_publish_in_flight_ && now_ >= lobby_publish_retry_at_) {
+    lobby_publish_in_flight_ = true;
+    lobby_publish_sent_ = settings_.lobby_visible;
+    const bool visible = lobby_publish_sent_;
+    Send(Purpose::kLobbyPublish, [visible](int seq) { return EncodeLobbyPublish(seq, visible); });
+  }
+  if (!settings_.lobby_visible) {
+    ForgetLobby();
+    return;
+  }
+  if (!lobby_published_) return;
+  const bool viewed = now_ - lobby_viewed_at_ <= kLobbyViewedSeconds;
+  if (viewed && !lobby_list_in_flight_ && now_ >= next_lobby_list_) {
+    lobby_list_in_flight_ = true;
+    lobby_list_started_at_ = now_;
+    next_lobby_list_ = now_ + kLobbyAutoRefreshSeconds;
+    const std::optional<int64_t> held = lobby_fetched_ ? std::optional<int64_t>(lobby_rev_) : std::nullopt;
+    Send(Purpose::kLobbyList, [held](int seq) { return EncodeLobbyList(seq, held); });
+  }
+}
+
+void OnlineService::SoonLobbyRefresh() {
+  lobby_rev_ = -1;
+  next_lobby_list_ = now_;
+}
+
+void OnlineService::ForgetLobby() {
+  lobby_list_in_flight_ = false;
+  lobby_fetched_ = false;
+  lobby_failed_ = false;
+  lobby_rev_ = -1;
+  lobby_list_started_at_ = -1e9;
+  lobby_updated_at_ = -1e9;
+  next_lobby_list_ = 0;
+  lobby_pending_handles_.clear();
+  lobby_players_.clear();
+}
+
+// A new connection starts unlisted and with nothing read; an old list would show players who may be gone.
+void OnlineService::ResetLobbyConnection() {
+  lobby_published_ = false;
+  lobby_publish_in_flight_ = false;
+  lobby_publish_retry_at_ = 0;
+  lobby_refused_ = false;
+  ForgetLobby();
+}
+
 std::vector<ActivePeer> OnlineService::Peers() const {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<ActivePeer> out;
@@ -930,6 +1065,14 @@ Snapshot OnlineService::snapshot() const {
   s.my_slot = access_ ? access_->slot : 0;
   s.room_state = room_step_ == RoomStep::kOnline ? "online" : party_ ? "connecting" : "none";
   if (session_) s.peers = session_->peers();
+  s.lobby.supported = capabilities_.public_lobby && !lobby_refused_;
+  s.lobby.visible = lobby_published_;
+  s.lobby.fetched = lobby_fetched_;
+  s.lobby.failed = lobby_failed_;
+  s.lobby.refreshing = lobby_list_in_flight_;
+  s.lobby.updated_seconds_ago = lobby_fetched_ ? std::max(0.0, now_ - lobby_updated_at_) : -1.0;
+  s.lobby.pending_handles = lobby_pending_handles_;
+  s.lobby.players = lobby_players_;
   if (now_ - notice_at_ <= kNoticeSeconds) s.notice = notice_;
   s.testing = testing_;
   s.test = test_;
@@ -974,8 +1117,11 @@ void OnlineService::OnRoomEvent(const ChannelEvent& event, double now) {
       room_step_ = RoomStep::kGreeting;
       room_deadline_ = now + kStepTimeoutSeconds;
       room_hello_seq_ = next_seq_++;
+      announced_snes_ = LocalSnes();
+      snes_announced_ = true;
+      snes_update_seq_ = 0;
       if (room_) room_->Send(EncodeMatchHello(room_hello_seq_, access_->match, access_->slot, access_->join_token,
-                                              room_generation_seen_));
+                                              room_generation_seen_, announced_snes_));
       break;
     case ChannelEvent::Kind::kText: {
       const std::optional<ServerMessage> message = DecodeServerMessage(event.text);
@@ -983,6 +1129,22 @@ void OnlineService::OnRoomEvent(const ChannelEvent& event, double now) {
       if (message->kind == ServerMessage::Kind::kResponse) {
         if (room_step_ == RoomStep::kGreeting && message->seq == room_hello_seq_) {
           OnRoomHello(*message, now);
+        } else if (snes_lock_seq_ && message->seq == snes_lock_seq_) {
+          snes_lock_seq_ = 0;
+          if (message->code == "ok") {
+            SetMatchSnes(message->snes);
+          } else {
+            Log("online snes lock refused code=" + message->code);
+          }
+        } else if (snes_update_seq_ && message->seq == snes_update_seq_) {
+          snes_update_seq_ = 0;
+          if (message->code == "ok") {
+            announced_snes_ = sent_snes_;
+            SetMatchSnes(message->snes);
+          } else {
+            snes_retry_at_ = now + kSnesRetrySeconds;
+            Log("online snes update refused code=" + message->code);
+          }
         } else if (message->code != "ok") {
           if (session_) session_->OnRefused(message->seq, message->code, now);
         }
@@ -1025,6 +1187,9 @@ void OnlineService::OnRoomHello(const ServerMessage& message, double now) {
   room_retry_delay_ = 1.0;
   room_hello_failures_ = 0;
   room_generation_seen_ = message.generation;
+  room_snes_supported_ = message.capabilities && message.capabilities->snes_features;
+  room_snes_modes_ = message.capabilities && message.capabilities->snes_modes;
+  SetMatchSnes(message.snes);
   room_members_ = message.room_members.value_or(std::vector<RoomMember>());
   Log("room joined generation=" + std::to_string(message.generation) +
       " relay=" + Flag(message.relay_token != 0) + " members=" + std::to_string(room_members_.size()));
@@ -1090,6 +1255,9 @@ void OnlineService::OnRoomMessage(const ServerMessage& message, double now) {
       break;
     case Kind::kMatchPeerBack:
       break;
+    case Kind::kMatchSnes:
+      SetMatchSnes(message.snes);
+      break;
     case Kind::kMatchLeft:
       if (session_) session_->OnPeerLeft(message.slot, message.reason, now);
       break;
@@ -1106,6 +1274,9 @@ void OnlineService::OnRoomLost(const std::string& why, double now) {
   if (room_) room_->Close();
   room_.reset();
   room_step_ = RoomStep::kNone;
+  snes_announced_ = false;
+  snes_update_seq_ = 0;
+  snes_lock_seq_ = 0;
   // The relay rides this connection: a pair on it waits for the room, a pair still choosing goes on without it.
   if (session_) session_->OnRelayClosed(0, "service_disconnected", now);
   room_retry_at_ = now + room_retry_delay_;
@@ -1121,6 +1292,152 @@ void OnlineService::CloseRoom() {
   session_.reset();
   room_members_.clear();
   room_generation_seen_ = 0;
+  ResetSnes();
+}
+
+SnesGameplayCapabilities OnlineService::LocalSnes() const {
+  SnesGameplayCapabilities caps = config_.snes ? config_.snes().Normalized() : SnesGameplayCapabilities{};
+  if (!room_snes_modes_ && caps.enabled.dash == DashMode::kManual) caps.enabled.dash = DashMode::kOff;
+  return caps;
+}
+
+SnesGameplaySet OnlineService::VerifiedSnesLocked() const {
+  if (!room_snes_supported_ || !match_snes_) return {};
+  return VerifiedSupported(LocalSnes(), *match_snes_);
+}
+
+void OnlineService::PumpSnes(double now) {
+  if (snes_mismatch_) {
+    snes_mismatch_ = false;
+    Notice("The SNES gameplay settings could not be agreed with the other players.");
+    if (Connected()) SendLocked(EncodePartyLeave(next_seq_++));
+    EndParty("snes_mismatch");
+    return;
+  }
+  const bool room_ready = room_ && room_step_ == RoomStep::kOnline && room_snes_supported_;
+  if (snes_lock_pending_ && now >= snes_lock_deadline_) {
+    AdoptSnesLock({}, "timeout");
+    snes_fallback_owed_ = true;
+  }
+  if (room_ready && !snes_lock_seq_ && (snes_lock_pending_ || snes_fallback_owed_)) {
+    snes_lock_seq_ = next_seq_++;
+    SendRoom(EncodeSnesLock(snes_lock_seq_, snes_round_, snes_fallback_owed_));
+    snes_fallback_owed_ = false;
+  }
+  // A choice made during a match is announced once it ends, for the next one.
+  if (!room_ready || snes_locked_ || snes_update_seq_ || now < snes_retry_at_) {
+    return;
+  }
+  const SnesGameplayCapabilities local = LocalSnes();
+  if (snes_announced_ && local == announced_snes_) return;
+  sent_snes_ = local;
+  snes_update_seq_ = next_seq_++;
+  SendRoom(EncodeSnesUpdate(snes_update_seq_, local));
+}
+
+void OnlineService::SetMatchSnes(const std::optional<MatchSnes>& snes) {
+  if (!room_snes_supported_) {
+    match_snes_.reset();
+    return;
+  }
+  const SnesGameplaySet before = VerifiedSnesLocked();
+  match_snes_ = snes;
+  const SnesGameplaySet after = VerifiedSnesLocked();
+  if (!(before == after)) Log("online snes supported bits=" + std::to_string(after.Bits()));
+  CheckSnesLock();
+}
+
+// Only the room's one locked table is shared by every player, so nothing else may turn a mechanic on: without it the
+// match is locked all Off.
+void OnlineService::LockSnes() {
+  if (!party_ || snes_locked_ || snes_lock_pending_) return;
+  ++snes_round_;
+  if (!room_snes_supported_) {
+    AdoptSnesLock({}, "unsupported");
+    return;
+  }
+  snes_lock_pending_ = true;
+  snes_lock_deadline_ = now_ + kSnesLockWaitSeconds;
+  snes_lock_seq_ = 0;
+  CheckSnesLock();
+}
+
+void OnlineService::CheckSnesLock() {
+  if (!match_snes_ || !match_snes_->locked || match_snes_->locked->round != snes_round_) return;
+  if (snes_lock_pending_) {
+    AdoptSnesLock(VerifiedLock(LocalSnes(), *match_snes_), "service");
+    snes_lock_from_service_ = true;
+  } else if (snes_locked_ && !snes_lock_from_service_ && match_snes_->locked->table.AnyOn()) {
+    Log("online snes lock mismatch round=" + std::to_string(snes_round_));
+    snes_mismatch_ = true;
+  }
+}
+
+void OnlineService::AdoptSnesLock(const SnesMatchTable& table, const char* source) {
+  snes_locked_ = table;
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_lock_seq_ = 0;
+  const int slot = access_ ? access_->slot : 0;
+  Log("online snes locked round=" + std::to_string(snes_round_) + " supported=" + std::to_string(table.supported.Bits()) +
+      " own=" + std::to_string(table.For(slot).Bits()) + " source=" + source);
+}
+
+// The table belongs to one gameplay match: the next match of the same party negotiates again.
+void OnlineService::NoteGameEnd() {
+  Locked lock(*this);
+  game_running_ = false;
+  if (!snes_locked_ && !snes_lock_pending_) return;
+  Log("online snes released round=" + std::to_string(snes_round_));
+  snes_locked_.reset();
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_fallback_owed_ = false;
+  snes_lock_seq_ = 0;
+}
+
+void OnlineService::ResetSnes() {
+  match_snes_.reset();
+  snes_announced_ = false;
+  snes_update_seq_ = 0;
+  snes_retry_at_ = 0;
+  snes_locked_.reset();
+  snes_lock_pending_ = false;
+  snes_lock_from_service_ = false;
+  snes_fallback_owed_ = false;
+  snes_mismatch_ = false;
+  snes_lock_seq_ = 0;
+  snes_round_ = 0;
+  game_running_ = false;
+  room_snes_supported_ = true;
+  room_snes_modes_ = true;
+}
+
+bool OnlineService::InMatchLocked() const {
+  return party_ && (party_->members.size() >= 2 || game_running_ || snes_locked_);
+}
+
+bool OnlineService::InOnlineMatch() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return InMatchLocked();
+}
+
+OnlineService::SnesNegotiation OnlineService::Snes() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  SnesNegotiation out;
+  out.online = InMatchLocked();
+  out.my_slot = access_ ? access_->slot : 0;
+  out.locked = snes_locked_;
+  out.supported = VerifiedSnesLocked();
+  const SnesGameplayCapabilities local = LocalSnes();
+  const std::optional<SnesGameplayCapabilities> peer = match_snes_ ? match_snes_->peer : std::nullopt;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const SnesFeature feature = SnesFeatureAt(i);
+    const bool service = room_snes_supported_ && (room_snes_modes_ || !SnesFeatureNeedsModes(feature));
+    out.status[size_t(i)] = SnesStatusOf(feature, local, peer, service);
+  }
+  out.dash_manual_available = room_snes_modes_;
+  return out;
 }
 
 void OnlineService::SendRoom(const std::string& text) {
@@ -1193,7 +1510,7 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
   Locked lock(*this);
   const std::string code = NormalizeFriendCode(text);
   const auto refuse = [&](FriendRequestResult result, const char* reason, const std::string& notice) {
-    Log("online friend request failed code=" + (code.empty() ? std::string("-") : code) + " reason=" + reason);
+    Log("online friend request failed friend_code=" + (code.empty() ? std::string("-") : code) + " reason=" + reason);
     Notice(notice);
     return result;
   };
@@ -1207,32 +1524,75 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
   if (std::any_of(outgoing_.begin(), outgoing_.end(), is_code)) {
     return refuse(FriendRequestResult::kAlreadyPending, "already_pending", "Friend request already pending.");
   }
-  Log("online friend request sent code=" + code);
+  if (const auto lobby = std::find_if(lobby_players_.begin(), lobby_players_.end(),
+                                      [&](const LobbyPlayer& p) { return p.player == code; });
+      lobby != lobby_players_.end()) {
+    if (std::none_of(outgoing_.begin(), outgoing_.end(), [&](const Request& r) { return r.player == code; })) {
+      outgoing_.push_back({code, lobby->name});
+    }
+    SoonLobbyRefresh();
+  }
+  Log("online friend request sent friend_code=" + code);
   Send(Purpose::kAdd, [&code](int seq) { return EncodeFriendsAdd(seq, code); }, code);
   return FriendRequestResult::kSent;
 }
 
-void OnlineService::AcceptFriend(const std::string& player) {
+FriendRequestResult OnlineService::AddFriendFromLobby(const std::string& player) {
   Locked lock(*this);
-  incoming_.erase(std::remove_if(incoming_.begin(), incoming_.end(), [&](const Request& r) { return r.player == player; }),
-                  incoming_.end());
-  Send(Purpose::kAccept, [&player](int seq) { return EncodeFriendsAccept(seq, player); });
+  if (!Connected()) {
+    Notice("Not connected to the online service.");
+    return FriendRequestResult::kNotConnected;
+  }
+  if (!IsLobbyHandle(player)) {
+    Notice(DescribeServiceError("bad_request"));
+    return FriendRequestResult::kInvalid;
+  }
+  if (std::find(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), player) == lobby_pending_handles_.end()) {
+    lobby_pending_handles_.push_back(player);
+  }
+  SoonLobbyRefresh();
+  Log("online lobby friend request sent");
+  Send(Purpose::kAdd, [player](int seq) { return EncodeFriendsAddPlayer(seq, player); }, player);
+  return FriendRequestResult::kSent;
 }
 
-void OnlineService::DeclineFriend(const std::string& player) {
+void OnlineService::AcceptFriend(const std::string& key) {
+  Locked lock(*this);
+  incoming_.erase(std::remove_if(incoming_.begin(), incoming_.end(), [&](const Request& r) { return RequestKey(r) == key; }),
+                  incoming_.end());
+  Send(Purpose::kAccept, [&key](int seq) { return IsLobbyHandle(key) ? EncodeFriendsAcceptRequest(seq, key) : EncodeFriendsAccept(seq, key); });
+}
+
+void OnlineService::DeclineFriend(const std::string& key) {
   Locked lock(*this);
   const auto drop = [&](std::vector<Request>& list) {
-    list.erase(std::remove_if(list.begin(), list.end(), [&](const Request& r) { return r.player == player; }), list.end());
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const Request& r) { return RequestKey(r) == key; }), list.end());
   };
   drop(incoming_);
   drop(outgoing_);
-  Send(Purpose::kDecline, [&player](int seq) { return EncodeFriendsDecline(seq, player); });
+  if (std::any_of(lobby_players_.begin(), lobby_players_.end(),
+                  [&](const LobbyPlayer& p) { return p.player == key; })) {
+    SoonLobbyRefresh();
+  }
+  Send(Purpose::kDecline, [&key](int seq) { return IsLobbyHandle(key) ? EncodeFriendsDeclineRequest(seq, key) : EncodeFriendsDecline(seq, key); });
+}
+
+void OnlineService::DeclineLobbyFriend(const std::string& player) {
+  Locked lock(*this);
+  lobby_pending_handles_.erase(
+      std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), player), lobby_pending_handles_.end());
+  SoonLobbyRefresh();
+  Send(Purpose::kDecline, [player](int seq) { return EncodeFriendsDecline(seq, player); }, player);
 }
 
 void OnlineService::RemoveFriend(const std::string& player) {
   Locked lock(*this);
   friends_.erase(std::remove_if(friends_.begin(), friends_.end(), [&](const Friend& f) { return f.player == player; }),
                  friends_.end());
+  if (std::any_of(lobby_players_.begin(), lobby_players_.end(),
+                  [&](const LobbyPlayer& p) { return p.player == player; })) {
+    SoonLobbyRefresh();
+  }
   Send(Purpose::kRemove, [&player](int seq) { return EncodeFriendsRemove(seq, player); });
 }
 
@@ -1325,6 +1685,12 @@ void OnlineService::Notice(const std::string& text) {
   notices_.push_back(text);
   notice_ = text;
   notice_at_ = now_;
+}
+
+void OnlineService::NoticeStatus(const std::string& text) {
+  notices_.push_back(text);
+  notice_.clear();
+  notice_at_ = 0;
 }
 
 void OnlineService::Log(const std::string& line) {

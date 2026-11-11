@@ -13,6 +13,7 @@
 #include "online_runtime.h"
 #include "player_match.h"
 #include "player_match_net.h"
+#include "snes_gameplay_runtime.h"
 
 namespace tmnt {
 namespace {
@@ -102,6 +103,7 @@ thread_local bool t_frame_thread = false;
 bool OnFrameThread() { return t_frame_thread; }
 
 void PumpOnlineNetwork(uint8_t* base) {
+  UpdateSnesOnline();
   if (!OnlineRunning()) return;
   PumpOnlineService();
   UpdateMatchTransport();

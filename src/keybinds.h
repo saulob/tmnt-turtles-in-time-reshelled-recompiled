@@ -179,8 +179,8 @@ inline const char* KeyboardKeyName(ImGuiKey key) {
 
 // Whether the port already handles this key itself. Such a key may not be a gameplay binding, so a
 // press does not reach the game and the port action at once. The list is the keys with a live
-// listener (F2 frame counter, F3 ping display, F7 achievements, F11 fullscreen, Backtick console)
-// plus Escape, F4, F10 and F12, which stay reserved and unbound.
+// listener (F2 frame counter, F3 ping display, F7 achievements, F9 SNES menu, F10 cheats, F11 fullscreen)
+// plus Escape, F4 and F12, which stay reserved and unbound.
 inline bool KeyboardBindingIsReserved(ImGuiKey key) {
   switch (key) {
     case ImGuiKey_Escape:
@@ -188,10 +188,10 @@ inline bool KeyboardBindingIsReserved(ImGuiKey key) {
     case ImGuiKey_F3:
     case ImGuiKey_F4:
     case ImGuiKey_F7:
+    case ImGuiKey_F9:
     case ImGuiKey_F10:
     case ImGuiKey_F11:
     case ImGuiKey_F12:
-    case ImGuiKey_GraveAccent:
       return true;
     default:
       return false;
@@ -298,9 +298,24 @@ inline bool KeyboardBindingIsValid(std::string_view binding) {
 
 // What the launcher shows and edits for an action: the stored value, or the default when the stored
 // value is missing or not something ReXGlue can use. Edits stay pending in the store until Save or Play.
-inline std::string SavedKeyboardBinding(const trg::SettingsStore& settings, const KeyboardAction& action) {
-  const std::string saved = settings.Get(action.key);
+inline std::string UsableKeyboardBinding(const std::string& saved, const KeyboardAction& action) {
   return KeyboardBindingIsValid(saved) ? saved : std::string(action.default_binding);
+}
+
+inline std::string SavedKeyboardBinding(const trg::SettingsStore& settings, const KeyboardAction& action) {
+  return UsableKeyboardBinding(settings.Get(action.key), action);
+}
+
+// Spin Attack follows the keyboard binding of the B button.
+inline constexpr const KeyboardAction& kSpinAttackKeyAction = kKeyboardActions[1];
+static_assert(std::string_view(kSpinAttackKeyAction.key) == "keybind_b");
+
+inline std::string KeyboardBindingSlashLabel(std::string_view binding) {
+  std::string label = KeyboardBindingLabel(binding);
+  for (std::size_t at = label.find(" or "); at != std::string::npos; at = label.find(" or ", at + 3)) {
+    label.replace(at, 4, " / ");
+  }
+  return label;
 }
 
 // Puts every keyboard control back to its pinned ReXGlue default, and nothing else.

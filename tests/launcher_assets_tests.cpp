@@ -3,14 +3,23 @@
 // Run: tmnt_launcher_assets_tests
 
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
+#include "embedded_file.h"
 #include "launcher_assets.h"
+#include "page_icons.h"
+
+namespace tmnt {
+extern const EmbeddedFile kPageIconFiles[];
+}
 
 namespace {
 
@@ -82,12 +91,130 @@ void TestWiring() {
   CHECK(std::filesystem::is_regular_file(source_dir + "/../assets/launcher/sponsor-heart.png"));
 }
 
+struct IconExpectation {
+  tmnt::LauncherPage page;
+  const char* file;
+  uint64_t signature;
+  float scale;
+};
+
+uint64_t Signature(const std::string& bytes) {
+  uint64_t hash = 0xcbf29ce484222325ull;
+  for (const char c : bytes) {
+    if (c == '\r') continue;
+    hash ^= uint8_t(c);
+    hash *= 0x100000001b3ull;
+  }
+  return hash;
+}
+
+void TestSidebarIcons() {
+  std::printf("every page has the expected embedded sidebar icon\n");
+  const std::string source_dir = TMNT_SRC_DIR;
+  const std::string root = source_dir + "/..";
+  const std::string launcher = ReadFile(source_dir + "/launcher.cpp");
+  CHECK(Has(launcher, "#include \"page_icons.h\""));
+  CHECK(Has(launcher, "result.icon = [this, page](int pixels) { return PageIconTexture(page, pixels); };"));
+
+  // FNV-1a of the file with CR removed. The shared values match Dragon's launcher icon set.
+  const IconExpectation expected[] = {
+      {tmnt::LauncherPage::kPlay, "play.svg", 0x4d0af5ebd60af49bull, 0.84f},
+      {tmnt::LauncherPage::kDisplay, "display.svg", 0x28b392b11cfe8c30ull, 0.90f},
+      {tmnt::LauncherPage::kGraphics, "graphics.svg", 0x0e5b5a9f96fc33e8ull, 0.84f},
+      {tmnt::LauncherPage::kGameplay, "gameplay.svg", 0xbb3ef579d120ec64ull, 0.92f},
+      {tmnt::LauncherPage::kSnes, "snes.svg", 0xa81819cce4b72030ull, 0.92f},
+      {tmnt::LauncherPage::kCheats, "cheats.svg", 0xf82376053693ffaaull, 0.92f},
+      {tmnt::LauncherPage::kOnline, "online.svg", 0xb94beeac22b2c389ull, 0.90f},
+      {tmnt::LauncherPage::kAchievements, "achievements.svg", 0x51faa0a39512120full, 0.86f},
+      {tmnt::LauncherPage::kControls, "controls.svg", 0x43cca1bdf709820cull, 0.94f},
+      {tmnt::LauncherPage::kBugReport, "bug-report.svg", 0xa03ce8a040a832d0ull, 0.90f},
+      {tmnt::LauncherPage::kAbout, "about.svg", 0x6214cc4745067de1ull, 0.88f},
+      {tmnt::LauncherPage::kDlc, "dlc.svg", 0x55c36914987bf375ull, 0.88f},
+  };
+  for (const IconExpectation& icon : expected) {
+    const tmnt::PageIconAsset* asset = tmnt::FindPageIcon(icon.page);
+    CHECK(asset && std::string(asset->file) == icon.file);
+    CHECK(asset && std::abs(asset->optical_scale - icon.scale) < 0.0001f);
+    const std::string path = root + "/assets/launcher/icons/" + icon.file;
+    const std::string bytes = ReadFile(path);
+    CHECK(!bytes.empty() && Has(bytes, "<svg"));
+    CHECK(Signature(bytes) == icon.signature);
+    const std::vector<uint8_t> rgba = tmnt::RenderPageIcon(icon.page, 32);
+    CHECK(rgba.size() == 32u * 32u * 4u);
+    bool opaque = false;
+    for (size_t i = 3; i < rgba.size(); i += 4) opaque = opaque || rgba[i] != 0;
+    CHECK(opaque);
+  }
+
+  size_t last = 0;
+  for (const char* page : {"kPlay", "kDisplay", "kGraphics", "kGameplay", "kSnes", "kCheats", "kOnline",
+                           "kAchievements", "kControls", "kBugReport", "kAbout"}) {
+    const size_t at = launcher.find(std::string("MakePage(LauncherPage::") + page);
+    CHECK(at != std::string::npos && at >= last);
+    last = at;
+  }
+  CHECK(Has(launcher, "MakePage(LauncherPage::kDlc"));
+
+  CHECK(!std::filesystem::exists(std::filesystem::path(root) / "super-nintendo-controller-svgrepo-com.svg"));
+  CHECK(std::filesystem::is_regular_file(
+      std::filesystem::path(root) / "assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg"));
+  CHECK(!std::filesystem::exists(std::filesystem::path(root) / "assets/launcher/icons/trophies.svg"));
+
+  for (const IconExpectation& icon : expected) {
+    bool embedded = false;
+    for (const tmnt::EmbeddedFile* file = tmnt::kPageIconFiles; file->name; ++file) {
+      if (std::string(file->name) == icon.file && file->data && file->size) embedded = true;
+    }
+    CHECK(embedded);
+  }
+  bool stale_achievement_icon = false;
+  bool embedded_source_file = false;
+  for (const tmnt::EmbeddedFile* file = tmnt::kPageIconFiles; file->name; ++file) {
+    stale_achievement_icon = stale_achievement_icon || std::string(file->name) == "trophies.svg";
+    embedded_source_file = embedded_source_file || std::string(file->name) == "super-nintendo-controller-svgrepo-com.svg";
+  }
+  CHECK(!stale_achievement_icon);
+  CHECK(!embedded_source_file);
+
+  const std::string sources = ReadFile(root + "/assets/launcher/icons/SOURCES.md");
+  CHECK(Has(sources, "dragons-crown-pro-pc/assets/launcher/icons"));
+  CHECK(Has(sources, "`achievements.svg` | Achievements"));
+  CHECK(Has(sources, "`cheats.svg` | Star Alt 1"));
+  CHECK(Has(sources, "`snes.svg` | Super Nintendo Controller"));
+  CHECK(Has(sources, "assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg"));
+  CHECK(Has(sources, "https://www.svgrepo.com/svg/82749/super-nintendo-controller"));
+  CHECK(Has(sources, "| CC0 |"));
+  CHECK(!Has(sources, "`trophies.svg`"));
+  CHECK(!Has(sources, "Sparkling star"));
+  CHECK(!Has(sources, "SNES cartridge"));
+
+  const std::string licenses = ReadFile(root + "/packaging/licenses/THIRD-PARTY-LICENSES.txt");
+  CHECK(Has(licenses, "| achievements.svg | Achievements |"));
+  CHECK(Has(licenses, "| cheats.svg | Star Alt 1 |"));
+  CHECK(Has(licenses, "| snes.svg | Super Nintendo Controller |"));
+  CHECK(Has(licenses, "assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg"));
+  CHECK(Has(licenses, "https://www.svgrepo.com/svg/82749/super-nintendo-controller"));
+  CHECK(Has(licenses, "| CC0 |"));
+  CHECK(!Has(licenses, "| trophies.svg |"));
+
+  const std::string cmake = ReadFile(root + "/CMakeLists.txt");
+  CHECK(Has(cmake, "src/page_icons.cpp"));
+  CHECK(Has(cmake, "src/embed_files.cmake"));
+  CHECK(Has(cmake, "assets/launcher/icons/*.svg"));
+  CHECK(Has(launcher, "c.render_scale = g_font_density;"));
+  CHECK(Has(launcher, "launcher_->config().render_scale = g_font_density;"));
+  CHECK(Has(launcher, "g_fonts.size = trg::layout::kTextBody;"));
+  CHECK(Has(launcher, "page_icons_[std::make_pair(page, physical_pixels)]"));
+  CHECK(Has(launcher, "CreateTexture(uint32_t(physical_pixels), uint32_t(physical_pixels)"));
+}
+
 }  // namespace
 
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   TestPathResolution();
   TestWiring();
+  TestSidebarIcons();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

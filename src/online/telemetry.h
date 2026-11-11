@@ -46,6 +46,7 @@ namespace tmnt::online {
   X(disconnect, disconnect)  \
   X(disabled, disconnect)  \
   X(host_unreachable, disconnect)  \
+  X(snes_mismatch, disconnect)  \
   X(party_replaced, disconnect)  \
   X(join_timeout, disconnect)  \
   X(timeout, disconnect)  \
@@ -64,6 +65,7 @@ namespace tmnt::online {
   X(busy, service)  \
   X(offline, service)  \
   X(not_found, service)  \
+  X(not_visible, service)  \
   X(not_friends, service)  \
   X(already_invited, service)  \
   X(no_party, service)  \

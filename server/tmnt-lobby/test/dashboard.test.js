@@ -49,6 +49,8 @@ class Node {
 
   fire(type, event = { clientX: 10, clientY: 10 }) { for (const fn of this.listeners[type] ?? []) fn(event); }
 
+  click() { this.clicked = true; }
+
   getBoundingClientRect() { return { left: 0, top: 0, right: 900, bottom: 200, width: 900, height: 200 }; }
 
   focus() {}
@@ -74,8 +76,10 @@ function cardsOf(html) {
   });
 }
 
-async function dashboard(env, days) {
+async function dashboard(env, days, options = {}) {
   const ids = new Map();
+  const created = [];
+  const copied = [];
   const get = (id) => {
     if (!ids.has(id)) ids.set(id, new Node('div'));
     return ids.get(id);
@@ -84,7 +88,11 @@ async function dashboard(env, days) {
   const document = {
     hidden: false,
     getElementById: get,
-    createElement: (tag) => new Node(tag),
+    createElement: (tag) => {
+      const node = new Node(tag);
+      created.push(node);
+      return node;
+    },
     createElementNS: (ns, tag) => new Node(tag),
     createTextNode: (text) => Object.assign(new Node('#text'), { ownText: text }),
     querySelectorAll: () => cards,
@@ -92,17 +100,23 @@ async function dashboard(env, days) {
   get('range').value = String(days);
   get('tip').hidden = true;
   const requests = [];
-  const fetch = async (path) => {
+  const fetch = async (path, init) => {
     requests.push(path);
+    if (options.fetch) {
+      const handled = await options.fetch(path, init);
+      if (handled !== undefined) return handled;
+    }
     const query = new URL(path, 'https://x').searchParams;
     return { ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(path.startsWith('/admin/api/summary')
       ? env.hub.metricsSummary() : env.hub.metricsHistory(Number(query.get('days'))))) };
   };
   const storage = { getItem: () => 'token', setItem() {}, removeItem() {} };
-  new Function('document', 'window', 'fetch', 'sessionStorage', 'setInterval', 'clearInterval', ADMIN_JS)(
-    document, { innerWidth: 1200, innerHeight: 800 }, fetch, storage, () => 0, () => {});
+  const url = { createObjectURL: () => 'blob:test', revokeObjectURL() {} };
+  const navigator = { clipboard: { writeText: async (text) => { copied.push(text); } } };
+  new Function('document', 'window', 'fetch', 'sessionStorage', 'setInterval', 'clearInterval', 'URL', 'navigator', 'setTimeout', ADMIN_JS)(
+    document, { innerWidth: 1200, innerHeight: 800 }, fetch, storage, () => 0, () => {}, url, navigator, (fn) => fn());
   for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
-  return { ids, get, cards, tip: get('tip'), requests };
+  return { ids, get, cards, tip: get('tip'), requests, created, copied };
 }
 
 const dayAgo = (env, n) => metricsDay(env.clock.now - n * DAY_MS);
@@ -179,7 +193,8 @@ test('the period comparison names both exact ranges and handles an empty previou
   assert.equal(change('Rooms created'), '-');
   assert.equal(change('Successful joins'), '+5 (+50%)');
   assert.deepEqual(table.find((n) => n.tag === 'tr').slice(1).map((r) => r.children[0].textContent), ['Unique players', 'Sessions',
-    'Rooms created', 'Successful joins', 'Rooms with a guest', 'Peak online', 'Peak in rooms']);
+    'Rooms created', 'Successful joins', 'Rooms with a guest', 'Peak online', 'Peak in rooms', 'Bug reports filed',
+    'Bug reports rejected']);
   assert.ok(clean(table.textContent));
 });
 
@@ -434,7 +449,9 @@ test('connection health, abuse protection and the breakdowns render their counte
   putDimensions(env, 0, 'country', { BR: 2, Unknown: 1 });
   const page = await dashboard(env, 30);
   assert.deepEqual(cardText(page, 'health'), ['Reconnects not counted as sessions7', 'Incompatibility rejects2',
-    'Rooms that used the relay1 · 25%', 'Room operations refused2']);
+    'Rooms that used the relay1 · 25%', 'Room operations refused2', 'Lobby list requests0', 'Lobby publishes0',
+    'Peak players listed in Lobby0', 'Lobby reads refused0', 'Bug reports filed0', 'Bug reports rejected0',
+    'Report status checks0', 'Report reads0', 'Developer replies0', 'Reports deleted0', 'Report service failures0', 'Reports stored now0']);
   assert.ok(page.get('abuse').textContent.includes('Party snapshots refused: too many'));
   assert.ok(page.get('rejects').textContent.includes('Party join refused'));
   assert.ok(page.get('d-version').textContent.includes('v0.4.2'));
@@ -506,9 +523,173 @@ test('the page keeps its controls and the Dragon wording', () => {
   assert.ok(!/Dragon|Fighter|Sorceress|operational telemetry/i.test(ADMIN_HTML));
 });
 
+test('the Bugs tab holds the SF2 report controls', () => {
+  for (const id of ['bug-version', 'bug-build', 'bug-status-filter', 'bug-refresh', 'bug-count', 'bug-list', 'bug-detail',
+    'bug-download', 'bug-copy', 'bug-close', 'bug-status', 'bug-status-meaning', 'bug-fixed-field', 'bug-fixed',
+    'bug-message', 'bug-status-save', 'bug-status-note', 'bug-log', 'bug-empty', 'bug-list-wrap']) {
+    assert.ok(ADMIN_HTML.includes(`id="${id}"`), id);
+  }
+  for (const text of ['Bugs', 'Port version', 'Game image', 'Refresh reports', 'All statuses', 'Open', 'Investigating',
+    'Fixed', 'Cannot reproduce', 'Duplicate', 'Not a bug', 'Closed', 'Save status', 'Copy log', 'Download log',
+    'Close report']) {
+    assert.ok(ADMIN_HTML.includes(text), text);
+  }
+  assert.ok(ADMIN_HTML.includes('id="signout"'));
+  assert.ok(!ADMIN_HTML.includes('Delete report'));
+  assert.ok(!ADMIN_JS.includes("method: 'DELETE'"));
+  assert.ok(ADMIN_JS.includes("'Report ID', 'Submitted', 'Port', 'Game image', 'Platform', 'Operating system', 'Description', 'Status'"));
+});
+
+const settle = async () => {
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+};
+const jsonResponse = (value, status = 200) => ({ ok: status >= 200 && status < 300, status, json: async () => value });
+const bugReport = (extra = {}) => ({
+  ticket: 'TMNT-AAAAAA', ms: 1700000000000, launcher_version: '0.1.0',
+  guest: 'TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)', platform: 'Windows',
+  operating_system: 'Windows 11 (build 26200)', runtime: 'ReXGlue SDK 0.10.0',
+  log_file: 'tmnt_turtles_in_time_reshelled_001.log', log_clipped: 'no', preview: 'First report',
+  status: 'new', status_updated_at: 1700000000000, fixed_version: '', player_message: '',
+  description: 'The game crashes when the second player joins.', log_text: 'Runtime configuration:\n', ...extra,
+});
+
+test('the Bugs tab filters by port version, game image and status', async () => {
+  const first = bugReport();
+  const second = bugReport({
+    ticket: 'TMNT-BBBBBB', ms: 1700000001000, launcher_version: '0.2.0', guest: 'Not installed',
+    platform: 'Linux', operating_system: 'Linux', preview: 'Second report', status: 'fixed', fixed_version: '0.1.1',
+  });
+  const page = await dashboard(makeHub(), 30, {
+    fetch: async (path) => path === '/admin/api/incidents' ? jsonResponse({ incidents: [first, second] }) : undefined,
+  });
+  page.get('tab-bugs').fire('click');
+  await settle();
+  const list = page.get('bug-list');
+  assert.equal(list.children.length, 3);
+  assert.deepEqual([...page.get('bug-version').children].map((o) => o.value), ['', '0.1.0', '0.2.0']);
+  assert.deepEqual([...page.get('bug-build').children].map((o) => o.value), ['', 'Not installed', first.guest]);
+  assert.equal(page.get('bug-empty').hidden, true);
+  assert.equal(page.get('bug-list-wrap').hidden, false);
+
+  page.get('bug-version').value = '0.1.0';
+  page.get('bug-version').fire('change');
+  assert.equal(list.children.length, 2);
+  assert.equal(list.children[1].children[0].children[0].textContent, first.ticket);
+  assert.equal(page.get('bug-count').textContent, '1 of 2 reports');
+
+  page.get('bug-version').value = '';
+  page.get('bug-version').fire('change');
+  page.get('bug-build').value = 'Not installed';
+  page.get('bug-build').fire('change');
+  assert.equal(list.children.length, 2);
+  assert.equal(list.children[1].children[0].children[0].textContent, second.ticket);
+
+  page.get('bug-build').value = '';
+  page.get('bug-build').fire('change');
+  page.get('bug-status-filter').value = 'fixed';
+  page.get('bug-status-filter').fire('change');
+  assert.equal(list.children.length, 2);
+  assert.equal(list.children[1].children[0].children[0].textContent, second.ticket);
+
+  page.get('bug-version').value = '0.1.0';
+  page.get('bug-version').fire('change');
+  assert.equal(list.children.length, 1);
+  assert.equal(page.get('bug-count').textContent, '0 of 2 reports');
+});
+
+test('an empty Bugs tab shows the SF2 empty state', async () => {
+  const page = await dashboard(makeHub(), 30, {
+    fetch: async (path) => path === '/admin/api/incidents' ? jsonResponse({ incidents: [] }) : undefined,
+  });
+  page.get('tab-bugs').fire('click');
+  await settle();
+  assert.equal(page.get('bug-empty').hidden, false);
+  assert.equal(page.get('bug-empty').textContent, 'No bug reports yet.');
+  assert.equal(page.get('bug-list-wrap').hidden, true);
+  assert.equal(page.get('bug-count').textContent, '');
+});
+
+test('the report detail follows SF2 facts, status meaning, fixed version and controls', async () => {
+  const base = bugReport();
+  const statusSaves = [];
+  const page = await dashboard(makeHub(), 30, {
+    fetch: async (path, init) => {
+      if (path === '/admin/api/incidents') return jsonResponse({ incidents: [base] });
+      if (path === '/admin/api/incidents/TMNT-AAAAAA') return jsonResponse(base);
+      if (path === '/admin/api/incidents/TMNT-AAAAAA/status') {
+        const body = JSON.parse(init.body);
+        statusSaves.push({ method: init.method, body });
+        return jsonResponse({ ...base, status: body.status, status_updated_at: 5,
+          fixed_version: body.status === 'fixed' ? body.fixed_version : '', player_message: body.player_message });
+      }
+      if (path === '/admin/api/incidents/TMNT-AAAAAA/log') {
+        return { ok: true, status: 200, headers: { get: () => 'attachment; filename="TMNT-AAAAAA-tmnt_turtles_in_time_reshelled_001.log"' },
+          blob: async () => ({}) };
+      }
+      return undefined;
+    },
+  });
+  page.get('tab-bugs').fire('click');
+  await settle();
+  page.get('bug-list').children[1].children[0].children[0].fire('click');
+  await settle();
+
+  assert.equal(page.get('bug-detail').hidden, false);
+  assert.equal(page.get('bug-title').textContent, base.ticket);
+  const facts = page.get('bug-facts').textContent;
+  for (const label of ['Report ID', 'Submitted', 'Port version', 'Game image', 'Platform', 'Operating system', 'Runtime',
+    'Original log file', 'Log clipped']) {
+    assert.ok(facts.includes(label), label);
+  }
+  assert.ok(facts.includes('(Sao Paulo)'));
+  assert.equal(page.get('bug-status-meaning').textContent, 'The report has not been reviewed yet.');
+  assert.equal(page.get('bug-fixed-field').hidden, true);
+
+  page.get('bug-status').value = 'fixed';
+  page.get('bug-status').fire('change');
+  assert.equal(page.get('bug-fixed-field').hidden, false);
+  assert.equal(page.get('bug-status-meaning').textContent, 'The problem has been corrected.');
+
+  page.get('bug-fixed').value = '0.1.0';
+  page.get('bug-status').value = 'investigating';
+  page.get('bug-status').fire('change');
+  assert.equal(page.get('bug-fixed-field').hidden, true);
+  page.get('bug-message').value = 'testando';
+  page.get('bug-status-save').fire('click');
+  await settle();
+  assert.equal(page.get('bug-status-note').textContent, 'Saved.');
+  assert.equal(page.get('bug-status').value, 'investigating');
+  assert.equal(page.get('bug-fixed-field').hidden, true);
+  assert.equal(page.get('bug-fixed').value, '');
+  assert.deepEqual(statusSaves.at(-1), { method: 'POST', body: { status: 'investigating', fixed_version: '', player_message: 'testando' } });
+  assert.equal(page.get('bug-list').children[1].children[7].textContent, 'Investigating');
+
+  page.get('bug-refresh').fire('click');
+  await settle();
+  assert.equal(page.get('bug-detail').hidden, false);
+  assert.equal(page.get('bug-title').textContent, base.ticket);
+  assert.equal(page.get('bug-list').children[1].className, 'selected');
+
+  page.get('bug-download').fire('click');
+  await settle();
+  const anchor = page.created.filter((n) => n.tag === 'a').at(-1);
+  assert.ok(anchor && anchor.clicked);
+  assert.equal(anchor.download, 'TMNT-AAAAAA-tmnt_turtles_in_time_reshelled_001.log');
+
+  page.get('bug-copy').fire('click');
+  await settle();
+  assert.equal(page.get('bug-note').textContent, 'Log copied.');
+  assert.ok(page.copied.includes(base.log_text));
+
+  page.get('bug-close').fire('click');
+  await settle();
+  assert.equal(page.get('bug-detail').hidden, true);
+});
+
 test('the dashboard reads only its own routes, with no dangerous construct in production code', () => {
-  assert.deepEqual([...ADMIN_JS.matchAll(/api\('([^']+)/g)].map((m) => m[1]).sort(), ['/admin/api/history?days=', '/admin/api/summary']);
-  assert.equal([...ADMIN_JS.matchAll(/fetch\(/g)].length, 1);
+  assert.deepEqual([...new Set([...ADMIN_JS.matchAll(/api\('([^']+)/g)].map((m) => m[1]))].sort(),
+    ['/admin/api/history?days=', '/admin/api/incidents', '/admin/api/incidents/', '/admin/api/summary']);
+  assert.equal([...ADMIN_JS.matchAll(/fetch\(/g)].length, 3);
   assert.ok(!/innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\b|new Function/.test(ADMIN_JS));
   assert.ok(!/localStorage/.test(ADMIN_JS));
 });

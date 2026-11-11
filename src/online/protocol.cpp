@@ -44,6 +44,10 @@ std::string WithPlayer(const char* op, int seq, const std::string& player) {
 
 std::string StringOf(const json::Value* v) { return v && v->IsString() ? v->AsString() : std::string(); }
 bool BoolOf(const json::Value* v, bool fallback) { return v && v->IsBool() ? v->AsBool() : fallback; }
+std::string ShownNameOf(const json::Value& row) {
+  const std::string shown = StringOf(row.Find("display_name"));
+  return shown.empty() ? StringOf(row.Find("name")) : shown;
+}
 int IntOf(const json::Value* v) {
   const auto n = v && v->IsNumber() ? v->AsInt64() : std::nullopt;
   return n ? int(*n) : 0;
@@ -62,7 +66,7 @@ std::optional<Friend> ReadFriend(const json::Value* v) {
   if (!v || !v->IsObject()) return std::nullopt;
   Friend f;
   f.player = StringOf(v->Find("player"));
-  f.name = StringOf(v->Find("name"));
+  f.name = ShownNameOf(*v);
   if (f.player.empty()) return std::nullopt;
   f.online = BoolOf(v->Find("online"), false);
   f.state = f.online ? StateOf(StringOf(v->Find("state"))) : FriendState::kOffline;
@@ -89,9 +93,37 @@ std::optional<std::vector<Request>> ReadRequests(const json::Value* v) {
   std::vector<Request> out;
   for (const json::Value& row : v->AsArray()) {
     if (!row.IsObject()) return std::nullopt;
-    Request r{StringOf(row.Find("player")), StringOf(row.Find("name"))};
-    if (r.player.empty()) return std::nullopt;
+    Request r{StringOf(row.Find("player")), ShownNameOf(row), StringOf(row.Find("request"))};
+    if (RequestKey(r).empty()) return std::nullopt;
     out.push_back(std::move(r));
+  }
+  return out;
+}
+
+std::optional<LobbyPlayer> ReadLobbyPlayer(const json::Value& row) {
+  if (!row.IsObject()) return std::nullopt;
+  LobbyPlayer p;
+  p.player = StringOf(row.Find("player"));
+  p.name = ShownNameOf(row);
+  if (p.player.empty() || p.name.empty()) return std::nullopt;
+  const std::string state = StringOf(row.Find("state"));
+  if (state == "none" || state == "pending" || state == "friend" || state == "incoming") p.relation = state;
+  p.state = StateOf(state);
+  if (p.state == FriendState::kOffline) p.state = FriendState::kOnline;
+  p.platform = StringOf(row.Find("platform"));
+  p.version = StringOf(row.Find("version"));
+  p.guest = StringOf(row.Find("guest"));
+  p.compatible = BoolOf(row.Find("compatible"), true);
+  return p;
+}
+
+std::optional<std::vector<LobbyPlayer>> ReadLobbyPlayers(const json::Value* v) {
+  if (!v || !v->IsArray()) return std::nullopt;
+  std::vector<LobbyPlayer> out;
+  for (const json::Value& row : v->AsArray()) {
+    std::optional<LobbyPlayer> player = ReadLobbyPlayer(row);
+    if (!player) return std::nullopt;
+    out.push_back(std::move(*player));
   }
   return out;
 }
@@ -141,7 +173,103 @@ ServiceCapabilities ReadCapabilities(const json::Value& v) {
   caps.public_endpoints = BoolOf(v.Find("public_endpoints"), false);
   caps.relay_supported = BoolOf(v.Find("relay_supported"), false);
   caps.relay_max_payload = IntOf(v.Find("relay_max_payload"));
+  caps.public_lobby = BoolOf(v.Find("public_lobby"), false);
+  caps.bug_reports = BoolOf(v.Find("bug_reports"), false);
+  caps.snes_features = BoolOf(v.Find("snes_features"), false);
+  caps.snes_modes = BoolOf(v.Find("snes_modes"), false);
   return caps;
+}
+
+SnesGameplaySet ReadSnesSet(const json::Value* v) {
+  SnesGameplaySet set;
+  if (!v || !v->IsObject()) return set;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const SnesFeature feature = SnesFeatureAt(i);
+    set.Set(feature, BoolOf(v->Find(SnesKey(feature)), false));
+  }
+  // A Dash from a client or service that predates modes has no mode and is Auto; a mode this game does not know is Off.
+  if (set.Has(SnesFeature::kDash)) {
+    if (const json::Value* mode = v->Find("dash_mode"); mode && mode->IsString()) {
+      set.dash = ParseDashModeKey(StringOf(mode)).value_or(DashMode::kOff);
+    }
+  }
+  return set;
+}
+
+uint32_t ParseCompat(const std::string& text) {
+  if (text == "mixed") return kSnesCompatMixed;
+  if (text.empty() || text.size() > 8) return 0;
+  uint32_t value = 0;
+  for (const char c : text) {
+    const int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+    if (digit < 0) return 0;
+    value = value << 4 | uint32_t(digit);
+  }
+  return value == kSnesCompatMixed ? 0 : value;
+}
+
+SnesGameplayCapabilities ReadSnesCapabilities(const json::Value* v) {
+  SnesGameplayCapabilities caps;
+  if (!v || !v->IsObject()) return caps;
+  caps.supports = ReadSnesSet(v->Find("supports"));
+  caps.enabled = ReadSnesSet(v->Find("enabled"));
+  if (const json::Value* compat = v->Find("compat"); compat && compat->IsObject()) {
+    for (int i = 0; i < kSnesFeatureCount; ++i) {
+      caps.compat[size_t(i)] = ParseCompat(StringOf(compat->Find(SnesKey(SnesFeatureAt(i)))));
+    }
+  }
+  return caps.Normalized();
+}
+
+// `players` is keyed by party slot; a seat outside 1 to 4 or a row that is not an object is left out.
+SnesMatchTable ReadSnesTable(const json::Value& v) {
+  SnesMatchTable table;
+  table.supported = ReadSnesSet(v.Find("supported"));
+  if (const json::Value* players = v.Find("players"); players && players->IsObject()) {
+    for (int slot = 1; slot <= kSnesSeats; ++slot) {
+      const json::Value* row = players->Find(std::to_string(slot));
+      if (row && row->IsObject()) table.players[size_t(slot - 1)] = ReadSnesSet(row);
+    }
+  }
+  return table;
+}
+
+std::optional<MatchSnes> ReadMatchSnes(const json::Value* v) {
+  if (!v || !v->IsObject()) return std::nullopt;
+  MatchSnes snes;
+  if (const json::Value* peer = v->Find("peer"); peer && peer->IsObject()) snes.peer = ReadSnesCapabilities(peer);
+  snes.table = ReadSnesTable(*v);
+  if (const json::Value* locked = v->Find("locked"); locked && locked->IsObject()) {
+    const int round = IntOf(locked->Find("round"));
+    if (round > 0) snes.locked = SnesMatchLock{round, ReadSnesTable(*locked)};
+  }
+  return snes;
+}
+
+std::string SnesSetJson(const SnesGameplaySet& set) {
+  std::string out = "{";
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const SnesFeature feature = SnesFeatureAt(i);
+    out += std::string(i ? "," : "") + "\"" + SnesKey(feature) + "\":" + (set.Has(feature) ? "true" : "false");
+  }
+  return out + ",\"dash_mode\":\"" + DashModeKey(set.dash) + "\"}";
+}
+
+std::string SnesJson(const SnesGameplayCapabilities& snes) {
+  const SnesGameplayCapabilities caps = snes.Normalized();
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string compat = "{";
+  bool first = true;
+  for (int i = 0; i < kSnesFeatureCount; ++i) {
+    const uint32_t id = caps.compat[size_t(i)];
+    if (!id || id == kSnesCompatMixed) continue;
+    std::string hex(8, '0');
+    for (int digit = 0; digit < 8; ++digit) hex[size_t(7 - digit)] = kHex[(id >> (digit * 4)) & 0xF];
+    compat += std::string(first ? "" : ",") + "\"" + SnesKey(SnesFeatureAt(i)) + "\":\"" + hex + "\"";
+    first = false;
+  }
+  return "{\"supports\":" + SnesSetJson(caps.supports) + ",\"enabled\":" + SnesSetJson(caps.enabled) +
+         ",\"compat\":" + compat + "}}";
 }
 
 MemberState MemberStateOf(const std::string& text) {
@@ -243,10 +371,19 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
     message.friends = ReadFriends(root->Find("friends"));
     message.incoming = ReadRequests(root->Find("incoming"));
     message.outgoing = ReadRequests(root->Find("outgoing"));
+    message.lobby_players = ReadLobbyPlayers(root->Find("players"));
+    message.lobby_unchanged = BoolOf(root->Find("unchanged"), false);
+    if (const json::Value* rev = root->Find("rev"); rev && rev->IsNumber()) {
+      if (const auto n = rev->AsInt64()) message.lobby_rev = *n;
+    }
+    if (const json::Value* visible = root->Find("visible"); visible && visible->IsBool()) {
+      message.lobby_visible = visible->AsBool();
+    }
     if (const json::Value* caps = root->Find("capabilities"); caps && caps->IsObject()) {
       message.capabilities = ReadCapabilities(*caps);
     }
     if (root->Find("match") && root->Find("slot")) message.access = ReadAccess(*root);
+    message.snes = ReadMatchSnes(root->Find("snes"));
     return message;
   }
   const std::string event = StringOf(root->Find("ev"));
@@ -260,8 +397,8 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
   }
   if (event == "friend.request") {
     message.kind = Kind::kFriendRequest;
-    message.request = {StringOf(root->Find("player")), StringOf(root->Find("name"))};
-    return message.request.player.empty() ? std::nullopt : std::optional<ServerMessage>(message);
+    message.request = {StringOf(root->Find("player")), ShownNameOf(*root), StringOf(root->Find("request"))};
+    return RequestKey(message.request).empty() ? std::nullopt : std::optional<ServerMessage>(message);
   }
   if (event == "friend.removed" || event == "friend.offline") {
     message.kind = event == "friend.removed" ? Kind::kFriendRemoved : Kind::kFriendOffline;
@@ -300,6 +437,11 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
     message.room_members = ReadRoomMembers(root->Find("members"));
     message.generation = IntOf(root->Find("generation"));
     return message.room_members ? std::optional<ServerMessage>(message) : std::nullopt;
+  }
+  if (event == "match.snes") {
+    message.kind = Kind::kMatchSnes;
+    message.snes = ReadMatchSnes(root->Find("snes"));
+    return message.snes ? std::optional<ServerMessage>(message) : std::nullopt;
   }
   if (event == "match.ended") {
     message.kind = Kind::kMatchEnded;
@@ -364,6 +506,12 @@ std::string EncodeHello(int seq, const HelloFields& hello) {
 }
 
 std::string EncodePing(int seq) { return Envelope("ping", seq); }
+std::string EncodeLobbyPublish(int seq, bool visible) {
+  return Envelope("lobby.publish", seq, std::string(",\"visible\":") + (visible ? "true" : "false"));
+}
+std::string EncodeLobbyList(int seq, std::optional<int64_t> held_rev) {
+  return Envelope("lobby.list", seq, held_rev && *held_rev >= 0 ? ",\"rev\":" + std::to_string(*held_rev) : std::string());
+}
 std::string EncodePartyReport(int seq, const PartySnapshot& snapshot) {
   std::string characters;
   for (int i = 0; i < snapshot.size; ++i) characters += (i ? "," : "") + std::to_string(snapshot.characters[size_t(i)]);
@@ -372,8 +520,17 @@ std::string EncodePartyReport(int seq, const PartySnapshot& snapshot) {
 std::string EncodeFriendsList(int seq) { return Envelope("friends.list", seq); }
 std::string EncodeFriendsRequests(int seq) { return Envelope("friends.requests", seq); }
 std::string EncodeFriendsAdd(int seq, const std::string& code) { return Envelope("friends.add", seq, ",\"code\":" + Quote(code)); }
+std::string EncodeFriendsAddPlayer(int seq, const std::string& player) {
+  return Envelope("friends.add", seq, ",\"player\":" + Quote(player));
+}
 std::string EncodeFriendsAccept(int seq, const std::string& player) { return WithPlayer("friends.accept", seq, player); }
 std::string EncodeFriendsDecline(int seq, const std::string& player) { return WithPlayer("friends.decline", seq, player); }
+std::string EncodeFriendsAcceptRequest(int seq, const std::string& request) {
+  return Envelope("friends.accept", seq, ",\"request\":" + Quote(request));
+}
+std::string EncodeFriendsDeclineRequest(int seq, const std::string& request) {
+  return Envelope("friends.decline", seq, ",\"request\":" + Quote(request));
+}
 std::string EncodeFriendsRemove(int seq, const std::string& player) { return WithPlayer("friends.remove", seq, player); }
 std::string EncodePlayerMatchHost(int seq, const PlayerMatchRules& rules, const std::string& qos_hex, int slots) {
   std::string object = "{";
@@ -402,11 +559,20 @@ std::string EncodeInviteDecline(int seq, const std::string& invite) {
 }
 
 std::string EncodeMatchHello(int seq, const std::string& match, int slot, const std::string& join_token,
-                             int generation_seen) {
+                             int generation_seen, const SnesGameplayCapabilities& snes) {
   return Envelope("match.hello", seq,
                   ",\"proto\":" + std::to_string(kLobbyProtocol) + ",\"match\":" + Quote(match) +
                       ",\"slot\":" + std::to_string(slot) + ",\"token\":" + Quote(join_token) +
-                      ",\"relay\":true,\"generation_seen\":" + std::to_string(generation_seen));
+                      ",\"relay\":true,\"generation_seen\":" + std::to_string(generation_seen) +
+                      ",\"snes\":" + SnesJson(snes));
+}
+
+std::string EncodeSnesLock(int seq, int round, bool off) {
+  return Envelope("snes.lock", seq, ",\"round\":" + std::to_string(round) + (off ? ",\"off\":true" : ""));
+}
+
+std::string EncodeSnesUpdate(int seq, const SnesGameplayCapabilities& snes) {
+  return Envelope("snes.update", seq, ",\"snes\":" + SnesJson(snes));
 }
 
 std::string EncodeMatchEndpoint(int seq, uint16_t port, const std::vector<std::string>& lan,

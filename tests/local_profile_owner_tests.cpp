@@ -168,7 +168,7 @@ void TestTheClaimComesFirst() {
   std::printf("the claim happens before the event's own sign-in check\n");
   const std::string module = ReadSource("live_hooks_tmnt_r.cpp");
   const std::string events = Between(module, "REX_HOOK_RAW(sub_875BA998)", "REX_EXTERN(__imp__sub_875CCEC8)");
-  CHECK(Has(events, "ClaimsLocalProfile(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))"));
+  CHECK(Has(events, "ClaimsLocalProfile(event, track)"));
   CHECK(Has(events, "ClaimLocalProfile(int32_t(LoadBE32(base, var + kFireEventControllerOffset)))"));
   CHECK(events.find("ClaimLocalProfile(") < events.find("__imp__sub_875BA998(ctx, base);"));
   const std::string claim = Between(module, "void ClaimLocalProfile(", "void LogLocalProfileAccepted(");

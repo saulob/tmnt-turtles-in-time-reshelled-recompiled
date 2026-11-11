@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "corner_overlay.h"
+#include "frame_counter.h"
 #include "keybinds.h"
 #include "ping_display.h"
 
@@ -39,10 +40,33 @@ std::string ReadFile(const std::string& relative) {
 
 bool Has(const std::string& text, const std::string& needle) { return text.find(needle) != std::string::npos; }
 
+void TestF9Ownership() {
+  std::printf("F9: the SNES menu is the only owner, gameplay cannot take it, documented\n");
+  CHECK(tmnt::KeyboardBindingIsReserved(ImGuiKey_F9));
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_F9, false, false, false).empty());
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_F9, true, false, false).empty());
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_F10, false, false, false).empty());
+
+  const std::filesystem::path src = std::filesystem::path(TMNT_ROOT_DIR) / "src";
+  std::size_t owners = 0;
+  std::size_t binds = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(src)) {
+    if (!entry.is_regular_file() || (entry.path().extension() != ".cpp" && entry.path().extension() != ".h")) continue;
+    const std::string text = ReadFile("src/" + std::filesystem::relative(entry.path(), src).generic_string());
+    owners += Has(text, "VirtualKey::kF9") ? 1 : 0;
+    binds += Has(text, "bind_tmnt_classic_soundtrack") ? 1 : 0;
+  }
+  CHECK(owners == 1 && binds == 0);
+  CHECK(Has(ReadFile("src/snes_menu.cpp"), "e.virtual_key() != rex::ui::VirtualKey::kF9"));
+  CHECK(!Has(ReadFile("src/classic_soundtrack_overlay.cpp"), "RegisterBind"));
+  CHECK(Has(ReadFile("docs/input.md"), "**F9**") && Has(ReadFile("docs/launcher.md"), "F7, F9, F10"));
+  CHECK(Has(ReadFile("docs/classic-soundtrack.md"), "**F9**"));
+}
+
 void TestSdkBindsRemoved() {
   std::printf("SDK overlays: unregistered in OnCreateDialogs, not hidden\n");
   const std::string counter = ReadFile("src/frame_counter.h");
-  CHECK(Has(counter, "kRemovedSdkBinds[] = {\"bind_debug_overlay\", \"bind_settings\"};"));
+  CHECK(Has(counter, "kRemovedSdkBinds[] = {\"bind_debug_overlay\", \"bind_settings\", \"bind_console\"};"));
   const std::string app = ReadFile("src/tmnt_turtles_in_time_reshelled_app.h");
   CHECK(Has(app, "void OnCreateDialogs(rex::ui::ImGuiDrawer*) override {"));
   CHECK(Has(app, "for (const char* bind : tmnt::kRemovedSdkBinds) rex::ui::UnregisterBind(bind);"));
@@ -56,9 +80,35 @@ void TestSdkBindsRemoved() {
   }
   const size_t debug = sdk.find("RegisterBind(\"bind_debug_overlay\", \"F3\"");
   const size_t settings = sdk.find("RegisterBind(\"bind_settings\", \"F4\"");
+  const size_t console = sdk.find("RegisterBind(\"bind_console\", \"Backtick\"");
   const size_t dialogs = sdk.find("OnCreateDialogs(imgui_drawer_.get());");
-  CHECK(debug != std::string::npos && settings != std::string::npos && dialogs != std::string::npos);
-  CHECK(debug < dialogs && settings < dialogs);
+  CHECK(debug != std::string::npos && settings != std::string::npos && console != std::string::npos &&
+        dialogs != std::string::npos);
+  CHECK(debug < dialogs && settings < dialogs && console < dialogs);
+}
+
+void TestConsoleRemoved() {
+  std::printf("console: Backtick opens nothing, binds like any key, and nothing advertises the console\n");
+  bool unbound = false;
+  for (const char* bind : tmnt::kRemovedSdkBinds) unbound = unbound || std::string_view(bind) == "bind_console";
+  CHECK(unbound);
+  CHECK(!tmnt::KeyboardBindingIsReserved(ImGuiKey_GraveAccent));
+  CHECK(tmnt::KeyboardBindingFor(ImGuiKey_GraveAccent, false, false, false) == "Backtick");
+  CHECK(tmnt::KeyboardBindingIsValid("Backtick"));
+  for (ImGuiKey key : {ImGuiKey_F2, ImGuiKey_F3, ImGuiKey_F7, ImGuiKey_F9, ImGuiKey_F10, ImGuiKey_F11}) {
+    CHECK(tmnt::KeyboardBindingIsReserved(key));
+  }
+  for (const char* file : {"src/keybinds.h", "src/launcher.cpp", "docs/input.md", "docs/launcher.md", "README.md",
+                           "packaging/README.txt"}) {
+    const std::string text = ReadFile(file);
+    for (const char* stale : {"Backtick console", "backtick console", "the console)", "console key", "Toggle console"}) {
+      CHECK(!Has(text, stale));
+      if (Has(text, stale)) std::printf("  %s still says '%s'\n", file, stale);
+    }
+  }
+  for (const char* source : {"src/tmnt_turtles_in_time_reshelled_app.h", "src/window_host.cpp", "src/launcher.cpp"}) {
+    CHECK(!Has(ReadFile(source), "\"bind_console\""));
+  }
 }
 
 void TestF3Ownership() {
@@ -119,7 +169,7 @@ void TestPingLayout() {
   CHECK(ping.y0 >= counter.y1);
   CHECK(ping.x1 == counter.x1);
   CHECK(alone.y0 == counter.y0);
-  CHECK(Has(ReadFile("src/ping_display.cpp"), "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter));"));
+  CHECK(Has(ReadFile("src/ping_display.cpp"), "DrawCornerText(PingText(Online().WorstRtt()), PingSlot(counter, ClassicSoundtrackNoticeVisible()));"));
 }
 
 void TestPingIsReadOnly() {
@@ -153,7 +203,9 @@ void TestDocs() {
 }  // namespace
 
 int main() {
+  TestF9Ownership();
   TestSdkBindsRemoved();
+  TestConsoleRemoved();
   TestF3Ownership();
   TestGameplayCannotTakeTheKeys();
   TestPingText();

@@ -9,6 +9,7 @@ export const GUESTS = ['base'];
 export const LIMITS = {
   frameBytes: 4096,
   telemetryFrameBytes: 8192 + 128,
+  incidentFrameBytes: 160 * 1024,
   nameChars: 16,
   versionChars: 16,
   platformChars: 16,
@@ -32,6 +33,7 @@ export const LIMITS = {
   ruleFields: 8,
   searchResults: 20,
   matchMaxMs: 4 * 3600 * 1000,
+  lobbyPlayers: 50,
 };
 
 export const BUCKETS = {
@@ -41,11 +43,12 @@ export const BUCKETS = {
   search: { burst: 6, perSecond: 1 },
   telemetry: { burst: 6, perSecond: 0.2 },
   telemetryAll: { burst: 120, perSecond: 10 },
+  incidentStatus: { burst: 10, perSecond: 0.3 },
   beacon: { burst: 6, perSecond: 0.2 },
   beaconAll: { burst: 60, perSecond: 5 },
 };
 
-export const WORKER_BUILD = '2026-10-31-party1';
+export const WORKER_BUILD = '2026-11-11-lobby3';
 
 // Binary relay frames: magic "SR", version, type, src slot, dst slot, token (u32), sequence (u32), payload length (u16),
 // payload.
@@ -71,7 +74,82 @@ export const CAPABILITIES = {
   relay_max_payload: RELAY.maxPayload,
   relay_frame_version: RELAY.version,
   max_party: MAX_PARTY,
+  public_lobby: true,
+  bug_reports: true,
+  snes_features: true,
+  snes_modes: true,
 };
+
+// SNES gameplay mechanics only: the soundtrack is each player's own and is never negotiated.
+export const SNES_KEYS = ['directional_combat', 'throw_control', 'dash', 'double_jump'];
+// How a player's SNES Dash starts. It is one choice per player: `dash` says it is on and `dash_mode` which kind.
+export const DASH_MODES = ['off', 'auto', 'manual'];
+const SNES_ID = /^[0-9a-f]{1,8}$/;
+
+const snesFlags = () => Object.fromEntries(SNES_KEYS.map((key) => [key, false]));
+const snesIds = () => Object.fromEntries(SNES_KEYS.map((key) => [key, '']));
+
+// A Dash announced without a mode is the Auto dash of clients that predate modes; a mode nobody writes is not guessed.
+const dashModeOf = (enabled) => {
+  if (!isObject(enabled) || enabled.dash !== true) return 'off';
+  if (enabled.dash_mode === undefined) return 'auto';
+  return DASH_MODES.includes(enabled.dash_mode) ? enabled.dash_mode : 'off';
+};
+
+// What a client announced: a feature it does not support is neither enabled nor identified, and anything missing or
+// malformed reads as unsupported, so a client without SNES features announces nothing at all.
+export function normalizeSnes(value) {
+  const out = { supports: snesFlags(), enabled: { ...snesFlags(), dash_mode: 'off' }, compat: snesIds() };
+  if (!isObject(value)) return out;
+  for (const key of SNES_KEYS) {
+    const supported = isObject(value.supports) && value.supports[key] === true;
+    out.supports[key] = supported;
+    out.enabled[key] = supported && isObject(value.enabled) && value.enabled[key] === true;
+    const id = isObject(value.compat) ? value.compat[key] : '';
+    out.compat[key] = supported && typeof id === 'string' && SNES_ID.test(id) ? id : '';
+  }
+  const mode = out.enabled.dash ? dashModeOf(value.enabled) : 'off';
+  out.enabled.dash = mode !== 'off';
+  out.enabled.dash_mode = mode;
+  return out;
+}
+
+// The other players as one: supported only when every one of them is, with the data id they share, or `mixed` when they
+// do not share one. Their choices are not combined: each applies to its own player's turtle.
+export function combineSnes(list) {
+  const out = { supports: snesFlags(), compat: snesIds() };
+  for (const key of SNES_KEYS) {
+    out.supports[key] = list.every((s) => s.supports[key]);
+    const ids = new Set(list.map((s) => s.compat[key]));
+    out.compat[key] = out.supports[key] ? (ids.size === 1 ? [...ids][0] : 'mixed') : '';
+  }
+  return out;
+}
+
+// A mechanic is available to a match only when every player supports it with the same data.
+export function supportedSnes(list) {
+  const out = snesFlags();
+  if (list.length < 2) return out;
+  for (const key of SNES_KEYS) {
+    out[key] = list.every((s) => s.supports[key]) && new Set(list.map((s) => s.compat[key])).size === 1;
+  }
+  return out;
+}
+
+export const offSnesTable = () => ({ supported: snesFlags(), players: {} });
+
+const seatRow = (supported, announced) => {
+  const row = Object.fromEntries(SNES_KEYS.map((key) => [key, supported[key] && announced.enabled[key]]));
+  return { ...row, dash_mode: row.dash ? announced.enabled.dash_mode : 'off' };
+};
+
+// `entries`: [slot, announcement] for every member. Each slot's row is its own player's choice among what the match
+// supports, so every member is told the same table.
+export function snesTable(entries) {
+  const supported = supportedSnes(entries.map(([, s]) => s));
+  const players = Object.fromEntries(entries.map(([slot, s]) => [String(slot), seatRow(supported, s)]));
+  return { supported, players };
+}
 
 // The header of one relay frame, or the reason it is not one. The payload is never looked at.
 export function parseRelayFrame(bytes) {
@@ -255,4 +333,16 @@ export const isLocalAddress = (ip) => ip === '::1' || ipv4Kind(ip) === 'loopback
 
 export function compatibleGuests(a, b) {
   return Boolean(a && b) && a.guest === b.guest && a.build === b.build;
+}
+
+export function parseLobbyPublish(message) {
+  if (typeof message.visible !== 'boolean') fail('bad_request', 'visible expected');
+  return message.visible;
+}
+
+// The revision the client already holds, if it sent one.
+export function parseLobbyRevision(message) {
+  if (message.rev === undefined) return null;
+  if (!Number.isSafeInteger(message.rev) || message.rev < 0) fail('bad_request', 'rev expected');
+  return message.rev;
 }

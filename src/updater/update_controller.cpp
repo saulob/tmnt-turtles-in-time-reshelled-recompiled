@@ -35,14 +35,29 @@ constexpr int kCheckTimeoutMs = 30000;
 constexpr int kDownloadTimeoutMs = 30 * 60 * 1000;
 constexpr long long kMaxReleaseJsonBytes = 4ll << 20;
 
-trg::HttpOptions HttpOptionsFor(const UpdateConfig& config, int total_timeout_ms, long long max_bytes) {
+bool IsAllowedHost(const UpdateConfig& config, std::string_view url) {
+  return config.url_filter ? config.url_filter(std::string(url)) : UrlHostAllowed(url, config.allowed_hosts);
+}
+
+bool IsAllowedDownload(const UpdateConfig& config, std::string_view url) {
+  return config.url_filter ? config.url_filter(std::string(url))
+                           : UrlAllowed(url, config.allowed_hosts, config.download_url_prefix);
+}
+
+trg::HttpOptions HttpOptionsFor(const UpdateConfig& config, const char* operation, int total_timeout_ms, long long max_bytes) {
   trg::HttpOptions options;
   options.user_agent = config.user_agent;
-  options.connect_timeout_ms = 15000;
-  options.receive_timeout_ms = 30000;
+  options.operation = operation;
+  options.log = [log = config.log](const std::string& text) {
+    if (log) log(text);
+  };
+  options.allow_url = [hosts = config.allowed_hosts, filter = config.url_filter](const std::string& url) {
+    return filter ? filter(url) : UrlHostAllowed(url, hosts);
+  };
+  options.connect_timeout_ms = config.connect_timeout_ms;
+  options.receive_timeout_ms = config.receive_timeout_ms;
   options.total_timeout_ms = total_timeout_ms;
   options.max_bytes = max_bytes;
-  options.allow_url = [hosts = config.allowed_hosts](const std::string& url) { return UrlHostAllowed(url, hosts); };
   options.headers = {
       {"Accept", "application/vnd.github+json"},
       {"X-GitHub-Api-Version", "2022-11-28"},
@@ -64,10 +79,6 @@ bool ReadTextFile(const std::filesystem::path& path, std::string& text, std::str
     return false;
   }
   return true;
-}
-
-bool IsAllowedDownload(const UpdateConfig& config, std::string_view url) {
-  return UrlAllowed(url, config.allowed_hosts, config.download_url_prefix);
 }
 
 void Log(const UpdateConfig& config, std::string_view text) {
@@ -179,10 +190,11 @@ void UpdateController::StartCheck(bool manual) {
         return error;
       }
     } else {
-      if (!UrlHostAllowed(config.releases_url, config.allowed_hosts)) {
+      if (!IsAllowedHost(config, config.releases_url)) {
         return std::string("The update address is not secure.");
       }
-      error = trg::HttpGet(config.releases_url, json, &task, HttpOptionsFor(config, kCheckTimeoutMs, kMaxReleaseJsonBytes));
+      error = trg::HttpGet(config.releases_url, json, &task,
+                           HttpOptionsFor(config, "release metadata", kCheckTimeoutMs, kMaxReleaseJsonBytes));
       if (!error.empty()) {
         return error;
       }
@@ -280,7 +292,7 @@ void UpdateController::FinishCheck(trg::Task::State state, const std::string& er
   snapshot_.state = UpdateState::kAvailable;
   snapshot_.latest_version = release_->version.ToString();
   snapshot_.release_url =
-      UrlHostAllowed(release_->html_url, config_.allowed_hosts) ? release_->html_url : std::string();
+      IsAllowedHost(config_, release_->html_url) ? release_->html_url : std::string();
   snapshot_.asset_name = asset_->name;
   snapshot_.progress = -1.0f;
   snapshot_.error.clear();
@@ -337,7 +349,7 @@ void UpdateController::StartDownload() {
     } else if (checksum_asset) {
       std::string checksum;
       std::string error = trg::HttpGet(checksum_asset->download_url, checksum, &task,
-                                       HttpOptionsFor(config, 20000, 64ll << 10));
+                                       HttpOptionsFor(config, "checksum", 20000, 64ll << 10));
       if (!error.empty()) {
         return error;
       }
@@ -355,7 +367,7 @@ void UpdateController::StartDownload() {
       return std::string("The release does not provide a trusted SHA-256 checksum.");
     }
 
-    trg::HttpOptions download_options = HttpOptionsFor(config, kDownloadTimeoutMs, kMaxDownloadBytes);
+    trg::HttpOptions download_options = HttpOptionsFor(config, "update package", kDownloadTimeoutMs, kMaxDownloadBytes);
     download_options.progress_total = static_cast<long long>(asset.size);
     download_options.max_bytes = static_cast<long long>(asset.size) + (1ll << 20);
     std::string error = trg::DownloadFile(task, asset.download_url, Utf8Path(download_path), download_options);

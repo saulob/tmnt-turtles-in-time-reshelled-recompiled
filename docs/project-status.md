@@ -1,7 +1,7 @@
 # Project status
 
-Version 0.1.0 is the first release: the game is playable on Windows, with an experimental Linux AppImage
-([linux.md](linux.md)).
+Version 0.2.0 is the current release (0.1.0 was the first): the game is playable on Windows, with an experimental Linux
+AppImage ([linux.md](linux.md)).
 
 ## Template
 
@@ -50,7 +50,7 @@ Every import of both modules links to a ReXGlue 0.10.0 export. These are stubs i
 
 - **Linux module loading.** ReXGlue 0.10.0 `dlopen`s the module library by its bare name, without `lib`, `.so` or a
   folder; patch 0082 makes it find `lib<name>.so` ([linux.md](linux.md)).
-- **Aspect Ratio.** v0.1.0 uses the original 16:9 presentation. Additional native ratios are deferred.
+- **Aspect Ratio.** The game uses the original 16:9 presentation. Additional native ratios are deferred.
 - **Render base.** The 1280×720 base used by the Render resolution labels and diagnostics comes from the template.
 - **Achievements.** Unlocks and their persistence are ReXGlue's: the title XDBF supplies the 12 names, descriptions, icons and 200
   gamerscore, and `achievements\584109D2.toml` holds the unlock state. The game's `XamShowAchievementsUI` wrapper is bridged to the

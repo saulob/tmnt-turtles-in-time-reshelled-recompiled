@@ -83,10 +83,15 @@
 0077-xam-profile-setting-type-from-id.patch                windows,linux  rexruntime               imported   shared
 0078-xam-unset-title-setting-source-default.patch          windows,linux  rexruntime               imported   shared
 0079-d3d12-per-draw-vertex-buffer-residency.windows.patch  windows        rexgpu-xenos             imported   vulkan-candidate
-0080-tmnt-aa838-stage-a-fix.windows.patch                  windows        rexgpu-xenos             tmnt       vulkan-candidate
+0080-tmnt-aa838-stage-a-fix.windows.patch                  windows        rexgpu-xenos             tmnt       pair:0091
 0081-rexglue-vertex-fetch-zero-stride.patch                windows,linux  rexgpu-xenos             tmnt       shared
 0082-posix-recompiled-module-library.linux.patch           linux          rexruntime               tmnt       linux-specific
 0083-recompiled-module-unload-key.patch                 windows,linux  rexruntime               tmnt       shared
 0084-heap-release-failure-address.patch                 windows,linux  rexruntime               tmnt       shared
 0085-xex-load-keeps-heap-regions.patch                  windows,linux  rexruntime               tmnt       shared
 0086-audio-unregister-waits-for-callback.patch          windows,linux  rexruntime               tmnt       shared
+0087-xma-pcm-provider.patch                            windows,linux  rexruntime               tmnt       shared
+0090-shredder-tint-fetch-fix.windows.patch           windows        rexgpu-xenos             tmnt       vulkan-candidate
+0091-vulkan-aa838-stage-a-fix.linux.patch               linux          rexgpu-xenos             tmnt       pair:0080
+0092-debug-saulo-vulkan-draw-telemetry.linux.patch      linux          rexgpu-xenos             tmnt       vulkan-specific
+0093-debug-saulo-issue2-d3d12-telemetry.windows.patch   windows        rexgpu-xenos             tmnt       d3d12-specific

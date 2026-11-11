@@ -1,7 +1,7 @@
 # SDK boilerplate lives in generated/rexglue.cmake.
 
 cmake_minimum_required(VERSION 3.25)
-project(tmnt_turtles_in_time_reshelled VERSION 0.1.0 LANGUAGES C CXX)
+project(tmnt_turtles_in_time_reshelled VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -142,10 +142,11 @@ tmnt_prepare_patched_trg_launcher("${_trg_source_dir}" "${_trg_patched_dir}" ${_
 file(READ "${_trg_patched_dir}/src/launcher.cpp" _trg_launcher_source)
 string(FIND "${_trg_launcher_source}" "void Launcher::HandleHotkeys() {" _hotkeys_pos)
 string(SUBSTRING "${_trg_launcher_source}" ${_hotkeys_pos} -1 _hotkeys_source)
-string(FIND "${_hotkeys_source}" "ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)" _ctrl_s_pos)
-string(FIND "${_hotkeys_source}" "io.WantTextInput) return;" _text_guard_pos)
-if(_hotkeys_pos EQUAL -1 OR _ctrl_s_pos EQUAL -1 OR _text_guard_pos EQUAL -1 OR _ctrl_s_pos GREATER _text_guard_pos)
-    message(FATAL_ERROR "TRG Launcher: the staged HandleHotkeys does not handle Ctrl+S before the text-input guard (${_trg_patched_dir}/src/launcher.cpp)")
+string(FIND "${_hotkeys_source}" "const bool ctrl = ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl);" _ctrl_pos)
+string(FIND "${_hotkeys_source}" "if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {" _ctrl_s_pos)
+string(FIND "${_hotkeys_source}" "if (io.WantTextInput) return;" _text_guard_pos)
+if(_hotkeys_pos EQUAL -1 OR _ctrl_pos EQUAL -1 OR _ctrl_s_pos EQUAL -1 OR _text_guard_pos EQUAL -1 OR _ctrl_s_pos GREATER _text_guard_pos)
+    message(FATAL_ERROR "TRG Launcher: the staged HandleHotkeys does not handle Ctrl+S from the left/right key state before the text-input guard (${_trg_patched_dir}/src/launcher.cpp)")
 endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_trg_patched_dir}/src/launcher.cpp")
 
@@ -196,6 +197,7 @@ set(TMNT_ONLINE_SOURCES
     src/online/protocol.cpp
     src/online/random.cpp
     src/online/rendezvous.cpp
+    src/online/snes_features.cpp
     src/online/stun.cpp
     src/online/telemetry.cpp
     src/online/upnp.cpp
@@ -215,6 +217,35 @@ else()
     list(APPEND TMNT_ONLINE_LIBS Threads::Threads ${CMAKE_DL_LIBS})
 endif()
 
+# The SPC700 and S-DSP emulator from Game_Music_Emu 0.6.4 (LGPL 2.1 or later), unmodified: third_party/snes_spc.
+add_library(tmnt_snes_spc STATIC
+    third_party/snes_spc/Snes_Spc.cpp
+    third_party/snes_spc/Spc_Cpu.cpp
+    third_party/snes_spc/Spc_Dsp.cpp
+)
+target_include_directories(tmnt_snes_spc PUBLIC third_party/snes_spc)
+target_compile_definitions(tmnt_snes_spc PUBLIC BLARGG_LITTLE_ENDIAN=1)
+target_compile_options(tmnt_snes_spc PRIVATE -w)
+
+set(TMNT_CLASSIC_SOUNDTRACK_CORE
+    src/classic_soundtrack/activation.cpp
+    src/classic_soundtrack/importer.cpp
+    src/classic_soundtrack/konami_lz.cpp
+    src/classic_soundtrack/manifest.cpp
+    src/classic_soundtrack/music_streams.cpp
+    src/classic_soundtrack/resampler.cpp
+    src/classic_soundtrack/rom_zip.cpp
+    src/classic_soundtrack/runtime_start.cpp
+    src/classic_soundtrack/snes_rom.cpp
+    src/classic_soundtrack/sound_parser.cpp
+    src/classic_soundtrack/soundset.cpp
+    src/classic_soundtrack/soundtrack_stream.cpp
+    src/classic_soundtrack/spc_player.cpp
+    src/classic_soundtrack/xma_provider.cpp
+    src/snes_gameplay/gameplay_data.cpp
+    src/snes_gameplay/runtime_start.cpp
+)
+
 set(TMNT_SOURCES
     src/main.cpp
     src/achievement_alias.cpp
@@ -222,6 +253,13 @@ set(TMNT_SOURCES
     src/achievement_toast.cpp
     src/achievements_overlay.cpp
     src/active_log.cpp
+    src/cheat_menu.cpp
+    src/cheats.cpp
+    src/classic_soundtrack_overlay.cpp
+    src/classic_soundtrack_page.cpp
+    src/classic_soundtrack_runtime.cpp
+    src/snes_gameplay_runtime.cpp
+    src/snes_menu.cpp
     src/crash_report.cpp
     src/diagnostics.cpp
     src/frame_counter.cpp
@@ -232,6 +270,9 @@ set(TMNT_SOURCES
     src/graphics_adapters.cpp
     src/guest_functions.cpp
     src/imgui_gamepad.cpp
+    src/incident_json.cpp
+    src/incident_page.cpp
+    src/incident_report.cpp
     src/invite_ui.cpp
     src/input_summary.cpp
     src/launcher.cpp
@@ -250,11 +291,14 @@ set(TMNT_SOURCES
     src/fire_movie_patch.cpp
     src/log_filter.cpp
     src/log_path.cpp
+    src/log_scrubber.cpp
     src/modal_dialog.cpp
+    src/my_reports.cpp
     src/notice_dialog.cpp
     src/online_bridge.cpp
     src/online_page.cpp
     src/online_runtime.cpp
+    src/page_icons.cpp
     src/ping_display.cpp
     src/platform.cpp
     src/player_match.cpp
@@ -263,6 +307,7 @@ set(TMNT_SOURCES
     src/player_match_net.cpp
     src/player_match_net_hook.cpp
     src/port_version.cpp
+    src/report_history.cpp
     src/session_log.cpp
     src/settings.cpp
     src/stfs.cpp
@@ -288,12 +333,31 @@ if(WIN32)
 else()
     list(APPEND TMNT_SOURCES src/clipboard_sdl.cpp)
 endif()
+list(APPEND TMNT_SOURCES ${TMNT_CLASSIC_SOUNDTRACK_CORE})
 foreach(_online_source IN LISTS TMNT_ONLINE_SOURCES)
     if(NOT _online_source IN_LIST TMNT_SOURCES)
         list(APPEND TMNT_SOURCES ${_online_source})
     endif()
 endforeach()
+
+# The sidebar's page icons (assets/launcher/icons/*.svg) as a table of byte arrays, page_icon_data.cpp.
+# They are embedded, so the launcher never has to ship or find separate icon files.
+file(GLOB TMNT_PAGE_ICONS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/launcher/icons/*.svg")
+list(SORT TMNT_PAGE_ICONS)
+set(TMNT_PAGE_ICON_LIST "${CMAKE_CURRENT_BINARY_DIR}/generated/page_icons.txt")
+file(CONFIGURE OUTPUT "${TMNT_PAGE_ICON_LIST}" CONTENT "${TMNT_PAGE_ICONS}")
+set(TMNT_PAGE_ICON_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/page_icon_data.cpp")
+add_custom_command(OUTPUT "${TMNT_PAGE_ICON_SOURCE}"
+    COMMAND ${CMAKE_COMMAND} -DINPUT_LIST=${TMNT_PAGE_ICON_LIST} -DOUTPUT=${TMNT_PAGE_ICON_SOURCE}
+            -DSYMBOL=kPageIconFiles -P "${CMAKE_CURRENT_SOURCE_DIR}/src/embed_files.cmake"
+    DEPENDS "${TMNT_PAGE_ICON_LIST}" ${TMNT_PAGE_ICONS} "${CMAKE_CURRENT_SOURCE_DIR}/src/embed_files.cmake"
+    COMMENT "Embedding the launcher page icons"
+    VERBATIM)
+list(APPEND TMNT_SOURCES "${TMNT_PAGE_ICON_SOURCE}")
+
 set_source_files_properties(src/updater/third_party/miniz/miniz.c PROPERTIES COMPILE_OPTIONS "-w")
+# nanosvg is a single-header third-party implementation; keep its warnings out of the project's own output.
+set_source_files_properties(src/page_icons.cpp PROPERTIES COMPILE_OPTIONS "-Wno-unused-function;-Wno-unused-variable")
 if(WIN32)
     # Resource 1 is the first icon in the executable: Explorer, and SDL's window class, use it.
     enable_language(RC)
@@ -310,7 +374,7 @@ else()
 endif()
 
 rexglue_setup_target(tmnt_turtles_in_time_reshelled GPU_PLUGINS xenos)
-target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher ${TMNT_ONLINE_LIBS})
+target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE trg::launcher tmnt_snes_spc ${TMNT_ONLINE_LIBS})
 if(WIN32)
     target_link_libraries(tmnt_turtles_in_time_reshelled PRIVATE shcore synchronization dxgi shell32)
     # The SDK stages its DLLs only when the program links, so a rebuilt runtime or GPU plugin has to
@@ -391,7 +455,8 @@ if(TARGET tmnt_turtles_in_time_reshelled_recomp)
 endif()
 if(TARGET tmnt_turtles_in_time_reshelled_TMNT_r)
     target_sources(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src/live_hooks_tmnt_r.cpp
-        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp)
+        src/title_bgm_level_tmnt_r.cpp src/skip_intro_tmnt_r.cpp src/localization/subtitle_default_tmnt_r.cpp
+        src/cheats_tmnt_r.cpp src/snes_gameplay_tmnt_r.cpp)
     target_include_directories(tmnt_turtles_in_time_reshelled_TMNT_r PRIVATE src)
     tmnt_enable_thinlto(tmnt_turtles_in_time_reshelled_TMNT_r)
 endif()
@@ -525,10 +590,51 @@ add_executable(tmnt_player_names_tests EXCLUDE_FROM_ALL tests/player_names_tests
 target_include_directories(tmnt_player_names_tests PRIVATE src)
 target_compile_definitions(tmnt_player_names_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# Gameplay cheat tests, not part of the default build: cmake --build <dir> --target tmnt_cheats_tests
+add_executable(tmnt_cheats_tests EXCLUDE_FROM_ALL tests/cheats_tests.cpp)
+target_include_directories(tmnt_cheats_tests PRIVATE src "${_trg_patched_dir}/include")
+target_link_libraries(tmnt_cheats_tests PRIVATE trg::launcher)
+target_compile_definitions(tmnt_cheats_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 # Language tests, not part of the default build: cmake --build <dir> --target tmnt_language_tests
 add_executable(tmnt_language_tests EXCLUDE_FROM_ALL tests/language_tests.cpp)
 target_include_directories(tmnt_language_tests PRIVATE src)
 target_compile_definitions(tmnt_language_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Classic Soundtrack importer tests and developer CLI, not part of the default build:
+# cmake --build <dir> --target tmnt_classic_soundtrack_tests tmnt_classic_soundtrack_playback_tests
+#     tmnt_classic_soundtrack_launcher_tests tmnt_classic_soundtrack_tool
+set(TMNT_CLASSIC_SOUNDTRACK_SOURCES ${TMNT_CLASSIC_SOUNDTRACK_CORE} src/updater/sha256.cpp src/updater/update_paths.cpp
+    src/updater/third_party/miniz/miniz.c)
+add_executable(tmnt_classic_soundtrack_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_tests.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_tests PRIVATE src)
+target_link_libraries(tmnt_classic_soundtrack_tests PRIVATE tmnt_snes_spc)
+add_executable(tmnt_classic_soundtrack_playback_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_playback_tests.cpp src/classic_soundtrack/playback_check.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_playback_tests PRIVATE src)
+target_compile_definitions(tmnt_classic_soundtrack_playback_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_classic_soundtrack_playback_tests PRIVATE tmnt_snes_spc)
+target_compile_definitions(tmnt_classic_soundtrack_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+add_executable(tmnt_classic_soundtrack_launcher_tests EXCLUDE_FROM_ALL tests/classic_soundtrack_launcher_tests.cpp
+    src/classic_soundtrack_page.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_launcher_tests PRIVATE src)
+target_compile_definitions(tmnt_classic_soundtrack_launcher_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_classic_soundtrack_launcher_tests PRIVATE tmnt_snes_spc trg::launcher)
+add_executable(tmnt_classic_soundtrack_tool EXCLUDE_FROM_ALL tools/classic_soundtrack_tool.cpp src/classic_soundtrack/playback_check.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_classic_soundtrack_tool PRIVATE src)
+target_link_libraries(tmnt_classic_soundtrack_tool PRIVATE tmnt_snes_spc)
+
+# SNES Gameplay tests, not part of the default build: cmake --build <dir> --target tmnt_snes_gameplay_tests
+add_executable(tmnt_snes_gameplay_tests EXCLUDE_FROM_ALL tests/snes_gameplay_tests.cpp
+    ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_snes_gameplay_tests PRIVATE src)
+target_compile_definitions(tmnt_snes_gameplay_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_snes_gameplay_tests PRIVATE tmnt_snes_spc)
+
+# SNES menu tests, not part of the default build: cmake --build <dir> --target tmnt_snes_menu_tests
+add_executable(tmnt_snes_menu_tests EXCLUDE_FROM_ALL tests/snes_menu_tests.cpp ${TMNT_CLASSIC_SOUNDTRACK_SOURCES})
+target_include_directories(tmnt_snes_menu_tests PRIVATE src)
+target_compile_definitions(tmnt_snes_menu_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(tmnt_snes_menu_tests PRIVATE tmnt_snes_spc)
 
 # Multisampling setting tests, not part of the default build: cmake --build <dir> --target tmnt_multisampling_tests
 add_executable(tmnt_multisampling_tests EXCLUDE_FROM_ALL tests/multisampling_tests.cpp)
@@ -648,10 +754,33 @@ add_executable(tmnt_launcher_quit_tests EXCLUDE_FROM_ALL tests/launcher_quit_tes
 target_include_directories(tmnt_launcher_quit_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_quit_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
+# Launcher controller reading (XInput slot scan on Windows, no SDL instance of the program's own), not part of the
+# default build: cmake --build <dir> --target tmnt_launcher_gamepad_tests
+add_executable(tmnt_launcher_gamepad_tests EXCLUDE_FROM_ALL tests/launcher_gamepad_tests.cpp)
+target_include_directories(tmnt_launcher_gamepad_tests PRIVATE src)
+target_compile_definitions(tmnt_launcher_gamepad_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
 # cmake --build <dir> --target tmnt_launcher_assets_tests
-add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp)
+add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp
+    src/page_icons.cpp "${TMNT_PAGE_ICON_SOURCE}")
 target_include_directories(tmnt_launcher_assets_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_assets_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+# Launcher icon raster size and physical-pixel snapping tests, not part of the default build:
+# cmake --build <dir> --target tmnt_launcher_dpi_tests
+add_executable(tmnt_launcher_dpi_tests EXCLUDE_FROM_ALL tests/launcher_dpi_tests.cpp src/page_icons.cpp
+    "${TMNT_PAGE_ICON_SOURCE}")
+target_include_directories(tmnt_launcher_dpi_tests PRIVATE src "${_trg_patched_dir}/include")
+target_compile_options(tmnt_launcher_dpi_tests PRIVATE -Wall -Wextra)
+
+# Embedded launcher Ctrl+S path, not part of the default build:
+# cmake --build <dir> --target tmnt_launcher_hotkey_tests
+add_executable(tmnt_launcher_hotkey_tests EXCLUDE_FROM_ALL tests/launcher_hotkey_tests.cpp)
+target_include_directories(tmnt_launcher_hotkey_tests PRIVATE src)
+target_compile_definitions(tmnt_launcher_hotkey_tests PRIVATE
+    TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src"
+    TMNT_TRG_PATCHED_DIR="${_trg_patched_dir}")
+target_compile_options(tmnt_launcher_hotkey_tests PRIVATE -Wall -Wextra)
 
 # Window-close lifecycle policy tests, not part of the default build:
 # cmake --build <dir> --target tmnt_lifecycle_tests
@@ -665,6 +794,12 @@ target_include_directories(tmnt_port_version_tests PRIVATE src)
 target_compile_definitions(tmnt_port_version_tests PRIVATE
     ${TMNT_VERSION_DEFINITIONS}
     TMNT_EXPECTED_PORT_VERSION="${PROJECT_VERSION}")
+
+# Windows/Linux feature matrix, read from tools/parity-manifest.txt, not part of the default build:
+# cmake --build <dir> --target tmnt_platform_parity_tests
+add_executable(tmnt_platform_parity_tests EXCLUDE_FROM_ALL tests/platform_parity_tests.cpp)
+target_include_directories(tmnt_platform_parity_tests PRIVATE src)
+target_compile_definitions(tmnt_platform_parity_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Startup diagnostic formatting tests, not part of the default build:
 # cmake --build <dir> --target tmnt_diagnostics_tests
@@ -914,7 +1049,7 @@ endif()
 # Online play: protocol, identity and instance isolation, the service state machine over a scripted channel, the
 # connection test, per-peer ping, telemetry, wire parity with the online service, and the settings wiring. Headless; nothing opens a window. The
 # integration test skips unless TMNT_LOBBY_TEST_URL names a lobby server (node server/tmnt-lobby/local/server.js).
-foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report)
+foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report snes)
     set(_name tmnt_online_${_test}_tests)
     add_executable(${_name} EXCLUDE_FROM_ALL tests/online_${_test}_tests.cpp ${TMNT_ONLINE_SOURCES})
     target_include_directories(${_name} PRIVATE src tests)
@@ -969,6 +1104,24 @@ add_executable(tmnt_localization_tests EXCLUDE_FROM_ALL tests/localization_tests
 target_include_directories(tmnt_localization_tests PRIVATE src)
 target_compile_definitions(tmnt_localization_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_options(tmnt_localization_tests PRIVATE -Wall -Wextra)
+
+add_executable(tmnt_incident_tests EXCLUDE_FROM_ALL tests/incident_tests.cpp
+    src/incident_json.cpp src/incident_report.cpp src/log_scrubber.cpp src/report_history.cpp
+    src/online/identity.cpp src/online/random.cpp src/online/websocket.cpp
+    src/localization/game_text.cpp src/localization/pt_br_game_text.cpp
+    src/localization/ui_text.cpp src/localization/pt_br_ui_text.cpp
+    src/port_version.cpp src/updater/json.cpp src/updater/sha256.cpp src/updater/update_paths.cpp)
+target_include_directories(tmnt_incident_tests PRIVATE src)
+target_compile_definitions(tmnt_incident_tests PRIVATE TMNT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    ${TMNT_VERSION_DEFINITIONS})
+target_compile_options(tmnt_incident_tests PRIVATE -Wall -Wextra)
+if(WIN32)
+    target_sources(tmnt_incident_tests PRIVATE src/online/websocket_win.cpp)
+    target_link_libraries(tmnt_incident_tests PRIVATE winhttp ws2_32 bcrypt)
+else()
+    target_sources(tmnt_incident_tests PRIVATE src/online/websocket_posix.cpp)
+    target_link_libraries(tmnt_incident_tests PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+endif()
 
 add_executable(tmnt_search_ticket_tests EXCLUDE_FROM_ALL tests/search_ticket_tests.cpp)
 target_include_directories(tmnt_search_ticket_tests PRIVATE src)
