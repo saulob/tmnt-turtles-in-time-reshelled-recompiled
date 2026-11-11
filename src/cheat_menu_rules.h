@@ -11,7 +11,6 @@ inline constexpr char kCheatMenuTitle[] = "CHEATS";
 inline constexpr char kCheatMenuCloseHint[] = "F10 Close";
 inline constexpr char kCheatMenuNote[] = "Not saved to the launcher";
 inline constexpr char kCheatMenuOnlineNote[] = "No effect in online matches";
-inline constexpr char kCheatsOnlineUnavailable[] = "Cheats are unavailable while Online play is enabled.";
 
 inline constexpr char kSpinAttackControllerHelp[] = "Controller: B";
 inline constexpr char kSpinAttackKeyboardHelp[] = "Keyboard:";
@@ -62,7 +61,7 @@ class CheatMenuModel {
   // The dialog went away by itself, as the launcher's overlays do.
   void Closed() { open_ = false; }
 
-  // Online, F10 only says that cheats are unavailable, and an open menu changes nothing.
+  // Online, F10 only says that cheats are disabled, and an open menu changes nothing.
   Result Press(MenuKey key, bool can_open, bool online = false) {
     if (key == MenuKey::kF10) {
       if (open_) return Close();

@@ -78,14 +78,44 @@ bool RenameWithRetry(const std::filesystem::path& from, const std::filesystem::p
   return false;
 }
 
+char Folded(char c) { return c >= 'A' && c <= 'Z' ? char(c + 32) : c; }
+
+bool SameNameNoCase(std::string_view a, std::string_view b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (Folded(a[i]) != Folded(b[i])) return false;
+  }
+  return true;
+}
+
+// Windows finds a game file in any letter case; a POSIX file system does not. A folder copied by hand with
+// another case still works, and several case variants are ambiguous and stay unresolved.
+std::filesystem::path GameEntry(const std::filesystem::path& dir, const char* name) {
+  const std::filesystem::path exact = dir / name;
+#if defined(_WIN32)
+  return exact;
+#else
+  std::error_code ec;
+  if (std::filesystem::exists(exact, ec)) return exact;
+  std::filesystem::path found;
+  for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+    if (ec) break;
+    if (!SameNameNoCase(entry.path().filename().string(), name)) continue;
+    if (!found.empty()) return exact;
+    found = entry.path();
+  }
+  return found.empty() ? exact : found;
+#endif
+}
+
 // An existing folder is only replaced when it is empty or already holds game files.
 bool IsReplaceable(const std::filesystem::path& dir) {
   std::error_code ec;
   if (!std::filesystem::is_directory(dir, ec)) {
     return false;
   }
-  return std::filesystem::is_empty(dir, ec) || std::filesystem::exists(dir / "default.xex", ec) ||
-         std::filesystem::exists(dir / kModuleXexName, ec);
+  return std::filesystem::is_empty(dir, ec) || std::filesystem::exists(GameEntry(dir, "default.xex"), ec) ||
+         std::filesystem::exists(GameEntry(dir, kModuleXexName), ec);
 }
 
 class StagingGuard {
@@ -420,11 +450,12 @@ bool RevertSwap(const std::filesystem::path& live, const std::filesystem::path& 
 
 GameCheck CheckGameFiles(const std::filesystem::path& game_dir) {
   GameCheck check;
-  const auto xex = game_dir / "default.xex";
-  const auto module_xex = game_dir / kModuleXexName;
+  const auto xex = GameEntry(game_dir, "default.xex");
+  const auto module_xex = GameEntry(game_dir, kModuleXexName);
+  const auto data_dir = GameEntry(game_dir, "Data");
   std::error_code ec;
   if (game_dir.empty() || !std::filesystem::is_regular_file(xex, ec) ||
-      !std::filesystem::is_regular_file(module_xex, ec) || !std::filesystem::is_directory(game_dir / "Data", ec)) {
+      !std::filesystem::is_regular_file(module_xex, ec) || !std::filesystem::is_directory(data_dir, ec)) {
     return check;
   }
   check.state = GameFiles::kUnsupported;

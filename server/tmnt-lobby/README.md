@@ -49,7 +49,7 @@ tests and the dev server.
 ### Flow
 
 1. `hello` signs the player in on the directory (presence, platform, version, guest image).
-2. Friends: `friends.add` with a friend code, the other player `friends.accept`s.
+2. Friends: `friends.add` with a friend code or a public Lobby handle, the other player `friends.accept`s.
 3. `party.create` makes a party of one (or `pm.host` does, implicitly). `invite.send` invites an online friend with the
    same game image and online build; all invites of one host carry the same match. `invite.accept` joins the party:
    the answer is `{match, diag, slot, join_token, generation, party}`. A fifth member is refused (`party_full`).
@@ -77,8 +77,10 @@ Directory ops (`wss://<host>/`):
 | `hello` | `proto` (4), `game`, `guest` (`base`), `build`, `player`, `token`, `name`, `version`, `platform`, `presence`, `relay` | `player`, `name`, `friend_code`, `capabilities`; a party member then also gets `party.update` |
 | `ping` | | `time` |
 | `friends.list` / `friends.requests` | | `friends[]` / `incoming[]`, `outgoing[]` |
-| `friends.add` | `code` | `player`, `name`, `state` (`pending`/`friends`) |
-| `friends.accept` / `.decline` / `.remove` | `player` | `friend` / - / - |
+| `friends.add` | `code`, or `player` (a public Lobby handle) | `player`, `name`, optional `display_name`, `state` (`pending`/`friends`) |
+| `friends.accept` / `.decline` / `.remove` | `player` (a friend code; `.decline` also takes a public Lobby handle) | `friend` / - / - |
+| `lobby.publish` | `visible` | `visible` |
+| `lobby.list` | optional `rev` | `players[]`, `rev`, `visible`; `unchanged` when `rev` is current; errors `not_visible`, `bad_request`, `limit` |
 | `party.create` | | `match`, `diag`, `slot` 1, `join_token`, `generation` 0, `party`; `busy` when already in a party |
 | `party.leave` | | -; the host leaving ends the party (`host_left`) |
 | `party.kick` | `player` | -; host only |
@@ -101,8 +103,17 @@ The party snapshot is `{match, diag, host, generation, session, members[{slot, p
 invited[{player, name}]}`; `generation` is a revision counter, `state` is `joined` (accepted, no room socket yet),
 `connecting`, `connected` or `disconnected` (seat in grace), derived from room reports. A friend row is
 `{player, name, online, state, platform, version, guest, build, compatible}`; `state` is `offline`, `online`, `party`,
-`connecting` or `in_game`. `capabilities` is `{protocol_version, worker_build, public_endpoints, relay_supported,
-relay_max_payload, relay_frame_version, max_party, snes_features, snes_modes}`.
+`connecting` or `in_game`. Friend rows and requests also carry `display_name` when the account kept the default
+`Player`; clients show it in place of `name`. `capabilities` is `{protocol_version, worker_build, public_endpoints,
+relay_supported, relay_max_payload, relay_frame_version, max_party, snes_features, snes_modes}`.
+
+A public Lobby row is `{player, name, version, state}`. `player` is a random 32 lowercase hex action handle, never a
+friend code, account, address or token, and is never shown by the launcher. `name` is the presentation name: a custom
+Online name unchanged, or `Player-XXXX` for the default `Player`, with the four uppercase hex digits derived from the
+Worker's private salt and the account, so the same account keeps the same alias. `state` is the relation `none`,
+`pending`, `friend` or `incoming`; incompatible builds are filtered out before the row is built. The handle stays the
+same while a listing remains visible and is replaced when visibility goes Off and On again. `friends.add` with the
+handle reaches that account; `friends.decline` accepts the handle for pending or incoming Lobby requests.
 
 Room ops (`wss://<host>/match/<match>`; the first frame must be `match.hello` within 10 s, else close `4003`):
 
@@ -124,23 +135,13 @@ Room events: `match.members` (`members[{slot, state, name, links[{peer, transpor
 `match.ended` (`reason`: `host_left`, `expired`, `closed`), `relay.closed` (`peer`, `reason`: `peer_disconnected`,
 `rate_limit`, `peer_backpressure`, `peer_unavailable`, `unavailable`), `match.snes` (`snes`, one view per recipient).
 
-SNES gameplay. Four mechanics are negotiated per room, `directional_combat`, `throw_control`, `dash` and `double_jump`; the Classic Soundtrack is each player's own and never reaches the service. A client announces
-`snes: {supports{...}, enabled{...}, compat{...}}`: what its build and imported data support, what its player chose for
-their own turtle, and for each supported mechanic a data id of up to 8 hex digits (equal ids mean it behaves the same on
-every machine: the facing table for `directional_combat`, that table or the hold time with the 50 or 60 Hz clock for
-`throw_control` and `dash`, so a PAL and an NTSC import disagree on those two only; the service compares the ids and
-never reads them). Missing or malformed fields read as
-unsupported, `enabled` is cut to `supports`, and a client that sends no `snes` supports nothing. Support is global: a
-mechanic is `supported` when every member supports it and all ids are equal. Choices are per player: `players` maps each
-member's slot to its own choice among the supported mechanics, and one player's Off never takes a mechanic from another.
-The answer is `snes: {peer, supported{...}, players{"1": {...}, ...}, locked?}`, where `peer` combines the other members'
-support (`compat` is the shared id or `mixed`) and is left out, with an empty table, until every member has announced. The
-room keeps the latest announcement per slot and sends each member a fresh `match.snes` when one changes or a member leaves.
-`dash` is one choice with three modes: `enabled` and each `players` row carry `dash` (on) and `dash_mode` (`off`, `auto` or
-`manual`; a `dash` without a mode is `auto`, and a mode nobody writes is `off`). `snes_modes` in `capabilities` says the
-service knows the modes and the `double_jump` key; a client never sends `manual` to one that does not.
-The first `snes.lock` of a round (a member's game started that gameplay match) stores `locked: {round, supported,
-players}`, the one table every member uses for that match; it never changes, and the next round is negotiated again.
+SNES gameplay. Four mechanics are negotiated per room, `directional_combat`, `throw_control`, `dash` and `double_jump`;
+Classic Soundtrack is each player's own and never reaches the service. A client announces `snes: {supports{...},
+enabled{...}, compat{...}}`. Support is global: a mechanic is `supported` when every member supports it and all data ids
+are equal. Choices are per player: `players` maps each member's slot to its own choice among the supported mechanics, so
+one player's Off never takes a mechanic from another. `dash` carries `dash_mode` (`off`, `auto` or `manual`); a mode
+nobody writes is `off`. The `snes.lock` of a round stores the one table every member uses for that match; the next round
+negotiates again. `snes_modes` in `capabilities` marks a service that knows the modes and `double_jump`.
 
 Errors: `bad_request`, `too_large`, `no_session`, `proto`, `bad_game`, `bad_guest`, `unauthorized`, `not_found`,
 `not_friends`, `no_party`, `not_host`, `not_owner`, `already_set`, `offline`, `busy`, `already_invited`,
@@ -480,6 +481,8 @@ No dependencies and no Cloudflare account are needed (Node 22.13 or newer, for `
 ```
 cd server/tmnt-lobby
 node --test "test/*.test.js"        # protocol, friends, parties, rooms, relay, wire parity, Worker glue, real WebSockets
+node tools/probe.js local           # headless public-Lobby identity probe against a temporary local server
+node tools/probe.js wss://tmnt-lobby.saulobenigno.workers.dev/   # the same probe against the deployed Worker
 node local/server.js                # ws://127.0.0.1:8791/ and ws://127.0.0.1:8791/match/<id> (--db <file> keeps players and friends)
 node local/server.js --admin-token <16+ characters>   # also http://127.0.0.1:8791/admin (or TMNT_ADMIN_TOKEN in the environment)
 ```
@@ -495,8 +498,9 @@ host and port.
 
 ## Deploy (manual; nothing in this repository deploys)
 
-**This service has not been deployed.** Nothing of it exists on Cloudflare yet, so the first deploy creates the Worker
-`tmnt-lobby` and both Durable Object classes at once, with the migrations of `wrangler.toml` in order:
+**The service is live at `https://tmnt-lobby.saulobenigno.workers.dev/`.** The first deploy created the Worker
+`tmnt-lobby` and both Durable Object classes at once, with the migrations of `wrangler.toml` in order. After changing
+this folder, redeploy; `/health` and the launcher log must report the new `worker_build` before runtime testing.
 
 - `v1`: `new_sqlite_classes = ["TMNTLobby"]` (the directory).
 - `v2`: `new_sqlite_classes = ["TMNTMatch"]` (the match room). New classes are only ever added as a new migration; an

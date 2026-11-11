@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -13,8 +14,10 @@
 
 #include "cheat_menu_rules.h"
 #include "cheats.h"
+#include "cheats_settings.h"
 #include "overlay_rules.h"
 #include "quick_play_unlock.h"
+#include "trg/settings.h"
 
 namespace {
 
@@ -63,10 +66,15 @@ using tmnt::cheats::kTurboPulseSeconds;
 void TestOnlineSuppression() {
   std::printf("online: a session turns every cheat off, whatever is saved\n");
   using tmnt::cheats::CheatActive;
+  using tmnt::cheats::CheatsAllowed;
   CHECK(!CheatActive(false, false));
   CHECK(CheatActive(true, false));
   CHECK(!CheatActive(true, true));
   CHECK(!CheatActive(false, true));
+  CHECK(CheatsAllowed(false, false));
+  CHECK(!CheatsAllowed(true, false));
+  CHECK(!CheatsAllowed(false, true));
+  CHECK(!CheatsAllowed(true, true));
 
   const std::string hooks = ReadFile("src/cheats_tmnt_r.cpp");
   CHECK(Has(ReadFile("src/guest_session_tmnt_r.h"), "inline constexpr uint32_t kImportIsInSession = 1145;"));
@@ -83,6 +91,105 @@ void TestOnlineSuppression() {
   CHECK(Has(hooks, "driving && !InOnlineSession(ctx, base)"));
   CHECK(Has(ReadFile("src/guest_session_tmnt_r.h"), "if (!is_in_session) {\n    return true;\n  }"));
   CHECK(Has(hooks, "GuestInOnlineSession(ctx, base))"));
+}
+
+void TestOnlineLockout() {
+  std::printf("online: Off -> On clears saved cheats, F10 and the launcher show the lockout, Off restores nothing\n");
+  using namespace tmnt::cheats;
+
+  CHECK(std::string(kOnlineLockoutText) == "Cheats are disabled while Online Play is enabled");
+
+  trg::MemorySettings settings;
+  for (const CheatInfo& cheat : kCheats) settings.SetBool(cheat.setting, true);
+  settings.Set(kDamageMultiplierSetting, "4");
+  settings.Set(tmnt::kUnlockAllStagesSetting, "true");
+  settings.Set(tmnt::kOnlineEnabledSetting, "false");
+  CHECK(!KeepCheatsOffOnline(settings));
+  for (const CheatInfo& cheat : kCheats) CHECK(settings.GetBool(cheat.setting, false));
+  CHECK(settings.Get(kDamageMultiplierSetting) == "4");
+
+  settings.Set(tmnt::kOnlineEnabledSetting, "true");
+  CHECK(KeepCheatsOffOnline(settings));
+  for (const CheatInfo& cheat : kCheats) CHECK(!settings.GetBool(cheat.setting, false));
+  CHECK(settings.Get(kDamageMultiplierSetting) == "0");
+  CHECK(settings.GetBool(tmnt::kUnlockAllStagesSetting, false));
+  CHECK(!KeepCheatsOffOnline(settings));
+
+  settings.Set(tmnt::kOnlineEnabledSetting, "false");
+  for (const CheatInfo& cheat : kCheats) CHECK(!settings.GetBool(cheat.setting, false));
+  CHECK(settings.Get(kDamageMultiplierSetting) == "0");
+
+  const std::string launcher = ReadFile("src/launcher.cpp");
+  const size_t page = launcher.find("static void PageCheats(trg::Ui& ui) {");
+  const size_t lockout = launcher.find("if (cheats::OnlinePlayOn(ui.settings())) {", page);
+  const size_t lockout_help = launcher.find("ui.Help(Tr(cheats::kOnlineLockoutText));", page);
+  const size_t rows_help =
+      launcher.find("ui.Help(\"Press F10 while playing to open the Cheats menu.", page);
+  CHECK(page != std::string::npos && lockout != std::string::npos && lockout_help != std::string::npos &&
+        rows_help != std::string::npos);
+  CHECK(lockout_help < rows_help);
+  CHECK(Has(launcher, "KeepCheatsOffOnline();\n    if (!launcher_->Save())"));
+  CHECK(Has(ReadFile("src/settings.cpp"), "cheats::KeepCheatsOffOnline(*this);"));
+
+  const std::string exe = ReadFile("src/cheats.cpp");
+  CHECK(Has(exe, "return !OnlineLocked() && EffectiveCheat("));
+  CHECK(Has(exe, "return OnlineLocked() ? 0 : EffectiveMultiplier("));
+  CHECK(Has(exe, "void SetOnline(bool online)"));
+  CHECK(Has(exe, "rex::cvar::SetFlagByName(kSessionSetting, \"0\");"));
+  CHECK(Has(exe, "rex::cvar::SetFlagByName(cheat.setting, \"false\");"));
+  CHECK(Has(exe, "rex::cvar::SetFlagByName(kDamageMultiplierSetting, \"0\");"));
+  CHECK(Has(ReadFile("src/tmnt_turtles_in_time_reshelled_app.h"),
+            "tmnt::cheats::SetOnline(rex::cvar::Query<bool>(tmnt::kOnlineEnabledSetting));"));
+
+  const std::string menu = ReadFile("src/cheat_menu.cpp");
+  const size_t draw = menu.find("void DrawContent(ImGuiIO& io) override {");
+  CHECK(draw != std::string::npos);
+  CHECK(Has(menu.substr(draw, menu.find("\n private:", draw) - draw), "if (CheatsBlocked()) {\n      RequestClose();"));
+  const size_t key = menu.find("void CheatMenu::OnKeyDown(");
+  const size_t handled = menu.find("e.set_handled(true);", key);
+  const size_t repeat = menu.find("if (e.prev_state())", key);
+  const size_t press = menu.find("model_.Press(", key);
+  CHECK(key != std::string::npos && handled < repeat && repeat < press);
+  CHECK(Has(menu, "ShowCheatsUnavailableNotice();"));
+  CHECK(Has(ReadFile("src/classic_soundtrack_notice.h"), "return cheats::kOnlineLockoutText;"));
+
+  // Off again does not restore what the saved settings no longer hold.
+  CHECK(!settings.GetBool(kInfiniteHealthSetting, false));
+  CHECK(!settings.GetBool(kInfiniteLivesSetting, false));
+  CHECK(!settings.GetBool(kTurboAttackSetting, false));
+  CHECK(!settings.GetBool(kTurboStrongAttackSetting, false));
+  CHECK(!settings.GetBool(kSuperArmorSetting, false));
+  CHECK(!settings.GetBool(kSpinAttackSetting, false));
+}
+
+void TestOnlinePersistence() {
+  std::printf("online: the Off values are what reaches the settings file, and Off again restores nothing\n");
+  const std::filesystem::path dir = std::filesystem::temp_directory_path() / "tmnt_cheats_online_tests";
+  std::filesystem::create_directories(dir);
+  const std::string path = (dir / "settings.toml").string();
+  std::ofstream(path) << "# player settings\n";
+
+  {
+    trg::TextFileSettings settings(path);
+    settings.true_value = "true";
+    settings.false_value = "false";
+    for (const tmnt::cheats::CheatInfo& cheat : tmnt::cheats::kCheats) settings.SetBool(cheat.setting, true);
+    settings.Set(tmnt::cheats::kDamageMultiplierSetting, "4");
+    settings.Set(tmnt::kOnlineEnabledSetting, "true");
+    CHECK(tmnt::cheats::KeepCheatsOffOnline(settings));
+    CHECK(settings.Save());
+  }
+
+  trg::TextFileSettings saved(path);
+  for (const tmnt::cheats::CheatInfo& cheat : tmnt::cheats::kCheats) CHECK(!saved.GetBool(cheat.setting, true));
+  CHECK(saved.GetInt(tmnt::cheats::kDamageMultiplierSetting, 4) == 0);
+  saved.Set(tmnt::kOnlineEnabledSetting, "false");
+  CHECK(saved.Save());
+
+  trg::TextFileSettings restored(path);
+  for (const tmnt::cheats::CheatInfo& cheat : tmnt::cheats::kCheats) CHECK(!restored.GetBool(cheat.setting, true));
+  CHECK(restored.GetInt(tmnt::cheats::kDamageMultiplierSetting, 4) == 0);
+  std::filesystem::remove_all(dir);
 }
 
 void TestHealth() {
@@ -278,11 +385,11 @@ void TestSettings() {
 void TestLauncherRows() {
   std::printf("launcher: Cheats is its own page after Gameplay and the Gameplay page holds none of it\n");
   const std::string launcher = ReadFile("src/launcher.cpp");
-  const size_t gameplay_entry = launcher.find("{\"Gameplay\", \"Language, on-screen information, Quick Play stages and player names.\",");
-  const size_t cheats_entry = launcher.find("{\"Cheats\", \"Optional gameplay modifiers\", [](trg::Ui& ui) { PageCheats(ui); }},");
-  const size_t online_entry = launcher.find("{\"Online\",");
+  const size_t gameplay_entry = launcher.find("MakePage(LauncherPage::kGameplay, \"Gameplay\",");
+  const size_t cheats_entry = launcher.find("MakePage(LauncherPage::kCheats, \"Cheats\",");
+  const size_t online_entry = launcher.find("MakePage(LauncherPage::kOnline, \"Online\",");
   CHECK(gameplay_entry != std::string::npos && gameplay_entry < cheats_entry && cheats_entry < online_entry);
-  const size_t graphics_entry = launcher.find("{\"Graphics\",");
+  const size_t graphics_entry = launcher.find("MakePage(LauncherPage::kGraphics, \"Graphics\",");
   CHECK(graphics_entry < gameplay_entry);
 
   const size_t gameplay = launcher.find("void PageGameplay(trg::Ui& ui) {");
@@ -297,6 +404,9 @@ void TestLauncherRows() {
   CHECK(Has(gameplay_page, "ui.Section(Tr(\"Local player names\"), true)"));
 
   const std::string rows = launcher.substr(cheats, launcher.find("\n  void ", cheats) - cheats);
+  const size_t lockout = rows.find("if (cheats::OnlinePlayOn(ui.settings())) {");
+  const size_t lockout_help = rows.find("ui.Help(Tr(cheats::kOnlineLockoutText));");
+  CHECK(lockout != std::string::npos && lockout < lockout_help && lockout_help < rows.find("ui.Help(\"Press F10"));
   CHECK(Has(rows, "ui.Help(\"Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.\");"));
   const size_t player = rows.find("ui.Heading(\"PLAYER\");");
   const size_t health = rows.find("ui.Toggle(\"Infinite Health\", \"Keeps player health at maximum\", cheats::kInfiniteHealthSetting, false, \"Off\", \"On\");");
@@ -374,6 +484,8 @@ void TestPortuguese() {
       {"Unlock all stages", "Desbloquear todas as fases"},
       {"Makes every Quick Play stage selectable without changing saved progress",
        "Torna todas as fases do Quick Play selecion\xC3\xA1veis sem alterar o progresso salvo"},
+      {"Cheats are disabled while Online Play is enabled",
+       "As trapa\xC3\xA7" "as ficam desativadas enquanto o jogo online est\xC3\xA1 ativado"},
   };
   for (const auto& [english, portuguese] : expected) {
     const auto row = rows.find(english);
@@ -381,6 +493,7 @@ void TestPortuguese() {
     if (row == rows.end()) std::printf("    missing pt-BR row: %s\n", english.c_str());
   }
   CHECK(rows.find("Local play only: cheats have no effect in online matches.") == rows.end());
+  CHECK(rows.find("Cheats are unavailable while Online play is enabled.") == rows.end());
 
   const std::string table = ReadFile("src/localization/pt_br_ui_text.cpp");
   for (const auto& [english, portuguese] : expected) {
@@ -391,7 +504,7 @@ void TestPortuguese() {
   }
 
   const std::string launcher = ReadFile("src/launcher.cpp");
-  CHECK(Has(launcher, "{\"Gameplay\", \"Language, on-screen information, Quick Play stages and player names.\","));
+  CHECK(Has(launcher, "MakePage(LauncherPage::kGameplay, \"Gameplay\","));
 }
 
 void TestSessionOverrides() {
@@ -514,6 +627,16 @@ void TestMenuModel() {
   CHECK(menu.selected() == 0);
   menu.Closed();
   CHECK(!menu.open());
+
+  CheatMenuModel locked;
+  for (int press = 0; press < 2; ++press) {
+    CHECK(locked.Press(MenuKey::kF10, true, true).action == Action::kUnavailable);
+    CHECK(!locked.open());
+  }
+  CHECK(locked.Press(MenuKey::kF10, false, true).action == Action::kUnavailable);
+  CHECK(locked.Press(MenuKey::kF10, true, false).action == Action::kOpen);
+  CHECK(locked.Press(MenuKey::kEnter, true, true).action == Action::kNone);
+  CHECK(locked.Press(MenuKey::kF10, true, true).action == Action::kClose && !locked.open());
 
   CHECK(kCheatMenuRowCount == 7);
   const char* labels[] = {"Infinite Health", "Infinite Lives", "Damage Multiplier", "Turbo Attack", "Turbo Strong Attack",
@@ -692,7 +815,10 @@ void TestDamageMultiplierSession() {
 
   const std::string exe = ReadFile("src/cheats.cpp");
   CHECK(Has(exe, "const uint32_t next = CycledMultiplier(REXCVAR_GET(tmnt_cheat_session), SavedMultiplier());"));
-  CHECK(!Has(exe, "SetFlagByName(kDamageMultiplierSetting") && !Has(exe, "SetFlagByName(\"tmnt_cheat_damage_multiplier\""));
+  const size_t set_online = exe.find("void SetOnline(bool online)");
+  CHECK(set_online != std::string::npos);
+  CHECK(!Has(exe.substr(0, set_online), "SetFlagByName(kDamageMultiplierSetting"));
+  CHECK(Has(exe.substr(set_online), "SetFlagByName(kDamageMultiplierSetting, \"0\");"));
 }
 
 void TestDamageMath() {
@@ -978,7 +1104,8 @@ void TestBuild() {
   CHECK(Has(cmake, "add_executable(tmnt_cheats_tests EXCLUDE_FROM_ALL tests/cheats_tests.cpp)"));
   CHECK(exe != std::string::npos && cmake.find("    src/cheat_menu.cpp\n", exe) < cmake.find(")", exe));
   for (const char* file : {"src/cheats_tmnt_r.cpp", "src/cheats.cpp", "src/cheat_menu.cpp", "src/cheat_menu_rules.h",
-                           "src/quick_play_unlock.h", "src/live_hooks_tmnt_r.cpp", "src/guest_session_tmnt_r.h"}) {
+                           "src/cheats_settings.h", "src/quick_play_unlock.h", "src/live_hooks_tmnt_r.cpp",
+                           "src/guest_session_tmnt_r.h"}) {
     CHECK(!Has(ReadFile(file), "DEBUG_SAULO"));
   }
 }
@@ -1036,6 +1163,8 @@ void TestOnlinePlayEnabledBlocksCheats() {
 
 int main() {
   TestOnlinePlayEnabledBlocksCheats();
+  TestOnlineLockout();
+  TestOnlinePersistence();
   TestOnlineSuppression();
   TestHealth();
   TestLives();

@@ -2,6 +2,7 @@
 
 #include <mutex>
 
+#include "cheats.h"
 #include "localization/ui_text.h"
 
 namespace tmnt {
@@ -14,7 +15,7 @@ inline constexpr double kHotkeyNoticeSeconds = 3.0;
 inline constexpr const char* SoundtrackNoticeText(SoundtrackNotice notice) {
   switch (notice) {
     case SoundtrackNotice::kOn: return "SNES soundtrack: On";
-    case SoundtrackNotice::kCheatsUnavailable: return "Cheats are unavailable while Online play is enabled.";
+    case SoundtrackNotice::kCheatsUnavailable: return cheats::kOnlineLockoutText;
     case SoundtrackNotice::kNone: break;
   }
   return "";

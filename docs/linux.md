@@ -143,7 +143,9 @@ Vulkan loader and layers, RPATH/RUNPATH, NEEDED libraries, debug sections of all
 `tools/package-linux.sh --verify-only FILE` runs the scan, the runtime checks and the glibc check on an existing AppImage.
 
 `tools/test.ps1` is the headless Windows/Linux parity gate (patch manifest, patch apply for both series, the audio client teardown of patch 0086, packaging inputs,
-player-facing feature parity, hygiene); it launches nothing. `tools/test-appimage-release.sh` staged-fixture tests run in a focal WSL
+the shared feature matrix in `tools/parity-manifest.txt`, hygiene); it launches nothing. `tools/test.sh` runs the same
+groups from Linux and adds the shell and compiler checks. The real-hardware checks are in
+[linux-test-checklist.md](linux-test-checklist.md). `tools/test-appimage-release.sh` staged-fixture tests run in a focal WSL
 distribution; set `TMNT_APPIMAGE_TOOLS` to a folder holding appimagetool and a built runtime to add a fixture AppImage.
 `tools/setup-linux-build-env.sh` prepares a clean Ubuntu 20.04 machine for it, as root: clang 20 from
 [apt.llvm.org](https://apt.llvm.org), the GCC 13 runtime from the `ubuntu-toolchain-r/test` PPA, CMake 3.31.8 and the

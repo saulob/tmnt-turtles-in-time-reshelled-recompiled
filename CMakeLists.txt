@@ -592,7 +592,8 @@ target_compile_definitions(tmnt_player_names_tests PRIVATE TMNT_SRC_DIR="${CMAKE
 
 # Gameplay cheat tests, not part of the default build: cmake --build <dir> --target tmnt_cheats_tests
 add_executable(tmnt_cheats_tests EXCLUDE_FROM_ALL tests/cheats_tests.cpp)
-target_include_directories(tmnt_cheats_tests PRIVATE src)
+target_include_directories(tmnt_cheats_tests PRIVATE src "${_trg_patched_dir}/include")
+target_link_libraries(tmnt_cheats_tests PRIVATE trg::launcher)
 target_compile_definitions(tmnt_cheats_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Language tests, not part of the default build: cmake --build <dir> --target tmnt_language_tests
@@ -694,50 +695,6 @@ target_include_directories(tmnt_d3d12_async_submission_tests PRIVATE src)
 target_compile_definitions(tmnt_d3d12_async_submission_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(tmnt_d3d12_async_submission_tests PRIVATE Threads::Threads)
 
-# AA838 Stage A classifier (patch 0080) and its temporary telemetry (patch 0088), not part of the default build:
-# cmake --build <dir> --target tmnt_aa838_telemetry_tests. Both are compiled from the new files in the patches.
-function(tmnt_extract_new_file patch path destination)
-    file(READ "${patch}" _text)
-    string(FIND "${_text}" "+++ b/${path}\n" _start)
-    if(_start EQUAL -1)
-        message(FATAL_ERROR "${path} is not a new file of ${patch}")
-    endif()
-    string(SUBSTRING "${_text}" ${_start} -1 _text)
-    string(FIND "${_text}" "\n@@" _hunk)
-    math(EXPR _hunk "${_hunk} + 1")
-    string(SUBSTRING "${_text}" ${_hunk} -1 _text)
-    string(FIND "${_text}" "\n" _body)
-    string(SUBSTRING "${_text}" ${_body} -1 _text)
-    string(FIND "${_text}" "\ndiff --git " _end)
-    if(NOT _end EQUAL -1)
-        string(SUBSTRING "${_text}" 0 ${_end} _text)
-    endif()
-    string(REPLACE "\n+" "\n" _text "${_text}")
-    string(SUBSTRING "${_text}" 1 -1 _text)
-    file(WRITE "${destination}" "${_text}\n")
-    set_property(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${patch}")
-endfunction()
-set(_tmnt_aa838_patch "${CMAKE_CURRENT_SOURCE_DIR}/patches/rexglue-sdk/0080-tmnt-aa838-stage-a-fix.windows.patch")
-set(_tmnt_aa838_telemetry_patch
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/rexglue-sdk/0088-debug-saulo-aa838-telemetry.windows.patch")
-set(_tmnt_aa838_dir "${CMAKE_CURRENT_BINARY_DIR}/aa838_tests")
-tmnt_extract_new_file("${_tmnt_aa838_patch}" include/rex/graphics/d3d12/aa838_stage_fix.h
-    "${_tmnt_aa838_dir}/include/rex/graphics/d3d12/aa838_stage_fix.h")
-set(_tmnt_sdk_sources src)
-tmnt_extract_new_file("${_tmnt_aa838_patch}" ${_tmnt_sdk_sources}/graphics/d3d12/aa838_stage_fix.cpp
-    "${_tmnt_aa838_dir}/aa838_stage_fix.cpp")
-tmnt_extract_new_file("${_tmnt_aa838_telemetry_patch}" include/rex/graphics/d3d12/debug_saulo_aa838_telemetry.h
-    "${_tmnt_aa838_dir}/include/rex/graphics/d3d12/debug_saulo_aa838_telemetry.h")
-file(READ "${_tmnt_aa838_patch}" _tmnt_aa838_text)
-string(REGEX MATCH "constexpr uint64_t kAa838InterleavedCopyPixelShader = [^;]+;" _tmnt_aa838_hash "${_tmnt_aa838_text}")
-string(REGEX MATCH "constexpr uint32_t kAa838StageAByte1ZeroBool = [^;]+;" _tmnt_aa838_bool "${_tmnt_aa838_text}")
-file(WRITE "${_tmnt_aa838_dir}/include/rex/graphics/flags.h"
-    "#pragma once\n#include <cstdint>\n${_tmnt_aa838_hash}\n${_tmnt_aa838_bool}\n")
-add_executable(tmnt_aa838_telemetry_tests EXCLUDE_FROM_ALL tests/aa838_telemetry_tests.cpp
-    "${_tmnt_aa838_dir}/aa838_stage_fix.cpp")
-target_include_directories(tmnt_aa838_telemetry_tests PRIVATE src "${_tmnt_aa838_dir}/include")
-target_compile_definitions(tmnt_aa838_telemetry_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-
 # Graphics card setting tests, not part of the default build: cmake --build <dir> --target tmnt_graphics_adapter_tests
 add_executable(tmnt_graphics_adapter_tests EXCLUDE_FROM_ALL tests/graphics_adapter_tests.cpp src/graphics_adapters.cpp)
 target_include_directories(tmnt_graphics_adapter_tests PRIVATE src)
@@ -804,7 +761,8 @@ target_include_directories(tmnt_launcher_gamepad_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_gamepad_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 # cmake --build <dir> --target tmnt_launcher_assets_tests
-add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp)
+add_executable(tmnt_launcher_assets_tests EXCLUDE_FROM_ALL tests/launcher_assets_tests.cpp
+    src/page_icons.cpp "${TMNT_PAGE_ICON_SOURCE}")
 target_include_directories(tmnt_launcher_assets_tests PRIVATE src)
 target_compile_definitions(tmnt_launcher_assets_tests PRIVATE TMNT_SRC_DIR="${CMAKE_CURRENT_SOURCE_DIR}/src")
 
@@ -836,6 +794,12 @@ target_include_directories(tmnt_port_version_tests PRIVATE src)
 target_compile_definitions(tmnt_port_version_tests PRIVATE
     ${TMNT_VERSION_DEFINITIONS}
     TMNT_EXPECTED_PORT_VERSION="${PROJECT_VERSION}")
+
+# Windows/Linux feature matrix, read from tools/parity-manifest.txt, not part of the default build:
+# cmake --build <dir> --target tmnt_platform_parity_tests
+add_executable(tmnt_platform_parity_tests EXCLUDE_FROM_ALL tests/platform_parity_tests.cpp)
+target_include_directories(tmnt_platform_parity_tests PRIVATE src)
+target_compile_definitions(tmnt_platform_parity_tests PRIVATE TMNT_ROOT_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Startup diagnostic formatting tests, not part of the default build:
 # cmake --build <dir> --target tmnt_diagnostics_tests

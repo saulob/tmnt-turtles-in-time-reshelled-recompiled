@@ -19,11 +19,20 @@ inline constexpr char kGuestBase[] = "base";
 // Raised whenever a change stops this build from playing with the previous one.
 inline constexpr int kOnlineBuild = 1;
 
+// The random handle a public Lobby row uses for its actions.
+inline bool IsLobbyHandle(std::string_view text) {
+  if (text.size() != 32) return false;
+  for (const char c : text) {
+    if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+  }
+  return true;
+}
+
 enum class FriendState { kOffline, kOnline, kParty, kPlayerMatch, kConnecting, kInGame };
 
 struct Friend {
   std::string player;  // the friend code, XXXX-XXXX
-  std::string name;
+  std::string name;    // display name: display_name from the service when present
   bool online = false;
   FriendState state = FriendState::kOffline;
   std::string platform;
@@ -34,13 +43,15 @@ struct Friend {
 
 struct Request {
   std::string player;
-  std::string name;
+  std::string name;  // display name: display_name from the service when present
 };
 
-// A player who chose to be listed in the public Lobby. `player` is the friend code Add friend sends to; it is never shown.
+// A player who chose to be listed in the public Lobby. `player` is the random public handle Add friend sends to; it is
+// never shown. `relation` is the service's view of this listing; empty from an older Worker.
 struct LobbyPlayer {
   std::string player;
   std::string name;
+  std::string relation;
   FriendState state = FriendState::kOnline;
   std::string platform;
   std::string version;
@@ -147,10 +158,10 @@ struct ServiceCapabilities {
   bool public_endpoints = false;
   bool relay_supported = false;
   int relay_max_payload = 0;
-  bool snes_features = false;
-  bool snes_modes = false;
   bool public_lobby = false;  // the service has the public Lobby (lobby.publish, lobby.list)
   bool bug_reports = false;   // the service takes problem reports (incident.file, incident.status, incident.read)
+  bool snes_features = false;
+  bool snes_modes = false;
 };
 
 struct PeerInfo {
@@ -246,6 +257,7 @@ std::string EncodeLobbyList(int seq, std::optional<int64_t> held_rev = std::null
 std::string EncodeFriendsList(int seq);
 std::string EncodeFriendsRequests(int seq);
 std::string EncodeFriendsAdd(int seq, const std::string& code);
+std::string EncodeFriendsAddPlayer(int seq, const std::string& player);
 std::string EncodeFriendsAccept(int seq, const std::string& player);
 std::string EncodeFriendsDecline(int seq, const std::string& player);
 std::string EncodeFriendsRemove(int seq, const std::string& player);

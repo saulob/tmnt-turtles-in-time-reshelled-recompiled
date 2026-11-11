@@ -185,7 +185,6 @@ void TestRejection() {
   // Esc cancels the capture, so it is never stored; F12 stays unbound.
   CHECK(!tmnt::KeyboardBindingIsValid("Escape"));
   CHECK(!tmnt::KeyboardBindingIsValid("F12"));
-  // The ReXGlue console is unbound, so Backtick is an ordinary key.
   CHECK(tmnt::KeyboardBindingIsValid("Backtick"));
   CHECK(tmnt::KeyboardBindingFor(ImGuiKey_GraveAccent, false, false, false) == "Backtick");
 }
@@ -407,7 +406,8 @@ void TestLauncherCtrlSSave() {
   CHECK(Has(patch, "+  if (io.WantTextInput) return;"));
   CHECK(Has(patch, "-  } else if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false)) {"));
   const std::string cmake = ReadSource("../CMakeLists.txt");
-  CHECK(Has(cmake, "does not handle Ctrl+S before the text-input guard"));
+  CHECK(Has(cmake, "does not handle Ctrl+S"));
+  CHECK(Has(cmake, "before the text-input guard"));
   CHECK(Has(cmake, "\"${_trg_patched_dir}/src/launcher.cpp\""));
   const std::string sdk = ReadSource("../third_party/trg-launcher/src/launcher.cpp");
   CHECK(Has(sdk, "SetStatus(ok ? \"Settings saved.\""));

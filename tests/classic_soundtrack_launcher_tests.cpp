@@ -439,7 +439,7 @@ void TestMusicDiagnostics() {
   CHECK(g_notes.empty());
   CHECK(callbacks.open(callbacks.user, 3, big.data(), std::uint32_t(big.size()), 44100, 2) == -1);
   CHECK(callbacks.open(callbacks.user, 4, big.data(), std::uint32_t(big.size()), 44100, 2) == -1);
-  CHECK(g_notes.size() == 1 && Has(g_notes[0], "DEBUG_SAULO XMA stream not recognised, 40000 bytes, 2 channels"));
+  CHECK(g_notes.size() == 1 && Has(g_notes[0], "XMA stream not recognised, 40000 bytes, 2 channels"));
   std::vector<std::uint8_t> other = big;
   other[7] = 1;
   CHECK(callbacks.open(callbacks.user, 5, other.data(), std::uint32_t(other.size()), 44100, 2) == -1);

@@ -44,6 +44,10 @@ std::string WithPlayer(const char* op, int seq, const std::string& player) {
 
 std::string StringOf(const json::Value* v) { return v && v->IsString() ? v->AsString() : std::string(); }
 bool BoolOf(const json::Value* v, bool fallback) { return v && v->IsBool() ? v->AsBool() : fallback; }
+std::string ShownNameOf(const json::Value& row) {
+  const std::string shown = StringOf(row.Find("display_name"));
+  return shown.empty() ? StringOf(row.Find("name")) : shown;
+}
 int IntOf(const json::Value* v) {
   const auto n = v && v->IsNumber() ? v->AsInt64() : std::nullopt;
   return n ? int(*n) : 0;
@@ -62,7 +66,7 @@ std::optional<Friend> ReadFriend(const json::Value* v) {
   if (!v || !v->IsObject()) return std::nullopt;
   Friend f;
   f.player = StringOf(v->Find("player"));
-  f.name = StringOf(v->Find("name"));
+  f.name = ShownNameOf(*v);
   if (f.player.empty()) return std::nullopt;
   f.online = BoolOf(v->Find("online"), false);
   f.state = f.online ? StateOf(StringOf(v->Find("state"))) : FriendState::kOffline;
@@ -89,7 +93,7 @@ std::optional<std::vector<Request>> ReadRequests(const json::Value* v) {
   std::vector<Request> out;
   for (const json::Value& row : v->AsArray()) {
     if (!row.IsObject()) return std::nullopt;
-    Request r{StringOf(row.Find("player")), StringOf(row.Find("name"))};
+    Request r{StringOf(row.Find("player")), ShownNameOf(row)};
     if (r.player.empty()) return std::nullopt;
     out.push_back(std::move(r));
   }
@@ -100,14 +104,16 @@ std::optional<LobbyPlayer> ReadLobbyPlayer(const json::Value& row) {
   if (!row.IsObject()) return std::nullopt;
   LobbyPlayer p;
   p.player = StringOf(row.Find("player"));
-  p.name = StringOf(row.Find("name"));
+  p.name = ShownNameOf(row);
   if (p.player.empty() || p.name.empty()) return std::nullopt;
-  p.state = StateOf(StringOf(row.Find("state")));
+  const std::string state = StringOf(row.Find("state"));
+  if (state == "none" || state == "pending" || state == "friend" || state == "incoming") p.relation = state;
+  p.state = StateOf(state);
   if (p.state == FriendState::kOffline) p.state = FriendState::kOnline;
   p.platform = StringOf(row.Find("platform"));
   p.version = StringOf(row.Find("version"));
   p.guest = StringOf(row.Find("guest"));
-  p.compatible = BoolOf(row.Find("compatible"), false);
+  p.compatible = BoolOf(row.Find("compatible"), true);
   return p;
 }
 
@@ -167,10 +173,10 @@ ServiceCapabilities ReadCapabilities(const json::Value& v) {
   caps.public_endpoints = BoolOf(v.Find("public_endpoints"), false);
   caps.relay_supported = BoolOf(v.Find("relay_supported"), false);
   caps.relay_max_payload = IntOf(v.Find("relay_max_payload"));
-  caps.snes_features = BoolOf(v.Find("snes_features"), false);
-  caps.snes_modes = BoolOf(v.Find("snes_modes"), false);
   caps.public_lobby = BoolOf(v.Find("public_lobby"), false);
   caps.bug_reports = BoolOf(v.Find("bug_reports"), false);
+  caps.snes_features = BoolOf(v.Find("snes_features"), false);
+  caps.snes_modes = BoolOf(v.Find("snes_modes"), false);
   return caps;
 }
 
@@ -391,7 +397,7 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
   }
   if (event == "friend.request") {
     message.kind = Kind::kFriendRequest;
-    message.request = {StringOf(root->Find("player")), StringOf(root->Find("name"))};
+    message.request = {StringOf(root->Find("player")), ShownNameOf(*root)};
     return message.request.player.empty() ? std::nullopt : std::optional<ServerMessage>(message);
   }
   if (event == "friend.removed" || event == "friend.offline") {
@@ -514,6 +520,9 @@ std::string EncodePartyReport(int seq, const PartySnapshot& snapshot) {
 std::string EncodeFriendsList(int seq) { return Envelope("friends.list", seq); }
 std::string EncodeFriendsRequests(int seq) { return Envelope("friends.requests", seq); }
 std::string EncodeFriendsAdd(int seq, const std::string& code) { return Envelope("friends.add", seq, ",\"code\":" + Quote(code)); }
+std::string EncodeFriendsAddPlayer(int seq, const std::string& player) {
+  return Envelope("friends.add", seq, ",\"player\":" + Quote(player));
+}
 std::string EncodeFriendsAccept(int seq, const std::string& player) { return WithPlayer("friends.accept", seq, player); }
 std::string EncodeFriendsDecline(int seq, const std::string& player) { return WithPlayer("friends.decline", seq, player); }
 std::string EncodeFriendsRemove(int seq, const std::string& player) { return WithPlayer("friends.remove", seq, player); }

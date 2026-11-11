@@ -39,9 +39,9 @@ No account, Friend Code, address, receipt, token or local path is part of the pa
 The log scrubber runs before the preview and before the request, and the preview is built from the package the request
 uses. It removes:
 
-- the Windows user name, computer name and domain, profile folder and home folder;
+- the user name, computer name and domain, profile folder and home folder, plus `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` on Linux;
 - absolute paths outside the system's folders, mount points and network shares;
-- the port install folder and the user-data folder;
+- the port install folder, the user-data folder and the AppImage path;
 - labelled secrets (`password`, `token`, `secret`, `api_key`, `cookie`, `credential`, `friend_code`, bearer tokens and
   JWT-looking values);
 - the online identity token and Friend Code when they appear in the log;

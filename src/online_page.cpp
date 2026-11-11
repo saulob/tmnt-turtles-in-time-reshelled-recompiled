@@ -14,6 +14,7 @@
 #include "online/identity.h"
 #include "online/local_addresses.h"
 #include "online/protocol.h"
+#include "online_layout.h"
 #include "online_runtime.h"
 #include "online_setting.h"
 
@@ -24,7 +25,8 @@ constexpr char kFriendCodeHelp[] = "Share this code so another player can add yo
 constexpr char kTestHelp[] =
     "Checks that you can reach the online service and that other players can reach you. Takes a few seconds.";
 constexpr char kUnreachable[] = "Cannot reach the online service right now. Run the Connection test for details.";
-constexpr char kNoFriends[] = "No friends yet. Add someone with their friend code.";
+constexpr char kNoFriends[] = "No friends yet. A friend in a room appears in the game's Online menu.";
+constexpr char kLobbyEmpty[] = "No players are currently visible in the Lobby.";
 
 int OnlineNameFilter(ImGuiInputTextCallbackData* data) {
   return data->EventChar < 0x80 && online::OnlineNameChar(char(data->EventChar)) ? 0 : 1;
@@ -63,42 +65,32 @@ bool AcceptButton(trg::Ui& ui, const char* id, ImVec2 size = ImVec2(0, 0)) {
   return clicked;
 }
 
-// The name, then the status line in the row's help style under it. ui.Row has already moved to the control column, so
-// the line is drawn back in the label column.
+// The name, then the status line in the row's help style under it.
 void FriendHeading(trg::Ui& ui, const std::string& name, const online::FriendRowView& view) {
-  ui.Row(name.c_str());
-  const bool in_table = ImGui::TableGetColumnCount() > 0;
-  if (in_table) {
-    const float below_name = ImGui::GetItemRectMax().y + ImGui::GetStyle().ItemSpacing.y;
-    ImGui::TableSetColumnIndex(0);
-    ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x, below_name));
-  }
-  ImGui::PushFont(nullptr, ui.fonts().size * 0.84f);
+  ui.RowLeft(name.c_str());
+  ImGui::PushFont(nullptr, trg::layout::kTextHelp);
   ImGui::TextColored(ui.theme().dim, "%s", TrMessage(view.status).c_str());
   if (view.incompatible) {
     ImGui::SameLine(0.0f, 0.0f);
     ImGui::TextColored(ui.theme().dim, " \xC2\xB7 ");
     ImGui::SameLine(0.0f, 0.0f);
-    ImGui::TextColored(ui.theme().warn_dot, "%s", Tr("Game versions do not match"));
+    ImGui::TextColored(ui.theme().warn_dot, "%s", Tr("Incompatible"));
   }
   ImGui::PopFont();
-  if (in_table) {
-    ImGui::TableSetColumnIndex(1);
-    ImGui::SetNextItemWidth(-FLT_MIN);
-  }
+  ui.RowControl();
 }
 
 void BeginCard(trg::Ui& ui, const char* id, const ImVec4& background, const ImVec4& border, float border_width,
-               ImGuiChildFlags flags = 0) {
+               ImGuiChildFlags flags = 0, float height = 0.0f) {
   const float s = ui.scale();
   ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f * s);
   ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, border_width * s);
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f * s, 10.0f * s));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(kCardPaddingX * s, kCardPaddingY * s));
   ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
   ImGui::PushStyleColor(ImGuiCol_Border, border);
-  ImGui::BeginChild(id, ImVec2(-FLT_MIN, 0),
-                    ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding | ImGuiChildFlags_AutoResizeY |
-                        flags);
+  const ImGuiChildFlags size_flags = height > 0.0f ? ImGuiChildFlags_None : ImGuiChildFlags_AutoResizeY;
+  ImGui::BeginChild(id, ImVec2(-FLT_MIN, height),
+                    ImGuiChildFlags_Borders | ImGuiChildFlags_AlwaysUseWindowPadding | size_flags | flags);
 }
 
 void EndCard() {
@@ -116,6 +108,15 @@ std::string ServiceNotice(const online::Snapshot& state) {
     return state.connection_text.empty() ? Tr("Connecting...") : TrMessage(state.connection_text);
   }
   return {};
+}
+
+std::string LobbyUpdatedLabel(int minutes) {
+  if (minutes < 1) return Tr("Updated just now");
+  std::string text = Tr("Updated %s min ago");
+  if (const size_t at = text.find("%s"); at != std::string::npos) {
+    text.replace(at, 2, std::to_string(minutes));
+  }
+  return text;
 }
 
 }  // namespace
@@ -187,6 +188,7 @@ void OnlinePage::Draw(trg::Ui& ui) {
 
 // Plain buttons, so keyboard navigation and its highlight work as anywhere else on the page.
 void OnlinePage::DrawTabs(trg::Ui& ui, size_t friend_requests) {
+  ui.EndRows();
   ui.Spacer(4);
   const trg::Theme& t = ui.theme();
   const float s = ui.scale();
@@ -291,9 +293,10 @@ void OnlinePage::DrawPartyInvites(trg::Ui& ui, const online::Snapshot& state, bo
 
 void OnlinePage::DrawFriendCode(trg::Ui& ui, const online::Snapshot& state) {
   ui.RowEmphasized("Your friend code", kFriendCodeHelp);
+  ImGui::AlignTextToFramePadding();
   if (state.friend_code.empty()) {
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextDisabled("%s", state.connection == online::Connection::kOffline ? Tr("Not available right now") : Tr("Connecting..."));
+    ImGui::TextDisabled("%s", state.connection == online::Connection::kOffline ? Tr("Not available right now")
+                                                                               : Tr("Connecting..."));
     return;
   }
   ImGui::PushFont(ui.fonts().semibold, trg::layout::kTextLabel);
@@ -353,17 +356,25 @@ void OnlinePage::DrawConnectionTest(trg::Ui& ui, const online::Snapshot& state) 
 
 void OnlinePage::DrawConnectionTestBody(trg::Ui& ui, const online::Snapshot& state, const ConnectionTestView& view,
                                         bool focus_run_test) {
-  if (focus_run_test) ImGui::SetKeyboardFocusHere();
-  if (ui.ButtonRow("Connection test", kTestHelp, state.testing ? "Testing..." : "Run test", view.primary_button) &&
-      !state.testing) {
-    Online().TestConnection();
+  const char* button = state.testing ? "Testing..." : "Run test";
+  bool run = false;
+  if (view.highlighted) {
+    ui.RowLeft("Connection test", kTestHelp);
+    if (view.required_text) {
+      ImGui::PushFont(ui.fonts().semibold, 0.0f);
+      ImGui::TextColored(ui.theme().accent, "%s", Tr(kConnectionTestRequiredLabel));
+      ImGui::PopFont();
+    }
+    ui.RowControl();
+    ImGui::PushID("Connection test");
+    if (focus_run_test) ImGui::SetKeyboardFocusHere();
+    run = view.primary_button ? ui.AccentButton(button) : ImGui::Button(button, ImVec2(-FLT_MIN, 0));
+    ImGui::PopID();
+  } else {
+    if (focus_run_test) ImGui::SetKeyboardFocusHere();
+    run = ui.ButtonRow("Connection test", kTestHelp, button);
   }
-  if (view.required_text) {
-    ui.EndRows();
-    ImGui::PushFont(ui.fonts().semibold, 0.0f);
-    ImGui::TextColored(ui.theme().accent, "%s", Tr(kConnectionTestRequiredLabel));
-    ImGui::PopFont();
-  }
+  if (run && !state.testing) Online().TestConnection();
   if (view.windows_note) {
     if (const char* note = ConnectionTestRunningNote(true)) ui.Help(note);
   }
@@ -384,7 +395,6 @@ void OnlinePage::DrawConnectionTestBody(trg::Ui& ui, const online::Snapshot& sta
 }
 
 void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
-  ui.Heading("Friends");
   const std::string notice = ServiceNotice(state);
   if (!notice.empty()) ui.Help(notice.c_str());
   else if (!state.notice.empty()) ui.Help(TrMessage(state.notice).c_str());
@@ -418,57 +428,115 @@ void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
 }
 
 void OnlinePage::DrawLobby(trg::Ui& ui, const online::Snapshot& state) {
-  Online().NoteLobbyViewed();
+  DrawLobbyVisibility(ui);
+  if (!ui.settings().GetBool(kOnlineLobbySetting, kDefaultOnlineLobby)) return;
+  DrawLobbyPlayers(ui, state);
+}
+
+void OnlinePage::DrawLobbyVisibility(trg::Ui& ui) {
   const bool visible = ui.settings().GetBool(kOnlineLobbySetting, kDefaultOnlineLobby);
   ui.Toggle(kOnlineLobbyLabel, visible ? kOnlineLobbyOnHelp : kOnlineLobbyOffHelp, kOnlineLobbySetting,
             kDefaultOnlineLobby, "Off", "On");
-  ui.Heading("Players in the Lobby");
+  ui.EndRows();
+}
+
+void OnlinePage::DrawLobbyPlayers(trg::Ui& ui, const online::Snapshot& state) {
+  Online().NoteLobbyViewed();
+  const std::vector<const online::LobbyPlayer*> players = online::VisibleLobbyPlayers(state.lobby);
+  DrawLobbyHeader(ui, state, players.size());
   std::string notice = ServiceNotice(state);
   if (notice.empty()) notice = online::LobbyMessage(state.lobby);
-  if (!notice.empty()) {
-    ui.Help(TrMessage(notice).c_str());
-    return;
+  if (!notice.empty()) ui.Help(TrMessage(notice).c_str());
+  else if (!state.notice.empty()) ui.Help(TrMessage(state.notice).c_str());
+  if (!state.lobby.supported) return;
+  DrawLobbyList(ui, state, players);
+}
+
+void OnlinePage::DrawLobbyHeader(trg::Ui& ui, const online::Snapshot& state, size_t player_count) {
+  const std::string title = std::string(Tr("Players in Lobby")) + " (" + std::to_string(player_count) + ")";
+  ui.Heading(title.c_str());
+  const float title_height = ImGui::GetItemRectSize().y;
+  const float right = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x;
+  const ImGuiStyle& style = ImGui::GetStyle();
+  const char* idle = Tr("Refresh lobby");
+  const char* busy = Tr("Refreshing...");
+  const float button_width =
+      std::max(ImGui::CalcTextSize(idle).x, ImGui::CalcTextSize(busy).x) + style.FramePadding.x * 2.0f;
+  float left = right - button_width;
+  ImGui::SameLine();
+  const float line = ImGui::GetCursorPosY();
+  if (state.lobby.fetched && state.lobby.updated_seconds_ago >= 0.0) {
+    const int minutes = int(state.lobby.updated_seconds_ago / 60.0);
+    const std::string text = LobbyUpdatedLabel(minutes);
+    ImGui::PushFont(nullptr, trg::layout::kTextHelp);
+    const ImVec2 size = ImGui::CalcTextSize(text.c_str());
+    left -= size.x + style.ItemSpacing.x;
+    ImGui::SameLine(left);
+    ImGui::SetCursorPosY(line + (title_height - size.y) * 0.5f);
+    ImGui::TextColored(ui.theme().dim, "%s", text.c_str());
+    ImGui::PopFont();
   }
-  if (state.lobby.failed) ui.Help("Could not refresh the Lobby.");
-  if (state.lobby.players.empty()) return;
+  const bool refreshing = state.lobby.refreshing;
+  ImGui::SameLine(right - button_width);
+  ImGui::SetCursorPosY(line + (title_height - ImGui::GetFrameHeight()) * 0.5f);
+  ImGui::BeginDisabled(refreshing || !state.lobby.supported || state.connection != online::Connection::kOnline);
+  if (ImGui::Button((std::string(refreshing ? busy : idle) + "###refresh_lobby").c_str(), ImVec2(button_width, 0))) {
+    Online().RefreshLobby();
+  }
+  ImGui::EndDisabled();
+}
+
+void OnlinePage::DrawLobbyList(trg::Ui& ui, const online::Snapshot& state,
+                               const std::vector<const online::LobbyPlayer*>& players) {
   const trg::Theme& t = ui.theme();
-  ui.EndRows();
+  const float s = ui.scale();
   ui.Spacer(4);
+  const float height = LobbyCardHeight(ImGui::GetContentRegionAvail().y, players.size(), s);
   ImGui::PushID("lobby-list");
   BeginCard(ui, "##lobby_list", ImVec4(t.panel.x, t.panel.y, t.panel.z, 0.96f), t.border_panel, 1.0f,
-            ImGuiChildFlags_NavFlattened);
-  for (const online::LobbyPlayer& player : state.lobby.players) DrawLobbyPlayer(ui, state, player);
-  ui.EndRows();
+            ImGuiChildFlags_NavFlattened, height);
+  if (!state.lobby.fetched) {
+    if (state.connection == online::Connection::kOnline && !state.lobby.failed) ui.Help(Tr("Connecting..."));
+  } else if (players.empty()) {
+    ui.Help(Tr(kLobbyEmpty));
+  } else {
+    for (const online::LobbyPlayer* player : players) DrawLobbyPlayer(ui, state, *player);
+    ui.EndRows();
+  }
   EndCard();
   ImGui::PopID();
 }
 
 void OnlinePage::DrawLobbyPlayer(trg::Ui& ui, const online::Snapshot& state, const online::LobbyPlayer& player) {
   const online::LobbyRowView view = online::DescribeLobbyPlayer(state, player);
-  FriendHeading(ui, player.name, online::FriendRowView{view.status, view.incompatible});
+  const online::LobbyAction action = online::LobbyActionOf(view.relation);
+  ui.RowLeft(player.name.c_str());
+  ImGui::PushFont(nullptr, trg::layout::kTextHelp);
+  ImGui::TextColored(ui.theme().dim, "%s", Tr(online::LobbyVersionLabel(player)).c_str());
+  ImGui::PopFont();
+  ui.RowControl();
   ImGui::PushID(("lobby" + player.player).c_str());
-  switch (view.relation) {
-    case online::LobbyRelation::kFriend:
-      ImGui::AlignTextToFramePadding();
-      ImGui::TextDisabled("%s", Tr("Friend"));
-      break;
-    case online::LobbyRelation::kOutgoing:
-      ImGui::AlignTextToFramePadding();
-      ImGui::TextDisabled("%s", Tr("Request sent"));
-      break;
-    case online::LobbyRelation::kIncoming: {
-      const float gap = ImGui::GetStyle().ItemSpacing.x;
-      const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
-      if (AcceptButton(ui, Tr("     Accept"), ImVec2(half, 0))) Online().AcceptFriend(player.player);
-      ImGui::SameLine(0.0f, gap);
-      if (ImGui::Button(Tr("Decline"), ImVec2(half, 0))) Online().DeclineFriend(player.player);
-      break;
-    }
-    case online::LobbyRelation::kNone:
-      ImGui::BeginDisabled(!view.can_add);
-      if (ImGui::Button(Tr("Add friend"), ImVec2(-FLT_MIN, 0))) Online().AddFriend(player.player);
-      ImGui::EndDisabled();
-      break;
+  const bool enabled = view.relation == online::LobbyRelation::kNone ? view.can_add : action.enabled;
+  const auto add = [&] {
+    if (online::IsLobbyHandle(player.player)) Online().AddFriendFromLobby(player.player);
+    else Online().AddFriend(player.player);
+  };
+  const auto decline = [&] {
+    if (online::IsLobbyHandle(player.player)) Online().DeclineLobbyFriend(player.player);
+    else Online().DeclineFriend(player.player);
+  };
+  if (!enabled) {
+    ImGui::BeginDisabled();
+    ImGui::Button(Tr(action.text), ImVec2(-FLT_MIN, 0));
+    ImGui::EndDisabled();
+  } else if (action.decline) {
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const float half = (ImGui::GetContentRegionAvail().x - gap) * 0.5f;
+    if (AcceptButton(ui, Tr("     Accept"), ImVec2(half, 0))) add();
+    ImGui::SameLine(0.0f, gap);
+    if (ImGui::Button(Tr("Decline"), ImVec2(half, 0))) decline();
+  } else if (ImGui::Button(Tr(action.text), ImVec2(-FLT_MIN, 0))) {
+    add();
   }
   ImGui::PopID();
 }

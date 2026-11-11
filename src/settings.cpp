@@ -20,6 +20,7 @@
 
 #include "aspect_ratio.h"
 #include "cheats.h"
+#include "cheats_settings.h"
 #include "connection_test_gate.h"
 #include "crash_report.h"
 #include "diagnostics.h"
@@ -427,6 +428,7 @@ void GameSettings::Set(std::string_view key, std::string value) {
 }
 
 bool GameSettings::Save() {
+  cheats::KeepCheatsOffOnline(*this);
   for (const PlayerNameSetting& player : kPlayerNames) {
     const auto name = pending_.find(player.key);
     if (name != pending_.end() && !IsValidPlayerName(name->second)) {

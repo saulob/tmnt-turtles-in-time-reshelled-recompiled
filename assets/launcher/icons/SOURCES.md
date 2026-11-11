@@ -3,6 +3,9 @@
 The canonical navigation icon set for the launchers. Filenames are semantic, so the folder can be copied to another
 project as it is.
 
+The shared icons match `dragons-crown-pro-pc/assets/launcher/icons`. `cheats.svg` is Dragon's `cheats.svg`, and
+`achievements.svg` is Dragon's trophies.svg renamed for this launcher's page name.
+
 **Copy `SOURCES.md` with the icons.** `display.svg` and `bug-report.svg` require attribution, and that attribution has to
 go wherever the icon goes.
 
@@ -33,15 +36,22 @@ CC0 asks for no attribution; the sources are kept for provenance.
 | `gameplay.svg` | Gamepad | https://www.svgrepo.com/svg/523439/gamepad | CC0 |
 | `online.svg` | Globe | https://www.svgrepo.com/svg/522410/globe | CC0 |
 | `controls.svg` | Keyboard | https://www.svgrepo.com/svg/524665/keyboard | CC0 |
-| `trophies.svg` | Achievements | https://www.svgrepo.com/svg/304482/achievements | CC0 |
+| `achievements.svg` | Achievements | https://www.svgrepo.com/svg/304482/achievements | CC0 |
 | `about.svg` | About | https://www.svgrepo.com/svg/486929/about | CC0 |
 | `dlc.svg` | Download box | Original artwork for this port | CC0 |
+| `cheats.svg` | Star Alt 1 | https://www.svgrepo.com/svg/532289/star-alt-1 | CC0 |
+
+## User-provided source
+
+| File | Title | Source | License |
+|---|---|---|---|
+| `snes.svg` | Super Nintendo Controller | [assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg](source/super-nintendo-controller-svgrepo-com.svg), from https://www.svgrepo.com/svg/82749/super-nintendo-controller | CC0 |
 
 ## Changes from the downloaded files
 
 All files have LF line endings and their canonical names. `online.svg` also lost its white background rectangle and
 the drop-shadow filter on its lower line, because neither can be tinted. No path was changed, and each file keeps the
-colours it was published with: the launcher uses only their shape.
+colours it was published with: the launcher uses only their shape. `snes.svg` is the supplied local file unchanged.
 
 The launcher draws these icons through `src/page_icons.cpp`; the SVGs are embedded in the executable and tinted with the
 sidebar's text colours, so the same file works for the selected and unselected rows.

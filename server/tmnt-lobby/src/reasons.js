@@ -54,6 +54,7 @@ export const REASON_TABLE = Object.freeze([
   ['busy', 'service'],
   ['offline', 'service'],
   ['not_found', 'service'],
+  ['not_visible', 'service'],
   ['not_friends', 'service'],
   ['already_invited', 'service'],
   ['no_party', 'service'],

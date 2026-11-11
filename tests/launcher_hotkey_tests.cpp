@@ -78,13 +78,12 @@ void TestEnterAndControllerRemainGuarded() {
   CHECK(body.find("if (io.WantTextInput) return;") < body.find("ImGuiKey_GamepadStart"));
 }
 
-void TestRuntimeDiagnostics() {
-  std::printf("the embedded TMNT wiring logs the shortcut path\n");
+void TestRuntimeWiringHasNoTemporaryDiagnostics() {
+  std::printf("the embedded TMNT wiring keeps the Save path and no temporary diagnostics\n");
   const std::string launcher = Read(std::string(TMNT_SRC_DIR) + "/launcher.cpp");
-  CHECK(Has(launcher, "DEBUG_SAULO LAUNCHER_HOTKEY ctrl_s detected"));
-  CHECK(Has(launcher, "DEBUG_SAULO LAUNCHER_HOTKEY save dispatched"));
-  CHECK(Has(launcher, "DEBUG_SAULO LAUNCHER_HOTKEY save result={}"));
-  CHECK(Has(launcher, "c.on_save_result = [](bool ok)"));
+  CHECK(Has(launcher, "c.settings = &settings_;"));
+  CHECK(Has(launcher, "c.save_on_play = false;"));
+  CHECK(!Has(launcher, "DEBUG_SAULO"));
 }
 
 }  // namespace
@@ -94,7 +93,7 @@ int main() {
   TestCtrlSInFinalPatchedTrg();
   TestSaveButtonUsesSameAction();
   TestEnterAndControllerRemainGuarded();
-  TestRuntimeDiagnostics();
+  TestRuntimeWiringHasNoTemporaryDiagnostics();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

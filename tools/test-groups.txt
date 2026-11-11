@@ -1,0 +1,19 @@
+# The groups every TMNT test gate reports, in report order. tools/test.ps1 and tools/test.sh read this list;
+# tools/parity_gate.py fails when a group has no check in tools/parity-manifest.txt.
+Core
+Cross-platform parity
+Launcher
+Graphics
+Gameplay
+SNES
+Classic Soundtrack
+Cheats
+Controls
+Achievements
+Online
+Bug Report
+Worker
+Updater
+Localization
+Linux contracts
+Hygiene

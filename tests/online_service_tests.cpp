@@ -46,6 +46,10 @@ constexpr char kSession[] = "00112233445566aa";
 
 bool Contains(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
 
+bool HasNotice(const std::vector<std::string>& notices, const std::string& text) {
+  return std::find(notices.begin(), notices.end(), text) != notices.end();
+}
+
 std::string ReadSource(const char* name) {
   std::ifstream in(std::string(TMNT_SOURCE_DIR) + "/src/" + name, std::ios::binary);
   std::stringstream text;
@@ -102,6 +106,12 @@ std::string LobbyJson(const char* player, const char* name, const char* state = 
          (compatible ? "true" : "false") + "}";
 }
 
+std::string LobbyRowJson(const char* handle, const char* name, const char* relation = "none",
+                         const char* display_name = nullptr) {
+  return std::string("{\"player\":\"") + handle + "\",\"name\":\"" + name + "\",\"version\":\"0.2.2\",\"state\":\"" +
+         relation + "\"" + (display_name ? std::string(",\"display_name\":\"") + display_name + "\"" : std::string()) + "}";
+}
+
 struct Rig {
   std::vector<std::shared_ptr<ChannelState>> channels;
   std::vector<std::string> logs;
@@ -119,7 +129,6 @@ struct Rig {
   int identity_asked = 0;
   bool delivered_probe = false;
   bool probe_saw_party = false;
-  SnesGameplayCapabilities snes;
 
   explicit Rig(const std::string& guest = kGuestBase, bool ephemeral = false, const std::string& token = kToken,
                tmnt::netplay::OnlineGameSocket* socket = nullptr) {
@@ -162,7 +171,6 @@ struct Rig {
       delivered.push_back(invite);
       if (delivered_probe) probe_saw_party = service->party().has_value();
     };
-    config.snes = [this] { return snes; };
     config.test_beacon = [this](const std::string& path) {
       beacons.push_back(path);
       if (beacon_throws) throw std::runtime_error("beacon broke");
@@ -245,12 +253,20 @@ struct Rig {
     Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"");
   }
 
-  void SignInLobby(const char* name = "Saulo") {
-    Enable(name);
+  void SignInLobby(const char* name = "Saulo", bool visible = false) {
+    EnableLobby(name, visible);
     Tick();
     Event(ChannelEvent::Kind::kOpen);
     Reply("hello", "\"player\":\"" + me + "\",\"name\":\"" + name + "\",\"friend_code\":\"" + me + "\"," +
-                       "\"capabilities\":{\"protocol_version\":4,\"public_lobby\":true,\"bug_reports\":true}");
+                       "\"capabilities\":{\"protocol_version\":4,\"worker_build\":\"test-worker-2\","
+                       "\"public_lobby\":true,\"bug_reports\":true}");
+  }
+
+  void JoinLobby(const char* name = "Saulo") {
+    SignInLobby(name, true);
+    Tick(0.1);
+    Reply("lobby.publish", "\"visible\":true");
+    Tick(0.1);
   }
 
   void SignInWithFriends() {
@@ -348,7 +364,8 @@ void TestAddFriendValidatesBeforeSending() {
   CHECK(rig.Count("friends.add") == 1);
   CHECK(Contains(rig.LastRequest("friends.add"), "\"code\":\"JKLM-3456\""));
   rig.Reply("friends.add", "\"player\":\"JKLM-3456\",\"name\":\"Kim\",\"state\":\"pending\"");
-  CHECK(rig.service->snapshot().notice == "Friend request sent.");
+  CHECK(rig.service->snapshot().notice.empty());
+  CHECK(HasNotice(rig.service->TakeNotices(), "Friend request sent."));
 
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "", "not_found");
@@ -388,9 +405,68 @@ void TestPendingAndReverseRequests() {
 
   rig.Feed("{\"ev\":\"friend.request\",\"player\":\"NPQR-7892\",\"name\":\"Zoe\"}");
   rig.Reply("friends.requests", "\"incoming\":[{\"player\":\"NPQR-7892\",\"name\":\"Zoe\"}],\"outgoing\":[]");
+  rig.service->TakeNotices();
   CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
   rig.Reply("friends.add", "\"player\":\"NPQR-7892\",\"name\":\"Zoe\",\"state\":\"friends\"");
-  CHECK(rig.service->snapshot().notice == "You are now friends.");
+  CHECK(rig.service->snapshot().notice.empty());
+  CHECK(HasNotice(rig.service->TakeNotices(), "You are now friends."));
+}
+
+void TestDisplayNameIsPreferredForFriendsAndRequests() {
+  Rig rig;
+  rig.SignIn();
+  rig.Reply("friends.list",
+            "\"friends\":[{\"player\":\"" + std::string(kFriendA) +
+                "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\",\"online\":true,\"state\":\"online\"}]");
+  rig.Reply("friends.requests",
+            "\"incoming\":[{\"player\":\"" + std::string(kFriendB) +
+                "\",\"name\":\"Player\",\"display_name\":\"Player-09F2\"}],\"outgoing\":[]");
+  const Snapshot shown = rig.service->snapshot();
+  CHECK(shown.friends.size() == 1 && shown.friends[0].name == "Player-A41C");
+  CHECK(shown.incoming.size() == 1 && shown.incoming[0].name == "Player-09F2");
+
+  rig.Feed("{\"ev\":\"friend.request\",\"player\":\"" + std::string(kFriendA) +
+           "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\"}");
+  CHECK(Contains(rig.service->snapshot().notice, "Player-A41C wants to be your friend"));
+
+  rig.Feed("{\"ev\":\"friend.added\",\"friend\":{\"player\":\"" + std::string(kFriendB) +
+           "\",\"name\":\"Player\",\"display_name\":\"Player-09F2\",\"online\":true,\"state\":\"online\"}}");
+  CHECK(HasNotice(rig.service->TakeNotices(), "Player-09F2 is now your friend."));
+}
+
+void TestLobbyHandleRelationAndActions() {
+  Rig rig;
+  rig.JoinLobby();
+  CHECK(rig.CountLogs("online worker build=test-worker-2") == 1);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  const std::string handle = "0123456789abcdef0123456789abcdef";
+  rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Player-A41C", "pending") +
+                              "],\"rev\":9,\"visible\":true");
+  const Snapshot state = rig.service->snapshot();
+  CHECK(state.lobby.players.size() == 1 && state.lobby.players[0].player == handle);
+  CHECK(state.lobby.players[0].name == "Player-A41C" && state.lobby.players[0].relation == "pending" &&
+        state.lobby.players[0].compatible);
+  const std::vector<const LobbyPlayer*> visible = VisibleLobbyPlayers(state.lobby);
+  CHECK(visible.size() == 1 && visible[0]->name == "Player-A41C");
+  CHECK(DescribeLobbyPlayer(state, state.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+
+  CHECK(rig.service->AddFriendFromLobby(handle) == FriendRequestResult::kSent);
+  const std::string add = rig.LastRequest("friends.add");
+  CHECK(Contains(add, "\"player\":\"" + handle + "\"") && !Contains(add, "\"code\":"));
+
+  rig.Reply("friends.add", "\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Player\",\"display_name\":\"Player-A41C\",\"state\":\"pending\"");
+  CHECK(HasNotice(rig.service->TakeNotices(), "Friend request sent."));
+  const Snapshot pending = rig.service->snapshot();
+  CHECK(pending.lobby.pending_handles.size() == 1);
+  CHECK(DescribeLobbyPlayer(pending, pending.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+
+  rig.Reply("lobby.list", "\"players\":[" + LobbyRowJson(handle.c_str(), "Player-A41C", "pending") +
+                              "],\"rev\":10,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.pending_handles.empty());
+
+  rig.service->DeclineLobbyFriend(handle);
+  CHECK(Contains(rig.LastRequest("friends.decline"), "\"player\":\"" + handle + "\""));
 }
 
 void TestFriendRequestNeedsAConnection() {
@@ -1874,25 +1950,47 @@ void TestEveryReportedReasonIsAKnownCode() {
 
 void TestLobbyIsReadOnlyWhileItsPageIsShown() {
   Rig rig;
-  rig.SignInLobby();
+  rig.SignInLobby("Saulo", true);
   CHECK(rig.service->snapshot().lobby.supported);
   rig.Tick(30.0);
+  rig.Reply("lobby.publish", "\"visible\":true");
+  rig.Tick(0.1);
   CHECK(rig.Count("lobby.list") == 0);
+
   rig.service->NoteLobbyViewed();
   rig.Tick(0.1);
   CHECK(rig.Count("lobby.list") == 1);
-  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB") + "],\"rev\":7,\"visible\":false");
+  CHECK(rig.service->snapshot().lobby.refreshing);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB") + "],\"rev\":7,\"visible\":true");
   const Snapshot after = rig.service->snapshot();
-  CHECK(after.lobby.fetched && after.lobby.players.size() == 1 && !after.lobby.failed);
-  CHECK(after.lobby.players[0].name == "SauloB" && after.lobby.players[0].compatible);
-  CHECK(after.lobby.players[0].state == FriendState::kOnline);
+  CHECK(after.lobby.fetched && !after.lobby.failed && !after.lobby.refreshing);
+  CHECK(after.lobby.players.size() == 1 && after.lobby.players[0].name == "SauloB");
+  CHECK(after.lobby.players[0].compatible && after.lobby.players[0].state == FriendState::kOnline);
+  CHECK(after.lobby.updated_seconds_ago >= 0.0);
 
-  rig.Tick(60.0);
+  // The 5-minute automatic read, the 5-second manual gap, and the revision answer.
+  rig.Tick(299.0);
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+  rig.Tick(2.0);
   rig.service->NoteLobbyViewed();
   rig.Tick(0.1);
   CHECK(rig.Count("lobby.list") == 2);
-  rig.Reply("lobby.list", "\"unchanged\":true,\"rev\":7,\"visible\":false");
+  rig.Reply("lobby.list", "\"unchanged\":true,\"rev\":7,\"visible\":true");
   CHECK(rig.service->snapshot().lobby.players.size() == 1);
+  CHECK(rig.service->snapshot().lobby.updated_seconds_ago < 1.0);
+
+  rig.Tick(1.0);
+  rig.service->RefreshLobby();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 2);
+  rig.Tick(5.0);
+  rig.service->RefreshLobby();
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 3);
+  rig.Reply("lobby.list", "\"players\":[],\"rev\":8,\"visible\":true");
+  CHECK(rig.service->snapshot().lobby.players.empty());
 }
 
 void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
@@ -1900,7 +1998,9 @@ void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
   rig.SignInLobby();
   rig.service->NoteLobbyViewed();
   rig.Tick(0.1);
-  rig.Reply("lobby.list", "\"players\":[],\"rev\":3,\"visible\":false");
+  CHECK(rig.Count("lobby.publish") == 0);
+  CHECK(rig.Count("lobby.list") == 0);
+
   rig.EnableLobby("Saulo", true);
   rig.Tick(0.1);
   const std::string publish = rig.LastRequest("lobby.publish");
@@ -1911,6 +2011,14 @@ void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
   rig.Reply("lobby.list", "\"players\":[],\"rev\":4,\"visible\":true");
   CHECK(rig.service->snapshot().lobby.players.empty());
 
+  rig.EnableLobby("Saulo", false);
+  rig.Tick(0.1);
+  const std::string hide = rig.LastRequest("lobby.publish");
+  CHECK(Contains(hide, "\"visible\":false"));
+  rig.Reply("lobby.publish", "\"visible\":false");
+  rig.Tick(0.1);
+  CHECK(rig.Count("lobby.list") == 1);
+
   rig.Event(ChannelEvent::Kind::kClosed, "closed");
   const Snapshot lost = rig.service->snapshot();
   CHECK(!lost.lobby.visible && !lost.lobby.fetched && lost.lobby.players.empty());
@@ -1918,18 +2026,55 @@ void TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection() {
 
 void TestLobbyPlayerRowsDriveTheFriendActions() {
   Rig rig;
-  rig.SignInLobby();
+  rig.JoinLobby();
   rig.service->NoteLobbyViewed();
   rig.Tick(0.1);
   rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendA, "SauloB", "online", false) + "," +
-                              LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":false");
+                              LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":true");
   const Snapshot state = rig.service->snapshot();
   const LobbyRowView a = DescribeLobbyPlayer(state, state.lobby.players[0]);
   const LobbyRowView b = DescribeLobbyPlayer(state, state.lobby.players[1]);
-  CHECK(a.incompatible && a.can_add && a.relation == LobbyRelation::kNone);
+  CHECK(a.incompatible && !a.can_add && a.relation == LobbyRelation::kNone);
   CHECK(!b.incompatible && b.can_add);
-  CHECK(Contains(a.status, "Windows") && Contains(a.status, "Base"));
+  CHECK(a.status.empty());
   CHECK(LobbyMessage(state.lobby).empty());
+
+  // A request from a Lobby row is Pending at once, before the next list read.
+  CHECK(rig.service->AddFriend(kFriendB) == FriendRequestResult::kSent);
+  const Snapshot pending = rig.service->snapshot();
+  const LobbyRowView pending_row = DescribeLobbyPlayer(pending, pending.lobby.players[1]);
+  CHECK(pending_row.relation == LobbyRelation::kOutgoing);
+
+  // A refused request takes the optimistic Pending back.
+  rig.Reply("friends.add", {}, "not_found");
+  const Snapshot refused = rig.service->snapshot();
+  const LobbyRowView refused_row = DescribeLobbyPlayer(refused, refused.lobby.players[1]);
+  CHECK(refused_row.relation == LobbyRelation::kNone && refused_row.can_add);
+}
+
+void TestLobbyFriendRequestFeedbackIsStatusOnly() {
+  Rig rig;
+  rig.JoinLobby();
+  rig.service->NoteLobbyViewed();
+  rig.Tick(0.1);
+  rig.Reply("lobby.list", "\"players\":[" + LobbyJson(kFriendB, "Zed") + "],\"rev\":9,\"visible\":true");
+  rig.service->TakeNotices();
+
+  CHECK(rig.service->AddFriend(kFriendB) == FriendRequestResult::kSent);
+  rig.Reply("friends.add", "\"player\":\"" + std::string(kFriendB) + "\",\"name\":\"Zed\",\"state\":\"pending\"");
+  const Snapshot after = rig.service->snapshot();
+  CHECK(after.notice.empty());
+  CHECK(after.lobby.players.size() == 1);
+  CHECK(DescribeLobbyPlayer(after, after.lobby.players[0]).relation == LobbyRelation::kOutgoing);
+  const std::vector<std::string> feedback = rig.service->TakeNotices();
+  CHECK(std::count(feedback.begin(), feedback.end(), "Friend request sent.") == 1);
+
+  // A refused request is still an inline Lobby problem.
+  CHECK(rig.service->AddFriend("NPQR-7892") == FriendRequestResult::kSent);
+  rig.Reply("friends.add", {}, "not_found");
+  const Snapshot error = rig.service->snapshot();
+  CHECK(Contains(error.notice, "No player has that friend code"));
+  CHECK(HasNotice(rig.service->TakeNotices(), "No player has that friend code."));
 }
 
 void TestOnlineOffCreatesNoPartyOrRoom() {
@@ -1938,342 +2083,6 @@ void TestOnlineOffCreatesNoPartyOrRoom() {
   rig.service->LeaveParty();
   rig.service->KickFromParty("BBBB-2222");
   CHECK(rig.channels.empty() && !rig.service->party() && rig.service->Peers().empty() && rig.service->Assignments().empty());
-}
-
-
-// ---- SNES gameplay: global support, per-player choices, one locked table per gameplay match, all Off without it ----
-
-SnesGameplayCapabilities SnesCaps(SnesGameplaySet on, SnesGameplaySet supports = SnesGameplaySet::FromBits(15)) {
-  SnesGameplayCapabilities caps;
-  caps.supports = supports;
-  caps.enabled = on;
-  caps.compat = {0x1A2B3C4Du, 0x1A2B3C4Du, 0x1A2B3C4Du, 0x1A2B3C4Du};
-  return caps.Normalized();
-}
-
-SnesGameplaySet Bits(int bits) { return SnesGameplaySet::FromBits(uint8_t(bits)); }
-
-std::string BitsJson(int bits) {
-  const char* keys[] = {"directional_combat", "throw_control", "dash", "double_jump"};
-  std::string out = "{";
-  for (int i = 0; i < 4; ++i) out += std::string(i ? "," : "") + "\"" + keys[i] + "\":" + ((bits >> i) & 1 ? "true" : "false");
-  return out + ",\"dash_mode\":\"" + ((bits >> 2) & 1 ? "auto" : "off") + "\"}";
-}
-
-std::string TableJson(int supported, int one, int two) {
-  return "\"supported\":" + BitsJson(supported) + ",\"players\":{\"1\":" + BitsJson(one & supported) + ",\"2\":" +
-         BitsJson(two & supported) + "}";
-}
-
-// The room's view: the other player's support, the table now (`one` is this player in slot 1, `two` the guest), and
-// optionally the table locked for `round`.
-std::string SnesView(int peer_supports, int supported, int one, int two, int round = 0, int lock_supported = 0,
-                     int lock_one = 0, int lock_two = 0) {
-  std::string out = "{\"peer\":{\"supports\":" + BitsJson(peer_supports) +
-                    ",\"compat\":{\"directional_combat\":\"1a2b3c4d\",\"throw_control\":\"1a2b3c4d\",\"dash\":\"1a2b3c4d\","
-                    "\"double_jump\":\"1a2b3c4d\"}}," +
-                    TableJson(supported, one, two);
-  if (round) out += ",\"locked\":{\"round\":" + std::to_string(round) + "," + TableJson(lock_supported, lock_one, lock_two) + "}";
-  return out + "}";
-}
-
-// The room greets this client; `snes` is the answer's view (empty: an older service that sends none).
-void OpenSnesRoom(Rig& rig, const std::string& snes, bool service_supports = true, bool service_modes = true) {
-  rig.Tick(0.1);
-  rig.EventRoom(ChannelEvent::Kind::kOpen);
-  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("match.hello"))) +
-               ",\"code\":\"ok\",\"generation\":1,\"relay_token\":4000000000,\"members\":" + kRoomOfTwo +
-               ",\"capabilities\":" + (!service_supports ? "{}" : (service_modes ? "{\"snes_features\":true,\"snes_modes\":true}" : "{\"snes_features\":true}")) +
-               (snes.empty() ? "" : ",\"snes\":" + snes) + "}");
-}
-
-int RoomOps(Rig& rig, const std::string& op) {
-  int n = 0;
-  for (const std::string& line : rig.Room().sent) n += Contains(line, "\"op\":\"" + op + "\"") ? 1 : 0;
-  return n;
-}
-
-void AnswerLock(Rig& rig, const std::string& snes) {
-  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.lock"))) + ",\"code\":\"ok\",\"snes\":" + snes + "}");
-}
-
-std::optional<SnesMatchTable> LockedOf(Rig& rig) { return rig.service->Snes().locked; }
-SnesGameplaySet OwnOf(Rig& rig) {
-  const OnlineService::SnesNegotiation n = rig.service->Snes();
-  return n.locked ? n.locked->For(n.my_slot) : SnesGameplaySet{};
-}
-
-void TestTheRoomHelloAnnouncesOnlyTheGameplayMechanics() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(0b101));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 5, 0));
-  const std::string hello = rig.LastRoomRequest("match.hello");
-  CHECK(Contains(hello, "\"snes\":{\"supports\":" + BitsJson(15)) && Contains(hello, "\"enabled\":" + BitsJson(5)));
-  CHECK(!Contains(hello, "soundtrack"));
-  const OnlineService::SnesNegotiation negotiation = rig.service->Snes();
-  CHECK(negotiation.online && negotiation.my_slot == 1 && !negotiation.locked && negotiation.supported == Bits(15));
-  for (const SnesStatus status : negotiation.status) CHECK(status == SnesStatus::kAvailable);  // the guest's Off is theirs
-}
-
-// A Dash On, B Dash Off: one table, and each turtle keeps its own player's choice.
-void TestEachMatchLocksItsOwnTableInTheSameParty() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(0b100));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 4, 0));
-  rig.service->NoteGameStart();
-  CHECK(!LockedOf(rig));
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.lock") == 1 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":1}"));
-  AnswerLock(rig, SnesView(15, 15, 4, 0, 1, 15, 4, 0));
-  CHECK(LockedOf(rig) && LockedOf(rig)->For(1) == Bits(4) && LockedOf(rig)->For(2) == Bits(0) && OwnOf(rig) == Bits(4));
-  CHECK(rig.CountLogs("online snes locked round=1 supported=15 own=4 source=service") == 1);
-
-  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(15, 15, 4, 4, 1, 15, 4, 0) + "}");
-  CHECK(LockedOf(rig)->For(2) == Bits(0));
-  rig.snes = SnesCaps(Bits(0));
-  rig.Tick(10);
-  CHECK(RoomOps(rig, "snes.update") == 0 && OwnOf(rig) == Bits(4));
-  rig.service->NoteGameStart();
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.lock") == 1 && OwnOf(rig) == Bits(4));
-
-  rig.service->NoteGameEnd();
-  CHECK(!LockedOf(rig) && rig.service->party().has_value() && rig.CountLogs("online snes released round=1") == 1);
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.update") == 1 && Contains(rig.LastRoomRequest("snes.update"), "\"enabled\":" + BitsJson(0)));
-  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.update"))) + ",\"code\":\"ok\",\"snes\":" +
-               SnesView(15, 15, 0, 4, 1, 15, 4, 0) + "}");
-  CHECK(!LockedOf(rig));
-
-  rig.service->NoteGameStart();
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.lock") == 2 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":2}"));
-  AnswerLock(rig, SnesView(15, 15, 0, 4, 2, 15, 0, 4));
-  CHECK(LockedOf(rig)->For(1) == Bits(0) && LockedOf(rig)->For(2) == Bits(4));
-}
-
-void TestEveryPlayerUsesTheServiceTableWholeOrNotAtAll() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7), Bits(0b011));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 3, 3, 7));
-  rig.service->NoteGameStart();
-  rig.Tick();
-  AnswerLock(rig, SnesView(15, 3, 3, 7, 1, 15, 7, 7));
-  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && OwnOf(rig) == Bits(0));
-}
-
-void TestALockThePeerAlreadyTookIsAdoptedAndAnOldRoundIsNot() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 7, 7));
-  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(15, 15, 7, 7, 1, 15, 6, 1) + "}");
-  rig.service->NoteGameStart();
-  CHECK(LockedOf(rig) && OwnOf(rig) == Bits(6));
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.lock") == 0);
-  rig.service->NoteGameEnd();
-  rig.service->NoteGameStart();
-  CHECK(!LockedOf(rig));
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.lock") == 1 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":2}"));
-}
-
-// A has Dash on, B has it off, and the service never answers: no path may leave A with Dash on.
-void TestAnUnansweredLockIsAllOffAndTellsTheRoom() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(0b100));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 4, 0));
-  rig.service->NoteGameStart();
-  rig.Tick(4);
-  CHECK(!LockedOf(rig) && OwnOf(rig) == Bits(0));
-  rig.Tick(2);
-  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && OwnOf(rig) == Bits(0));
-  CHECK(rig.CountLogs("online snes locked round=1 supported=0 own=0 source=timeout") == 1);
-  CHECK(RoomOps(rig, "snes.lock") == 2 && Contains(rig.LastRoomRequest("snes.lock"), "\"round\":1,\"off\":true"));
-  AnswerLock(rig, "{\"supported\":{},\"players\":{},\"locked\":{\"round\":1,\"supported\":{},\"players\":{}}}");
-  rig.Tick();
-  CHECK(OwnOf(rig) == Bits(0) && rig.service->party().has_value());
-}
-
-void TestALateConflictingLockLeavesTheMatch() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 7, 7));
-  rig.service->NoteGameStart();
-  rig.Tick(6);
-  CHECK(*LockedOf(rig) == SnesMatchTable{});
-  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(15, 15, 7, 7, 1, 15, 0, 4) + "}");
-  rig.Tick();
-  CHECK(!rig.service->party() && !LockedOf(rig));
-  CHECK(rig.CountLogs("online snes lock mismatch round=1") == 1 && rig.CountLogs("party ended reason=snes_mismatch") == 1);
-}
-
-void TestALockWithoutAnyRoomIsAllOff() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  rig.service->NoteGameStart();
-  rig.Tick(6);
-  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{});
-}
-
-void TestARoomBackBeforeTheDeadlineStillLocksFromTheService() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 7, 7));
-  rig.EventRoom(ChannelEvent::Kind::kClosed, "dropped");
-  rig.service->NoteGameStart();
-  rig.Tick(1.5);
-  CHECK(!LockedOf(rig));
-  OpenSnesRoom(rig, SnesView(15, 15, 7, 7, 1, 15, 7, 3));
-  CHECK(LockedOf(rig) && OwnOf(rig) == Bits(7) && LockedOf(rig)->For(2) == Bits(3));
-  rig.EventRoom(ChannelEvent::Kind::kClosed, "dropped");
-  rig.Tick(30);
-  CHECK(OwnOf(rig) == Bits(7));
-}
-
-void TestAnOlderServiceOrPeerMakesNothingAvailable() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, "", false);
-  for (const SnesStatus status : rig.service->Snes().status) CHECK(status == SnesStatus::kUnsupportedByService);
-  rig.snes = SnesCaps(Bits(3));
-  rig.Tick(10);
-  CHECK(RoomOps(rig, "snes.update") == 0);
-  rig.service->NoteGameStart();
-  CHECK(LockedOf(rig) && *LockedOf(rig) == SnesMatchTable{} && RoomOps(rig, "snes.lock") == 0);
-
-  Rig old_peer;
-  old_peer.snes = SnesCaps(Bits(7));
-  HostWithGuest(old_peer);
-  OpenSnesRoom(old_peer, SnesView(0, 0, 0, 0));
-  for (const SnesStatus status : old_peer.service->Snes().status) CHECK(status == SnesStatus::kUnsupportedByOther);
-  old_peer.service->NoteGameStart();
-  old_peer.Tick();
-  AnswerLock(old_peer, SnesView(0, 0, 0, 0, 1, 0, 0, 0));
-  CHECK(OwnOf(old_peer) == Bits(0));
-}
-
-void TestAPeerWithoutDashTakesItFromEveryone() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(3, 3, 3, 3));
-  const OnlineService::SnesNegotiation negotiation = rig.service->Snes();
-  CHECK(negotiation.supported == Bits(3) && negotiation.status[2] == SnesStatus::kUnsupportedByOther &&
-        negotiation.status[0] == SnesStatus::kAvailable);
-}
-
-void TestMissingOrMalformedAnswersTurnNothingOn() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, "");
-  for (const SnesStatus status : rig.service->Snes().status) CHECK(status == SnesStatus::kWaiting);
-  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":{\"peer\":5,\"supported\":{\"dash\":\"yes\"},\"locked\":[]}}");
-  CHECK(rig.service->Snes().supported == SnesGameplaySet{});
-  rig.FeedRoom("{\"ev\":\"match.snes\",\"snes\":" + SnesView(0, 15, 7, 7) + "}");
-  CHECK(rig.service->Snes().supported == SnesGameplaySet{});
-  rig.service->NoteGameStart();
-  rig.Tick();
-  rig.FeedRoom("{\"re\":" + std::to_string(SeqOf(rig.LastRoomRequest("snes.lock"))) +
-               ",\"code\":\"ok\",\"snes\":{\"locked\":{\"supported\":{\"dash\":true}}}}");
-  CHECK(!LockedOf(rig));
-  rig.Tick(6);
-  CHECK(*LockedOf(rig) == SnesMatchTable{});
-}
-
-std::string LastAutoToManual(std::string json) {
-  const std::string auto_mode = "\"dash_mode\":\"auto\"";
-  const size_t at = json.rfind(auto_mode);
-  if (at != std::string::npos) json.replace(at, auto_mode.size(), "\"dash_mode\":\"manual\"");
-  return json;
-}
-
-SnesGameplayCapabilities ManualDashCaps(int on_bits = 4) {
-  SnesGameplayCapabilities caps = SnesCaps(Bits(on_bits));
-  caps.enabled.dash = DashMode::kManual;
-  return caps;
-}
-
-void TestManualDashTravelsAsAModeAndIsLockedPerSeat() {
-  Rig rig;
-  rig.snes = ManualDashCaps();
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 4, 0));
-  const std::string hello = rig.LastRoomRequest("match.hello");
-  CHECK(Contains(hello, "\"enabled\":{\"directional_combat\":false,\"throw_control\":false,\"dash\":true,\"double_jump\":false,"
-                        "\"dash_mode\":\"manual\"}"));
-  rig.Tick(10);
-  CHECK(RoomOps(rig, "snes.update") == 0);
-  CHECK(rig.service->Snes().dash_manual_available);
-  rig.service->NoteGameStart();
-  rig.Tick();
-  AnswerLock(rig, LastAutoToManual(SnesView(15, 15, 4, 4, 1, 15, 4, 0)));
-  CHECK(LockedOf(rig) && LockedOf(rig)->For(1).dash == DashMode::kManual && LockedOf(rig)->For(2).dash == DashMode::kOff);
-  CHECK(OwnOf(rig).dash == DashMode::kManual && OwnOf(rig).Has(SnesFeature::kDash));
-}
-
-void TestOnePlayersModeNeverChangesAnothers() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(4));
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 4, 4));
-  rig.service->NoteGameStart();
-  rig.Tick();
-  const std::string manual_for_guest = SnesView(15, 15, 4, 4, 1, 15, 4, 4);
-  const size_t first = manual_for_guest.find("\"dash_mode\":\"auto\"", manual_for_guest.find("\"locked\""));
-  std::string answer = manual_for_guest;
-  const size_t seat_two = answer.rfind("\"dash_mode\":\"auto\"");
-  CHECK(first != std::string::npos && seat_two != std::string::npos);
-  answer.replace(seat_two, std::string("\"dash_mode\":\"auto\"").size(), "\"dash_mode\":\"manual\"");
-  AnswerLock(rig, answer);
-  CHECK(LockedOf(rig) && LockedOf(rig)->For(1).dash == DashMode::kAuto && LockedOf(rig)->For(2).dash == DashMode::kManual);
-  CHECK(OwnOf(rig).dash == DashMode::kAuto);
-}
-
-void TestAnOlderServiceNeverSeesManualOrTheNewMechanics() {
-  Rig rig;
-  rig.snes = ManualDashCaps(4 | 8);
-  HostWithGuest(rig);
-  OpenSnesRoom(rig, SnesView(15, 15, 12, 0), true, false);
-  rig.Tick();
-  CHECK(RoomOps(rig, "snes.update") == 1);
-  const std::string update = rig.LastRoomRequest("snes.update");
-  CHECK(Contains(update, "\"enabled\":{\"directional_combat\":false,\"throw_control\":false,\"dash\":false,"));
-  CHECK(!Contains(update, "\"dash_mode\":\"manual\""));
-  const OnlineService::SnesNegotiation negotiation = rig.service->Snes();
-  CHECK(!negotiation.dash_manual_available);
-  CHECK(negotiation.status[size_t(SnesFeature::kDoubleJump)] == SnesStatus::kUnsupportedByService);
-  CHECK(negotiation.status[size_t(SnesFeature::kDash)] == SnesStatus::kAvailable);
-  CHECK(negotiation.status[size_t(SnesFeature::kDirectionalCombat)] == SnesStatus::kAvailable);
-  // The old service ignores the keys it does not know, so what it fixes for the match never has them.
-  rig.service->NoteGameStart();
-  rig.Tick();
-  AnswerLock(rig, SnesView(7, 7, 4, 0, 1, 7, 4, 0));
-  CHECK(LockedOf(rig) && !OwnOf(rig).Has(SnesFeature::kDoubleJump) &&
-        OwnOf(rig).dash != DashMode::kManual);
-}
-
-void TestTheOnlineMatchStateForTheHotkeys() {
-  Rig rig;
-  rig.snes = SnesCaps(Bits(7));
-  CHECK(!rig.service->InOnlineMatch());
-  InPartyAsHost(rig);
-  CHECK(!rig.service->InOnlineMatch());
-  rig.Feed(std::string("{\"ev\":\"party.update\",\"party\":") +
-           PartyJson({MemberJson(1, rig.me.c_str(), "Saulo"), MemberJson(2, kFriendA, "SauloB")}) + "}");
-  CHECK(rig.service->InOnlineMatch() && rig.service->Snes().online);
-  rig.service->LeaveFinishedMatch();
-  CHECK(!rig.service->InOnlineMatch() && !rig.service->Snes().online);
 }
 
 }  // namespace
@@ -2286,6 +2095,8 @@ int main() {
   TestAddFriendValidatesBeforeSending();
   TestFriendRequestReachesTheServiceAndIsLogged();
   TestPendingAndReverseRequests();
+  TestDisplayNameIsPreferredForFriendsAndRequests();
+  TestLobbyHandleRelationAndActions();
   TestFriendRequestNeedsAConnection();
   TestCopiedFriendCodeCanBePastedByAnotherInstance();
   TestFriendRequestsAreAnswered();
@@ -2353,22 +2164,8 @@ int main() {
   TestLobbyIsReadOnlyWhileItsPageIsShown();
   TestLobbyPublishFollowsTheSettingAndResetsWithTheConnection();
   TestLobbyPlayerRowsDriveTheFriendActions();
+  TestLobbyFriendRequestFeedbackIsStatusOnly();
   TestOnlineOffCreatesNoPartyOrRoom();
-  TestTheRoomHelloAnnouncesOnlyTheGameplayMechanics();
-  TestEachMatchLocksItsOwnTableInTheSameParty();
-  TestEveryPlayerUsesTheServiceTableWholeOrNotAtAll();
-  TestALockThePeerAlreadyTookIsAdoptedAndAnOldRoundIsNot();
-  TestAnUnansweredLockIsAllOffAndTellsTheRoom();
-  TestALateConflictingLockLeavesTheMatch();
-  TestALockWithoutAnyRoomIsAllOff();
-  TestARoomBackBeforeTheDeadlineStillLocksFromTheService();
-  TestAnOlderServiceOrPeerMakesNothingAvailable();
-  TestAPeerWithoutDashTakesItFromEveryone();
-  TestMissingOrMalformedAnswersTurnNothingOn();
-  TestManualDashTravelsAsAModeAndIsLockedPerSeat();
-  TestOnePlayersModeNeverChangesAnothers();
-  TestAnOlderServiceNeverSeesManualOrTheNewMechanics();
-  TestTheOnlineMatchStateForTheHotkeys();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

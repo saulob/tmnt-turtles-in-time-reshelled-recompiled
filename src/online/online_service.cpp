@@ -33,9 +33,7 @@ constexpr int kRoomHelloRetries = 5;
 constexpr double kAcceptedInviteSeconds = 60.0;
 constexpr double kSearchIdleSeconds = 10.0;
 constexpr double kIdentityRetrySeconds = 0.25;
-constexpr double kLobbyRefreshSeconds = 30.0;
-constexpr double kLobbyRetrySeconds = 15.0;
-constexpr double kLobbyViewedSeconds = 2.0;
+constexpr double kLobbyViewedSeconds = 1.0;
 
 bool Fatal(const std::string& code) {
   return code == "proto" || code == "bad_game" || code == "bad_guest" || code == "unauthorized";
@@ -249,12 +247,25 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       break;
     case Purpose::kAdd:
       if (!ok) {
+        outgoing_.erase(std::remove_if(outgoing_.begin(), outgoing_.end(),
+                                       [&](const Request& r) { return r.player == pending.player; }),
+                        outgoing_.end());
+        lobby_pending_handles_.erase(
+            std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), pending.player),
+            lobby_pending_handles_.end());
+        SoonLobbyRefresh();
         Notice(DescribeServiceError(message.code));
         Log("online friend request failed code=" + pending.player + " reason=" + message.code);
       } else {
-        Notice(message.state == "friends" ? "You are now friends." : "Friend request sent.");
+        if (message.state == "friends") {
+          lobby_pending_handles_.erase(
+              std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), pending.player),
+              lobby_pending_handles_.end());
+        }
+        NoticeStatus(message.state == "friends" ? "You are now friends." : "Friend request sent.");
         Log("online friend request accepted by service code=" + pending.player + " state=" + message.state);
         Refresh();
+        SoonLobbyRefresh();
       }
       break;
     case Purpose::kAccept:
@@ -354,20 +365,33 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
       break;
     case Purpose::kLobbyList:
       lobby_list_in_flight_ = false;
+      if (!settings_.lobby_visible) break;
       if (!ok || (!message.lobby_unchanged && !message.lobby_players)) {
         lobby_failed_ = true;
+        next_lobby_list_ = now + kLobbyRetrySeconds;
         lobby_refused_ = lobby_refused_ || (!ok && message.code == "bad_request");
         Log("online lobby read failed code=" + (ok ? std::string("malformed") : message.code));
         break;
       }
       lobby_failed_ = false;
-      if (message.lobby_unchanged) break;
-      if (!lobby_fetched_ || message.lobby_players->size() != lobby_players_.size()) {
-        Log("online lobby players=" + std::to_string(message.lobby_players->size()));
+      if (!message.lobby_unchanged) {
+        if (!lobby_fetched_ || message.lobby_players->size() != lobby_players_.size()) {
+          Log("online lobby players=" + std::to_string(message.lobby_players->size()));
+        }
+        lobby_players_ = *message.lobby_players;
+        lobby_rev_ = message.lobby_rev;
       }
-      lobby_players_ = *message.lobby_players;
-      lobby_rev_ = message.lobby_rev;
+      lobby_updated_at_ = now;
       lobby_fetched_ = true;
+      lobby_pending_handles_.erase(
+          std::remove_if(lobby_pending_handles_.begin(), lobby_pending_handles_.end(),
+                         [&](const std::string& handle) {
+                           const auto row = std::find_if(lobby_players_.begin(), lobby_players_.end(),
+                                                         [&](const LobbyPlayer& p) { return p.player == handle; });
+                           return row == lobby_players_.end() || row->relation == "friend" || row->relation == "pending" ||
+                                  row->relation == "incoming";
+                         }),
+          lobby_pending_handles_.end());
       break;
     case Purpose::kPartyLeave:
     case Purpose::kPartyKick:
@@ -391,6 +415,7 @@ void OnlineService::OnGreeted(const ServerMessage& message, double now) {
   Log(std::string("online signed in") + (was_reconnecting ? " (reconnected)" : "") + " name=" + greeted_name_ +
       " code=" + friend_code_);
   capabilities_ = message.capabilities.value_or(ServiceCapabilities{});
+  if (!capabilities_.worker_build.empty()) Log("online worker build=" + capabilities_.worker_build);
   Log(std::string("online lobby service supported=") + Flag(capabilities_.public_lobby));
   ResetLobbyConnection();
   if (was_reconnecting) Emit({"worker_reconnect", 0, {}});
@@ -407,17 +432,20 @@ void OnlineService::OnServerEvent(const ServerMessage& message, double now) {
     case Kind::kFriendRequest:
       Notice(message.request.name + " wants to be your friend.");
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendAdded:
-      Notice(message.friend_view.name + " is now your friend.");
+      NoticeStatus(message.friend_view.name + " is now your friend.");
       UpdateFriend(message.friend_view);
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendRemoved:
       friends_.erase(std::remove_if(friends_.begin(), friends_.end(),
                                     [&](const Friend& f) { return f.player == message.player; }),
                      friends_.end());
       Refresh();
+      SoonLobbyRefresh();
       break;
     case Kind::kFriendStatus:
       UpdateFriend(message.friend_view);
@@ -919,12 +947,19 @@ void OnlineService::Refresh() {
 
 void OnlineService::NoteLobbyViewed() {
   Locked lock(*this);
-  if (now_ - lobby_viewed_at_ > kLobbyViewedSeconds) next_lobby_list_ = std::min(next_lobby_list_, now_);
   lobby_viewed_at_ = now_;
 }
 
-// The list is read only while the Lobby page is shown. Visibility is sent only when it differs from what the service
-// confirmed, so a player who never turns it on sends no Lobby request but the reads.
+void OnlineService::RefreshLobby() {
+  Locked lock(*this);
+  if (!Connected() || !settings_.lobby_visible || !capabilities_.public_lobby || lobby_refused_) return;
+  if (lobby_list_in_flight_ || now_ - lobby_list_started_at_ < kLobbyManualGapSeconds) return;
+  lobby_viewed_at_ = now_;
+  next_lobby_list_ = now_;
+}
+
+// The list is read only while the Lobby page is shown and this player is listed. Visibility is sent only when it differs
+// from what the service confirmed. A player who is not listed sees no list, as in the reference launcher.
 void OnlineService::PumpLobby() {
   if (!capabilities_.public_lobby || lobby_refused_) return;
   if (settings_.lobby_visible != lobby_published_ && !lobby_publish_in_flight_ && now_ >= lobby_publish_retry_at_) {
@@ -933,26 +968,45 @@ void OnlineService::PumpLobby() {
     const bool visible = lobby_publish_sent_;
     Send(Purpose::kLobbyPublish, [visible](int seq) { return EncodeLobbyPublish(seq, visible); });
   }
+  if (!settings_.lobby_visible) {
+    ForgetLobby();
+    return;
+  }
+  if (!lobby_published_) return;
   const bool viewed = now_ - lobby_viewed_at_ <= kLobbyViewedSeconds;
   if (viewed && !lobby_list_in_flight_ && now_ >= next_lobby_list_) {
     lobby_list_in_flight_ = true;
-    next_lobby_list_ = now_ + kLobbyRefreshSeconds;
+    lobby_list_started_at_ = now_;
+    next_lobby_list_ = now_ + kLobbyAutoRefreshSeconds;
     const std::optional<int64_t> held = lobby_fetched_ ? std::optional<int64_t>(lobby_rev_) : std::nullopt;
     Send(Purpose::kLobbyList, [held](int seq) { return EncodeLobbyList(seq, held); });
   }
+}
+
+void OnlineService::SoonLobbyRefresh() {
+  lobby_rev_ = -1;
+  next_lobby_list_ = now_;
+}
+
+void OnlineService::ForgetLobby() {
+  lobby_list_in_flight_ = false;
+  lobby_fetched_ = false;
+  lobby_failed_ = false;
+  lobby_rev_ = -1;
+  lobby_list_started_at_ = -1e9;
+  lobby_updated_at_ = -1e9;
+  next_lobby_list_ = 0;
+  lobby_pending_handles_.clear();
+  lobby_players_.clear();
 }
 
 // A new connection starts unlisted and with nothing read; an old list would show players who may be gone.
 void OnlineService::ResetLobbyConnection() {
   lobby_published_ = false;
   lobby_publish_in_flight_ = false;
+  lobby_publish_retry_at_ = 0;
   lobby_refused_ = false;
-  lobby_list_in_flight_ = false;
-  lobby_fetched_ = false;
-  lobby_failed_ = false;
-  lobby_rev_ = -1;
-  next_lobby_list_ = 0;
-  lobby_players_.clear();
+  ForgetLobby();
 }
 
 std::vector<ActivePeer> OnlineService::Peers() const {
@@ -1015,6 +1069,9 @@ Snapshot OnlineService::snapshot() const {
   s.lobby.visible = lobby_published_;
   s.lobby.fetched = lobby_fetched_;
   s.lobby.failed = lobby_failed_;
+  s.lobby.refreshing = lobby_list_in_flight_;
+  s.lobby.updated_seconds_ago = lobby_fetched_ ? std::max(0.0, now_ - lobby_updated_at_) : -1.0;
+  s.lobby.pending_handles = lobby_pending_handles_;
   s.lobby.players = lobby_players_;
   if (now_ - notice_at_ <= kNoticeSeconds) s.notice = notice_;
   s.testing = testing_;
@@ -1467,8 +1524,35 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
   if (std::any_of(outgoing_.begin(), outgoing_.end(), is_code)) {
     return refuse(FriendRequestResult::kAlreadyPending, "already_pending", "Friend request already pending.");
   }
+  if (const auto lobby = std::find_if(lobby_players_.begin(), lobby_players_.end(),
+                                      [&](const LobbyPlayer& p) { return p.player == code; });
+      lobby != lobby_players_.end()) {
+    if (std::none_of(outgoing_.begin(), outgoing_.end(), [&](const Request& r) { return r.player == code; })) {
+      outgoing_.push_back({code, lobby->name});
+    }
+    SoonLobbyRefresh();
+  }
   Log("online friend request sent code=" + code);
   Send(Purpose::kAdd, [&code](int seq) { return EncodeFriendsAdd(seq, code); }, code);
+  return FriendRequestResult::kSent;
+}
+
+FriendRequestResult OnlineService::AddFriendFromLobby(const std::string& player) {
+  Locked lock(*this);
+  if (!Connected()) {
+    Notice("Not connected to the online service.");
+    return FriendRequestResult::kNotConnected;
+  }
+  if (!IsLobbyHandle(player)) {
+    Notice(DescribeServiceError("bad_request"));
+    return FriendRequestResult::kInvalid;
+  }
+  if (std::find(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), player) == lobby_pending_handles_.end()) {
+    lobby_pending_handles_.push_back(player);
+  }
+  SoonLobbyRefresh();
+  Log("online lobby friend request sent handle=" + player);
+  Send(Purpose::kAdd, [player](int seq) { return EncodeFriendsAddPlayer(seq, player); }, player);
   return FriendRequestResult::kSent;
 }
 
@@ -1486,13 +1570,29 @@ void OnlineService::DeclineFriend(const std::string& player) {
   };
   drop(incoming_);
   drop(outgoing_);
+  if (std::any_of(lobby_players_.begin(), lobby_players_.end(),
+                  [&](const LobbyPlayer& p) { return p.player == player; })) {
+    SoonLobbyRefresh();
+  }
   Send(Purpose::kDecline, [&player](int seq) { return EncodeFriendsDecline(seq, player); });
+}
+
+void OnlineService::DeclineLobbyFriend(const std::string& player) {
+  Locked lock(*this);
+  lobby_pending_handles_.erase(
+      std::remove(lobby_pending_handles_.begin(), lobby_pending_handles_.end(), player), lobby_pending_handles_.end());
+  SoonLobbyRefresh();
+  Send(Purpose::kDecline, [player](int seq) { return EncodeFriendsDecline(seq, player); }, player);
 }
 
 void OnlineService::RemoveFriend(const std::string& player) {
   Locked lock(*this);
   friends_.erase(std::remove_if(friends_.begin(), friends_.end(), [&](const Friend& f) { return f.player == player; }),
                  friends_.end());
+  if (std::any_of(lobby_players_.begin(), lobby_players_.end(),
+                  [&](const LobbyPlayer& p) { return p.player == player; })) {
+    SoonLobbyRefresh();
+  }
   Send(Purpose::kRemove, [&player](int seq) { return EncodeFriendsRemove(seq, player); });
 }
 
@@ -1585,6 +1685,12 @@ void OnlineService::Notice(const std::string& text) {
   notices_.push_back(text);
   notice_ = text;
   notice_at_ = now_;
+}
+
+void OnlineService::NoticeStatus(const std::string& text) {
+  notices_.push_back(text);
+  notice_.clear();
+  notice_at_ = 0;
 }
 
 void OnlineService::Log(const std::string& line) {

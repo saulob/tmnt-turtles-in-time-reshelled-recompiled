@@ -677,7 +677,12 @@ std::string EnvironmentValue(const char* name) {
 void AddSystemFacts(PrivateFacts& facts) {
   AddOnce(facts.user_names, EnvironmentValue("USER"));
   AddOnce(facts.user_names, EnvironmentValue("LOGNAME"));
-  AddOnce(facts.profile_folders, EnvironmentValue("HOME"));
+  const std::string home = EnvironmentValue("HOME");
+  AddOnce(facts.profile_folders, home);
+  for (const char* name : {"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"}) {
+    const std::string folder = EnvironmentValue(name);
+    if (!folder.empty() && (home.empty() || folder.rfind(home, 0) != 0)) AddOnce(facts.profile_folders, folder);
+  }
   char host[256] = {};
   if (gethostname(host, sizeof(host) - 1) == 0) AddOnce(facts.machine_names, host);
 }

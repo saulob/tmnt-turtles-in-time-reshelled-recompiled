@@ -204,6 +204,8 @@ inline bool CheatsAllowed(bool online_enabled, bool in_online_session = false) {
   return !online_enabled && !in_online_session;
 }
 
+inline constexpr char kOnlineLockoutText[] = "Cheats are disabled while Online Play is enabled";
+
 // Turtle_TakeDamage's health damage. A replicated death empties the health through the same call, so it is kept.
 inline float ShieldedDamage(float damage, bool enabled, bool death) {
   return enabled && !death && damage > 0.0f ? 0.0f : damage;
@@ -310,6 +312,9 @@ bool Enabled(Cheat cheat);
 void ToggleForSession(Cheat cheat);
 int DamageMultiplier();
 void CycleDamageMultiplierForSession();
+
+// Online play clears the session overrides and every saved cheat cvar; changing back to Off restores nothing.
+void SetOnline(bool online);
 
 // Rewrites the attack bits of a successful XamInputGetState for `user`.
 void ApplyTurboAttack(uint8_t* base, uint32_t user, uint32_t state);

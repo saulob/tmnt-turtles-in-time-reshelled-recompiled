@@ -10,12 +10,17 @@ model pass their headless tests here, including a four-client run on loopback ag
 ## Playing
 
 1. Launcher > **Online** > **Online play** On. The rest of the page appears only then, on three tabs: **Settings**,
-   **Friends** and **Lobby**. **Online name** is what other players see (up to 16 letters, digits, `-` or `_`).
+   **Friends** and **Lobby**. **Online name** is what other players see (up to 16 letters, digits, `-` or `_`). The
+   default name `Player` is shown in the public Lobby as `Player-XXXX`, a stable salted suffix that tells default-name
+   accounts apart; a custom name is shown unchanged.
 2. Share **Your friend code** (`XXXX-XXXX`, **Copy** puts it on the clipboard). Paste or type a friend's code under
    **Friends** and **Send request**; they **Accept** or **Decline** it on their page. **Show me in Lobby** on the
-   **Lobby** tab lists your Online name, status, platform and game version for other players of this game; they can send
-   you a friend request from there. The listing belongs to the connection: turn it off, or close Online play, and you
-   leave the Lobby. Connection test sessions are never listed.
+   **Lobby** tab lists your presentation name and game version for other players of this game; they can send you a friend
+   request from there. Each listing carries a random action handle that is never shown: it stays the same while the
+   listing remains on and is replaced when it is turned Off and On again. The Lobby tab shows the compatible players,
+   when the list was last updated, and a **Refresh lobby** button; it also refreshes automatically every five minutes
+   while it is open. The listing belongs to the connection: turn it off, or close Online play, and you leave the Lobby.
+   Connection test sessions are never listed.
 3. **Connection test** > **Run test**. PLAY stays blocked until it reports **Overall usable** (see below).
 4. Everyone presses **Play**. In the game, with the controller that will play (or the keyboard), the host uses **Create Match**
    and the guests **Quick Match** or **Custom Match**, which find only the friends' party.
@@ -120,8 +125,9 @@ and **SNES Dash** ([snes-gameplay.md](snes-gameplay.md)).
 Support is global, choices are per player. A mechanic is available in a match only when every PC supports it with the
 same data; once it is, each player's own On or Off applies to the turtle that player controls, and another player's Off
 never takes it away. **Classic Soundtrack** is not part of this: it is each PC's own presentation, follows that player's
-F9 and launcher choice at once, online too, and needs nothing from the other players. Cheats stay off online, and F10
-only says **Cheats are unavailable while Online play is enabled.**.
+F9 and launcher choice at once, online too, and needs nothing from the other players. Turning Online play on switches
+every saved cheat Off and keeps them Off; turning it off restores nothing. The Cheats page and F10 show **Cheats are
+disabled while Online Play is enabled**.
 
 - **Supports.** A mechanic needs the gameplay data of a Ready import. Without it, or with an older import that only has
   the soundtrack, it is unsupported, so nobody in that match has it; the match plays normally.

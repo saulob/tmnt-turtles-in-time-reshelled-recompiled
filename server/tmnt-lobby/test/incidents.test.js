@@ -58,6 +58,23 @@ test('a report is stored and its receipt proves ownership', () => {
   assert.equal(report.log_text, packageBody().log_text);
 });
 
+test('a Linux report is stored and read like a Windows one', () => {
+  const env = makeHub();
+  const client = greeted(env, 11);
+  const answer = file(env, client, {
+    platform: 'Linux',
+    operating_system: 'Linux: Ubuntu 24.04 LTS',
+    log_text: 'Runtime configuration:\nRuntime OS: Linux: Ubuntu 24.04 LTS\nUser data: <home>/.local/share/TMNT\n',
+  });
+  assert.equal(answer.code, 'ok');
+  const report = env.hub.incidents.report({ ticket: answer.ticket, receipt: answer.receipt });
+  assert.equal(report.platform, 'Linux');
+  assert.equal(report.operating_system, 'Linux: Ubuntu 24.04 LTS');
+  assert.match(report.log_text, /Linux: Ubuntu 24\.04/);
+  const listed = env.hub.incidents.list().incidents.find((row) => row.ticket === answer.ticket);
+  assert.equal(listed.platform, 'Linux');
+});
+
 test('the player operations answer without a hello and hide an unknown report', () => {
   const env = makeHub();
   const client = env.connect(identity(2));

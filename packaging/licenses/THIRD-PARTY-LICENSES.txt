@@ -812,9 +812,11 @@ The sidebar icons in assets/launcher/icons are tinted and drawn by the launcher.
 | gameplay.svg | Gamepad | SVG Repo | https://www.svgrepo.com/svg/523439/gamepad | CC0 |
 | online.svg | Globe | SVG Repo | https://www.svgrepo.com/svg/522410/globe | CC0 |
 | controls.svg | Keyboard | SVG Repo | https://www.svgrepo.com/svg/524665/keyboard | CC0 |
-| trophies.svg | Achievements | SVG Repo | https://www.svgrepo.com/svg/304482/achievements | CC0 |
+| achievements.svg | Achievements | SVG Repo | https://www.svgrepo.com/svg/304482/achievements | CC0 |
 | about.svg | About | SVG Repo | https://www.svgrepo.com/svg/486929/about | CC0 |
+| cheats.svg | Star Alt 1 | SVG Repo | https://www.svgrepo.com/svg/532289/star-alt-1 | CC0 |
 | dlc.svg | Download box | Original artwork for this port | n/a | CC0 |
+| snes.svg | Super Nintendo Controller | SVG Repo | assets/launcher/icons/source/super-nintendo-controller-svgrepo-com.svg; https://www.svgrepo.com/svg/82749/super-nintendo-controller | CC0 |
 
 display.svg is licensed under CC Attribution: https://creativecommons.org/licenses/by/
 
@@ -1937,7 +1939,6 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 
 ========================================================================
 snes_spc (SPC700 and S-DSP emulator from Game_Music_Emu)

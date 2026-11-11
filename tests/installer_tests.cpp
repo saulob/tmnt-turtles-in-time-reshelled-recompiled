@@ -588,6 +588,20 @@ void TestForeignFolder() {
         InstallStatus::kNoGameFolder);
 }
 
+void TestCaseVariantGameNames() {
+  Section("a game folder copied with another letter case is recognised on both platforms");
+  Scratch scratch(g_scratch_base);
+  const fs::path game = scratch.path() / "game";
+  WriteFile(game / "Default.xex", Pattern(16, 1));
+  WriteFile(game / "tmnt_r.xex", Pattern(16, 2));
+  fs::create_directories(game / "data" / "Sound");
+  CHECK(CheckGameFiles(game).state == GameFiles::kUnsupported);
+  WriteFile(scratch.path() / "p.bin", BuildPackage(ValidGamePackageItems()));
+  CHECK(InstallFromPackage(scratch.path() / "p.bin", game).ok());
+  CHECK(CheckGameFiles(game).state == GameFiles::kReady);
+  CHECK(ReadFile(game / "Data" / "Sound" / "bgm.bnk") == Pattern(10000, 1));
+}
+
 void TestLauncherDecision() {
   Section("missing game files force the launcher; the relaunch flag and the off setting cannot hide it");
   for (const bool skip : {false, true}) {
@@ -1411,6 +1425,7 @@ int main(int argc, char** argv) {
   TestInvalidXex();
   TestValidInstallAndReinstall();
   TestForeignFolder();
+  TestCaseVariantGameNames();
   TestLauncherDecision();
   TestOnWorkerThread();
   TestDlcMetadata();

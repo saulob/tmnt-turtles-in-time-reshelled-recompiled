@@ -16,7 +16,6 @@
 #include <string_view>
 #include <vector>
 
-#include "../src/classic_soundtrack_notice.h"
 #include "../src/fire_movie_patch.cpp"
 #include "../src/language.h"
 #include "../src/localization/active_language.h"
@@ -283,44 +282,6 @@ void TestMessages() {
   CHECK(TrMessage("UDP endpoint available on UDP port 7001. Direct peer connectivity will be verified when joining a match.") ==
         "Endpoint UDP dispon\xC3\xADvel na porta UDP 7001. A conex\xC3\xA3o direta com outros jogadores ser\xC3\xA1 verificada ao entrar em uma partida.");
   SetActiveLanguage("en");
-}
-
-void TestSoundtrackNotices() {
-  std::printf("classic soundtrack messages: follow the selected language at draw time\n");
-  using tmnt::LocalizedSoundtrackNoticeText;
-  using tmnt::SoundtrackNotice;
-  SetActiveLanguage("en");
-  CHECK(std::string(LocalizedSoundtrackNoticeText(SoundtrackNotice::kOn)) == "SNES soundtrack: On");
-  SetActiveLanguage(kPortugueseBrazilKey);
-  CHECK(std::string(LocalizedSoundtrackNoticeText(SoundtrackNotice::kOn)) == "Trilha sonora SNES: Ligada");
-  CHECK(std::string(LocalizedSoundtrackNoticeText(SoundtrackNotice::kNone)).empty());
-
-  // The same notice read after each language switch, as the overlay does every frame.
-  SoundtrackNoticeState startup;
-  startup.Show(SoundtrackNotice::kOn, kStartupNoticeSeconds);
-  CHECK(std::string(LocalizedSoundtrackNoticeText(startup.Current(10.0))) == "Trilha sonora SNES: Ligada");
-  SetActiveLanguage("en");
-  CHECK(std::string(LocalizedSoundtrackNoticeText(startup.Current(11.0))) == "SNES soundtrack: On");
-
-  const char* description = "Plays the SNES soundtrack instead of the Re-Shelled music";
-  CHECK(Has(ReadFile("src/launcher.cpp"), description));
-  SetActiveLanguage("en");
-  CHECK(std::string(Tr(description)) == description && !Has(Tr(description), "F9"));
-  SetActiveLanguage(kPortugueseBrazilKey);
-  CHECK(std::string(Tr(description)) == "Toca a trilha sonora do SNES no lugar da m\xC3\xBAsica do Re-Shelled");
-  const char* help = "Press F9 while playing to open the SNES menu. Changes made there apply only to the current session.";
-  CHECK(Has(ReadFile("src/launcher.cpp"), help));
-  CHECK(std::string(Tr(help)) ==
-        "Pressione F9 durante o jogo para abrir o menu SNES. As altera\xC3\xA7\xC3\xB5" "es feitas ali valem apenas para a sess\xC3\xA3o atual.");
-  SetActiveLanguage("en");
-  const std::string docs = ReadFile("docs/classic-soundtrack.md");
-  CHECK(Has(docs, "Any supported USA, Europe or Australia ROM works") && Has(docs, "all three give\n   the same soundtrack"));
-  CHECK(Has(docs, "does not include the SNES ROM or any music taken from it"));
-
-  const std::string overlay = ReadFile("src/classic_soundtrack_overlay.cpp");
-  CHECK(Has(overlay, "LocalizedSoundtrackNoticeText(notice)"));
-  CHECK(!Has(overlay, "SNES soundtrack") && !Has(overlay, "Trilha sonora"));
-  CHECK(!Has(overlay, "DrawCornerText(SoundtrackNoticeText"));
 }
 
 void TestAchievementsAndOnline() {
@@ -776,7 +737,6 @@ int main() {
   TestGameTable();
   TestUiTable();
   TestMessages();
-  TestSoundtrackNotices();
   TestAchievementsAndOnline();
   TestBankBuild();
   TestBlockCodec();

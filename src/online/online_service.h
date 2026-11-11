@@ -22,6 +22,12 @@ namespace tmnt::online {
 
 inline constexpr char kDefaultServiceUrl[] = "wss://tmnt-lobby.saulobenigno.workers.dev/";
 
+// The Lobby list is read while its page is open: rarely by itself, at once for a friend event or Refresh lobby, one read
+// at a time.
+inline constexpr double kLobbyAutoRefreshSeconds = 300.0;
+inline constexpr double kLobbyManualGapSeconds = 5.0;
+inline constexpr double kLobbyRetrySeconds = 30.0;
+
 struct ServiceConfig {
   std::string url = kDefaultServiceUrl;
   std::string guest = kGuestBase;
@@ -72,6 +78,9 @@ struct LobbySnapshot {
   bool visible = false;    // the service confirmed this player is listed
   bool fetched = false;
   bool failed = false;     // the last read failed
+  bool refreshing = false; // a read is on its way
+  double updated_seconds_ago = -1.0;  // since the last successful read; negative before the first
+  std::vector<std::string> pending_handles;  // Lobby requests sent and not yet reflected by a read
   std::vector<LobbyPlayer> players;
 };
 
@@ -140,11 +149,17 @@ class OnlineService {
   void Update(double now);
 
   FriendRequestResult AddFriend(const std::string& code);
+  // A friend request sent from a public Lobby row, addressed by its random handle rather than a friend code.
+  FriendRequestResult AddFriendFromLobby(const std::string& player);
   void AcceptFriend(const std::string& player);
   void DeclineFriend(const std::string& player);  // also withdraws an outgoing request
+  // Declines an incoming request or withdraws an outgoing one addressed by a public Lobby handle.
+  void DeclineLobbyFriend(const std::string& player);
   void RemoveFriend(const std::string& player);
   // Called on every frame the Lobby page is shown: the list is read while that goes on, and not otherwise.
   void NoteLobbyViewed();
+  // The Refresh lobby button; a read already running, or one that just ran, answers for it.
+  void RefreshLobby();
 
   // The party: the host starts one, invites friends, and everyone who accepts joins the same hidden match.
   bool CreateParty();
@@ -268,6 +283,8 @@ class OnlineService {
   void SendLocked(const std::string& text);
   bool Connected() const { return step_ == Step::kOnline; }
   void Notice(const std::string& text);
+  // A successful action's feedback for the launcher's status line only, not the page.
+  void NoticeStatus(const std::string& text);
   void Log(const std::string& line);
   void FlushLog();
   void Disable();
@@ -305,6 +322,10 @@ class OnlineService {
   void FinishGameStart(const std::string& reason);
   void SendTestBeacon(const ConnectionReport& report);
   void DropAcceptedInviteLocked(const std::string& reason);
+  void PumpLobby();
+  void SoonLobbyRefresh();
+  void ForgetLobby();
+  void ResetLobbyConnection();
   SnesGameplayCapabilities LocalSnes() const;
   SnesGameplaySet VerifiedSnesLocked() const;
   void PumpSnes(double now);
@@ -314,8 +335,6 @@ class OnlineService {
   bool InMatchLocked() const;
   void CheckSnesLock();
   void ResetSnes();
-  void PumpLobby();
-  void ResetLobbyConnection();
 
   class Locked;
 
@@ -387,8 +406,11 @@ class OnlineService {
   bool lobby_failed_ = false;
   int64_t lobby_rev_ = -1;
   double lobby_viewed_at_ = -1e9;
+  double lobby_list_started_at_ = -1e9;
+  double lobby_updated_at_ = -1e9;
   double next_lobby_list_ = 0;
   std::vector<LobbyPlayer> lobby_players_;
+  std::vector<std::string> lobby_pending_handles_;
 
   std::optional<PartyAccess> access_;
   std::optional<Party> party_;

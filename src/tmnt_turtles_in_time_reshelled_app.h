@@ -26,6 +26,7 @@
 #include "active_log.h"
 #include "aspect_ratio.h"
 #include "cheat_menu.h"
+#include "cheats.h"
 #include "diagnostics.h"
 #include "frame_counter.h"
 #include "game_files.h"
@@ -42,6 +43,7 @@
 #include "log_path.h"
 #include "modal_dialog.h"
 #include "online_runtime.h"
+#include "online_setting.h"
 #include "ping_display.h"
 #include "platform.h"
 #include "player_names.h"
@@ -218,6 +220,7 @@ class TurtlesInTimeReshelledApp : public rex::ReXApp {
   }
 
   void LaunchModule() override {
+    tmnt::cheats::SetOnline(rex::cvar::Query<bool>(tmnt::kOnlineEnabledSetting));
     const int monitor = game_settings_.GetInt("monitor", std::atoi(rex::cvar::GetFlagByName("monitor").c_str()));
     tmnt::StartupWindowInfo startup_window;
     startup_window.fullscreen = window() != nullptr && window()->IsFullscreen();

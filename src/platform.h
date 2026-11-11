@@ -18,7 +18,7 @@ std::filesystem::path PathFromUtf8(const std::string& utf8);
 std::filesystem::path PortFolder();
 
 // Windows: caches the current run's log file and installs the unhandled exception filter that appends
-// a CRASH REPORT block to it. A no-op on Linux.
+// a CRASH REPORT block to it. Linux: installs the POSIX fatal-signal handlers that do the same.
 void InstallCrashReports();
 
 // The architecture this build runs as ("x86-64", "arm64", ...), for the startup log line.

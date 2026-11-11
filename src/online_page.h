@@ -44,6 +44,10 @@ class OnlinePage {
                               bool focus_run_test);
   void DrawFriends(trg::Ui& ui, const online::Snapshot& state);
   void DrawLobby(trg::Ui& ui, const online::Snapshot& state);
+  void DrawLobbyVisibility(trg::Ui& ui);
+  void DrawLobbyPlayers(trg::Ui& ui, const online::Snapshot& state);
+  void DrawLobbyHeader(trg::Ui& ui, const online::Snapshot& state, size_t player_count);
+  void DrawLobbyList(trg::Ui& ui, const online::Snapshot& state, const std::vector<const online::LobbyPlayer*>& players);
   void DrawLobbyPlayer(trg::Ui& ui, const online::Snapshot& state, const online::LobbyPlayer& player);
   std::string TestConfiguration() const;
 

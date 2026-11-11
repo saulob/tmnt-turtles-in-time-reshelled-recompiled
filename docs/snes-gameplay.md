@@ -67,3 +67,5 @@ controls.
 **SNES Special HP Cost.** Re-Shelled has no special attack button: its Y is the Strong Attack, which the port does not
 treat as the SNES special, so the SNES cost (Leonardo 10, Michelangelo 12, Donatello 12, Raphael 9, charged when the special
 connects and only above that much health) is not applied.
+
+`tmnt_snes_gameplay_data`, `tmnt_snes_session` and `tmnt_snes_online_lock` are runtime values written by the port for the loaded gameplay data, the F9 session overrides and the locked online table; they are not settings.

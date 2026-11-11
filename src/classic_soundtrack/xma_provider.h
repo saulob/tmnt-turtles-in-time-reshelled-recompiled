@@ -37,7 +37,7 @@ class ClassicSoundtrackProvider {
   static constexpr size_t kStreamSlots = 6;
   static constexpr std::int32_t kNoStream = -1;
   using Warn = void (*)(const char* message);
-  // DEBUG_SAULO: a large stream that is not a known music wave is logged once, up to this many distinct ones.
+  // A large stream that is not a known music wave is logged once, up to this many distinct ones.
   static constexpr std::uint32_t kMinUnmatchedBytes = 32768;
   static constexpr size_t kUnmatchedLogLimit = 8;
 

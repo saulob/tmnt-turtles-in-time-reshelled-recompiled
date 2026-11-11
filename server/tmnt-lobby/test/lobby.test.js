@@ -8,8 +8,9 @@ import {
   CAPABILITIES, GAME_ID, LIMITS, PROTOCOL, WORKER_BUILD, parseLobbyPublish, parseLobbyRevision, tokenHash,
 } from '../src/protocol.js';
 import { greeted, identity, makeHub } from './harness.js';
+import { sha256Hex } from '../src/sha256.js';
 
-const ROW_KEYS = ['compatible', 'guest', 'name', 'platform', 'player', 'state', 'version'];
+const ROW_KEYS = ['name', 'player', 'state', 'version'];
 const visible = (client, on = true) => client.call('lobby.publish', { visible: on });
 const names = (reply) => reply.players.map((p) => p.name);
 
@@ -27,7 +28,7 @@ test('the service announces the public Lobby and the report service', () => {
   assert.equal(CAPABILITIES.public_lobby, true);
   assert.equal(CAPABILITIES.bug_reports, true);
   assert.equal(CAPABILITIES.protocol_version, PROTOCOL);
-  assert.equal(WORKER_BUILD, '2026-11-09-lobby1');
+  assert.equal(WORKER_BUILD, '2026-11-10-lobby2');
   const env = makeHub();
   const reply = env.connect(identity(1)).hello();
   assert.equal(reply.capabilities.public_lobby, true);
@@ -51,14 +52,123 @@ test('publishing On lists the player for others and Off removes them again', () 
   const seen = b.call('lobby.list');
   assert.equal(seen.code, 'ok');
   assert.deepEqual(names(seen), ['Alice']);
-  assert.equal(seen.players[0].player, identity(1).player);
+  assert.match(seen.players[0].player, /^[0-9a-f]{32}$/);
+  assert.notEqual(seen.players[0].player, identity(1).player);
   assert.equal(seen.visible, false);
   assert.deepEqual(visible(a, false), { re: a.seq, code: 'ok', visible: false });
   assert.deepEqual(b.call('lobby.list').players, []);
 });
 
-test('the viewer never sees their own row', () => {
+const aliasOf = (env, n) =>
+  `Player-${sha256Hex(`${env.hub.meta('salt')}|alias|${identity(n).player}`).slice(0, 4).toUpperCase()}`;
+
+test('two default-name accounts get distinct salted aliases, and custom names stay unchanged', () => {
   const env = makeHub();
+  env.hub.setMeta('salt', '0123456789abcdef0123456789abcdef');
+  const a = greeted(env, 1, { name: 'Player' });
+  const b = greeted(env, 2, { name: 'Player' });
+  const custom = greeted(env, 3, { name: 'Saulo' });
+  const near = greeted(env, 5, { name: 'Player1' });
+  const viewer = greeted(env, 4, { name: 'Watcher' });
+  for (const who of [a, b, custom, near, viewer]) visible(who);
+
+  const rows = viewer.call('lobby.list').players;
+  const row = (name) => rows.find((p) => p.name === name);
+  assert.deepEqual(rows.map((p) => p.name).sort(), [aliasOf(env, 1), aliasOf(env, 2), 'Player1', 'Saulo'].sort());
+  assert.notEqual(aliasOf(env, 1), aliasOf(env, 2));
+  assert.match(row(aliasOf(env, 1)).player, /^[0-9a-f]{32}$/);
+  assert.match(row(aliasOf(env, 2)).player, /^[0-9a-f]{32}$/);
+  assert.notEqual(row(aliasOf(env, 1)).player, row(aliasOf(env, 2)).player);
+  assert.equal(row('Saulo').name, 'Saulo');
+  assert.equal(row('Player1').name, 'Player1');
+  assert.equal(Object.hasOwn(row('Saulo'), 'display_name'), false);
+
+  const raw = JSON.stringify(rows);
+  for (const hidden of [identity(1).player, identity(2).player, env.hub.meta('salt')]) {
+    assert.equal(raw.includes(hidden), false, `leaked ${hidden}`);
+  }
+  const unsalted = `Player-${sha256Hex(`${identity(1).player}|alias|${identity(1).player}`).slice(0, 4).toUpperCase()}`;
+  assert.notEqual(aliasOf(env, 1), unsalted);
+});
+
+test('the alias follows the account and the Worker salt across reconnects', () => {
+  const env = makeHub();
+  env.hub.setMeta('salt', '0123456789abcdef0123456789abcdef');
+  const viewer = greeted(env, 4, { name: 'Watcher' });
+  visible(viewer);
+  let a = greeted(env, 1, { name: 'Player' });
+  visible(a);
+  const before = viewer.call('lobby.list').players[0];
+  a.drop();
+  a = greeted(env, 1, { name: 'Player' });
+  visible(a);
+  const after = viewer.call('lobby.list').players[0];
+  assert.equal(after.name, before.name);
+  assert.notEqual(after.player, before.player);
+
+  const other = makeHub();
+  other.hub.setMeta('salt', 'fedcba9876543210fedcba9876543210');
+  const otherViewer = greeted(other, 4, { name: 'Watcher' });
+  visible(otherViewer);
+  visible(greeted(other, 1, { name: 'Player' }));
+  assert.notEqual(otherViewer.call('lobby.list').players[0].name, before.name);
+});
+
+test('the public handle is stable while visible and rotates after hiding', () => {
+  const env = makeHub();
+  const a = greeted(env, 1, { name: 'Player' });
+  const viewer = greeted(env, 2, { name: 'Watcher' });
+  visible(a);
+  visible(viewer);
+  const first = viewer.call('lobby.list').players[0];
+  visible(a);
+  assert.deepEqual(viewer.call('lobby.list').players[0], first);
+  visible(a, false);
+  assert.deepEqual(viewer.call('lobby.list').players, []);
+  visible(a);
+  const second = viewer.call('lobby.list').players[0];
+  assert.notEqual(second.player, first.player);
+  assert.equal(second.name, first.name);
+});
+
+test('a default-name alias reaches the Lobby action, the request, the list and the event', () => {
+  const env = makeHub();
+  env.hub.setMeta('salt', '0123456789abcdef0123456789abcdef');
+  const a = greeted(env, 1, { name: 'Player' });
+  const b = greeted(env, 2, { name: 'Player' });
+  visible(a);
+  visible(b);
+  const target = b.call('lobby.list').players[0];
+
+  const added = b.call('friends.add', { player: target.player });
+  assert.deepEqual([added.name, added.display_name, added.state], ['Player', aliasOf(env, 1), 'pending']);
+  const [event] = a.events('friend.request');
+  assert.deepEqual([event.player, event.name, event.display_name], [identity(2).player, 'Player', aliasOf(env, 2)]);
+  assert.deepEqual(b.call('friends.requests').outgoing.map((r) => [r.name, r.display_name]), [['Player', aliasOf(env, 1)]]);
+  assert.deepEqual(a.call('friends.requests').incoming.map((r) => [r.name, r.display_name]), [['Player', aliasOf(env, 2)]]);
+
+  const accepted = a.call('friends.accept', { player: identity(2).player });
+  assert.deepEqual([accepted.friend.name, accepted.friend.display_name], ['Player', aliasOf(env, 2)]);
+  assert.deepEqual(a.call('friends.list').friends.map((f) => [f.name, f.display_name]), [['Player', aliasOf(env, 2)]]);
+  assert.deepEqual(b.call('friends.list').friends.map((f) => [f.name, f.display_name]), [['Player', aliasOf(env, 1)]]);
+});
+
+test('spoofed name, account and handle fields in lobby.publish are ignored', () => {
+  const env = makeHub();
+  const a = greeted(env, 1, { name: 'Alice' });
+  const b = greeted(env, 2, { name: 'Bob' });
+  visible(b);
+  a.call('lobby.publish', {
+    visible: true, name: 'Mallory', display_name: 'Player-FFFF', player: 'f'.repeat(32), account: identity(9).player,
+  });
+  const [row] = b.call('lobby.list').players;
+  assert.deepEqual([row.name, row.state], ['Alice', 'none']);
+  assert.notEqual(row.player, 'f'.repeat(32));
+  assert.equal(JSON.stringify(row).includes('Mallory'), false);
+  assert.equal(JSON.stringify(row).includes('Player-FFFF'), false);
+});
+
+test('the viewer never sees their own row', () => {  const env = makeHub();
   const a = greeted(env, 1, { name: 'Alice' });
   visible(a);
   const own = a.call('lobby.list');
@@ -131,8 +241,9 @@ test('rows hold exactly the minimum a launcher shows', () => {
   visible(a);
   const [row] = b.call('lobby.list').players;
   assert.deepEqual(Object.keys(row).sort(), ROW_KEYS);
-  assert.deepEqual(row, { player: identity(1).player, name: 'Alice', state: 'online', platform: 'Linux', version: '0.2.2',
-    guest: 'base', compatible: true });
+  assert.match(row.player, /^[0-9a-f]{32}$/);
+  assert.deepEqual({ name: row.name, state: row.state, version: row.version },
+    { name: 'Alice', state: 'none', version: '0.2.2' });
 });
 
 test('the public list never carries a token, address, endpoint, relay or match detail', () => {
@@ -147,7 +258,8 @@ test('the public list never carries a token, address, endpoint, relay or match d
   visible(a);
   const c = greeted(env, 3, { ip: '198.51.100.22' });
   const raw = JSON.stringify(c.call('lobby.list'));
-  for (const secret of [identity(1).token, tokenHash(identity(1).token), '198.51.100.20', '192.168.1.9', '203.0.113.9',
+  for (const secret of [identity(1).player, env.hub.meta('salt'), identity(1).token, tokenHash(identity(1).token),
+    '198.51.100.20', '192.168.1.9', '203.0.113.9',
     '55555', 'relay', 'lan', 'qos', 'rules', 'session', 'match', 'ip', 'token', 'hash', 'cid', 'endpoint', 'port',
     'country']) {
     assert.equal(raw.toLowerCase().includes(secret.toLowerCase()), false, `leaked ${secret}`);
@@ -155,36 +267,37 @@ test('the public list never carries a token, address, endpoint, relay or match d
   for (const key of Object.keys(JSON.parse(raw))) assert.ok(['re', 'code', 'players', 'rev', 'visible'].includes(key), key);
 });
 
-test('status follows what the player is doing', () => {
+test('the public list carries the relation the service holds', () => {
   const env = makeHub();
   const a = greeted(env, 1, { name: 'Alice' });
   const b = greeted(env, 2, { name: 'Bob' });
   visible(a);
-  const state = () => b.call('lobby.list').players.find((p) => p.name === 'Alice').state;
-  assert.equal(state(), 'online');
-  a.call('party.create');
-  assert.equal(state(), 'party');
+  visible(b);
+  const row = (viewer, name) => viewer.call('lobby.list').players.find((p) => p.name === name);
+  assert.equal(row(b, 'Alice').state, 'none');
+  a.call('friends.add', { player: row(a, 'Bob').player });
+  assert.equal(row(a, 'Bob').state, 'pending');
+  assert.equal(row(b, 'Alice').state, 'incoming');
+  b.call('friends.add', { player: row(b, 'Alice').player });
+  assert.equal(row(a, 'Bob').state, 'friend');
+  assert.equal(row(b, 'Alice').state, 'friend');
 });
 
-test('compatibility follows the existing rule: same guest image and same netplay build', () => {
+test('incompatible builds stay out of the public list', () => {
   const env = makeHub();
   const base = greeted(env, 1, { name: 'Alice', build: 1 });
   const newer = greeted(env, 2, { name: 'Bob', build: 2 });
   const same = greeted(env, 3, { name: 'Cat', build: 1 });
   for (const who of [base, newer, same]) visible(who);
-  const rows = same.call('lobby.list').players;
-  const compat = (name) => rows.find((p) => p.name === name).compatible;
-  assert.equal(compat('Alice'), true);
-  assert.equal(compat('Bob'), false);
-  assert.ok(rows.some((p) => !p.compatible), 'incompatible players stay in the list');
+  assert.deepEqual(names(same.call('lobby.list')), ['Alice']);
 });
 
-test('compatible players come first, then by name', () => {
+test('compatible players come by relation, then by name', () => {
   const env = makeHub();
-  const viewer = greeted(env, 9, { name: 'Viewer' });
-  const rows = [['Zed', 1], ['Amy', 2], ['Bob', 1], ['Cat', 2]];
+  const viewer = greeted(env, 9, { name: 'Viewer', build: 1 });
+  const rows = [['Zed', 1], ['Amy', 1], ['Bob', 1], ['Cat', 1]];
   rows.forEach(([name, build], i) => visible(greeted(env, i + 1, { name, build })));
-  assert.deepEqual(names(viewer.call('lobby.list')), ['Bob', 'Zed', 'Amy', 'Cat']);
+  assert.deepEqual(names(viewer.call('lobby.list')), ['Amy', 'Bob', 'Cat', 'Zed']);
 });
 
 test('a Lobby player can be added with the existing friend request, and the target hears the usual event', () => {
@@ -192,8 +305,9 @@ test('a Lobby player can be added with the existing friend request, and the targ
   const a = greeted(env, 1, { name: 'Alice' });
   const b = greeted(env, 2, { name: 'Bob' });
   visible(a);
+  visible(b);
   const [row] = b.call('lobby.list').players;
-  assert.equal(b.call('friends.add', { code: row.player }).state, 'pending');
+  assert.equal(b.call('friends.add', { player: row.player }).state, 'pending');
   const [event] = a.events('friend.request');
   assert.deepEqual([event.player, event.name], [identity(2).player, 'Bob']);
   assert.deepEqual(b.call('friends.requests').outgoing.map((r) => r.player), [identity(1).player]);
@@ -222,7 +336,7 @@ test('a revision the client holds gets "unchanged" until the list changes', () =
 
   a.call('party.create');
   const status = b.call('lobby.list', { rev: changed.rev });
-  assert.equal(status.players[0].state, 'party');
+  assert.equal(status.players[0].state, 'none');
 
   visible(a, false);
   assert.equal(b.call('lobby.list', { rev: status.rev }).players.length, 0);
@@ -347,20 +461,27 @@ test('two local instances: visibility, listing, a friend request from the Lobby 
   const idb = identity(62);
   assert.equal((await a.hello(ida, 'Alice')).capabilities.public_lobby, true);
   await b.hello(idb, 'Bob');
+  assert.equal((await b.call('lobby.publish', { visible: true })).visible, true);
 
   assert.deepEqual((await b.call('lobby.list')).players, []);
   assert.equal((await a.call('lobby.publish', { visible: true })).visible, true);
   const listed = await b.call('lobby.list');
-  assert.deepEqual(listed.players.map((p) => [p.name, p.player, p.compatible]), [['Alice', ida.player, true]]);
+  assert.deepEqual(listed.players.map((p) => [p.name, p.state]), [['Alice', 'none']]);
+  const handle = listed.players[0].player;
+  assert.match(handle, /^[0-9a-f]{32}$/);
+  assert.notEqual(handle, ida.player);
 
-  assert.equal((await b.call('friends.add', { code: listed.players[0].player })).state, 'pending');
+  assert.equal((await b.call('friends.add', { player: handle })).state, 'pending');
   assert.equal((await a.next((m) => m.ev === 'friend.request')).player, idb.player);
 
   assert.equal((await a.call('lobby.publish', { visible: false })).visible, false);
   assert.deepEqual((await b.call('lobby.list')).players, []);
 
   await a.call('lobby.publish', { visible: true });
-  assert.equal((await b.call('lobby.list')).players.length, 1);
+  const again = await b.call('lobby.list');
+  assert.equal(again.players.length, 1);
+  assert.notEqual(again.players[0].player, handle);
+  assert.equal(again.players[0].name, 'Alice');
   a.ws.close();
   await b.next((m) => m.ev === 'friend.offline').catch(() => null);
   for (let tries = 0; tries < 50; tries++) {

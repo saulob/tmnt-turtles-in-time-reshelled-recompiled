@@ -69,11 +69,11 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 
 ## 2. ReXGlue patches: Windows and Linux
 
-`patches/rexglue-sdk/patches.txt` classifies every patch (platforms, targets, origin, parity). `tools/test.ps1` checks it against the files, the names and `docs/rexglue-runtime-patch.md`, and applies both series to the pinned SDK commit (81 patches: 50 shared, 19 Windows-only, 12 Linux-only; the Windows series has 69 patches, the Linux series 62).
+`patches/rexglue-sdk/patches.txt` classifies every patch (platforms, targets, origin, parity). `tools/test.ps1` checks it against the files, the names and `docs/rexglue-runtime-patch.md`, and applies both series to the pinned SDK commit (83 patches: 54 shared, 18 Windows-only, 11 Linux-only; the Windows series has 72 patches, the Linux series 65).
 
 - Windows patch with a Linux counterpart: 0011-0014 (D3D12 submissions, transfers, stencil, EDRAM) with 0016-0018; 0023 with 0024; 0027 with 0026; 0031 with 0032; 0037 with 0038.
-- Windows only, nothing to port: 0015 (high-resolution sleep), 0041 sampler memo, 0044 async submission, 0049 host threads off CPU 0, 0052 ThinLTO, 0053 unchanged constant writes, 0056 PGO, 0079 per-draw vertex residency.
-- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0080 AA838 Stage A fix. The flicker may still show on Linux.
+- Windows only, nothing to port: 0015 (high-resolution sleep), 0041 sampler memo, 0044 async submission, 0049 host threads off CPU 0, 0052 ThinLTO, 0053 unchanged constant writes, 0056 PGO.
+- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0079 per-draw vertex residency (stale geometry possible), 0080 AA838 Stage A fix (the cyan flicker may still show on Linux).
 - Linux only: 0019, 0021 (POSIX waits), 0034, 0035 (Vulkan), 0046 (SDL video guidance), 0082 (module library).
 - Made common in this branch: 0051, 0054, 0081.
 
@@ -437,3 +437,18 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 | 52 | 4df062d | 2026-10-29 | feat: add rollback netplay foundation | netplay | game-specific | NOT APPLICABLE | netplay |
 | 53 | 9f20b39 | 2026-10-31 | feat: complete online rollback netplay with direct UDP and relay fallback | netplay, online, server | game-specific; incidental F3/F4 SDK bind removal, corner overlay, clipboard for friend codes | NOT APPLICABLE | netplay. `kRemovedSdkBinds` (remove SDK F3/F4 overlays) exists only to free F3 for the ping display; TMNT keeps SDK F3/F4 by design (src/keybinds.h reserves F10) |
 | 54 | 44ad861 | 2026-10-31 | fix: prevent launcher idle hang on Windows | Windows, launcher, input | Generic: Windows launcher/overlay gamepad via synchronous XInput (`LoadLibrary` of xinput1_4/1_3/9_1_0, `PadSlotScan` retries empty slots 1 Hz), no SDL instance/hidden window/thread; foreground gate | PORT | TMNT src/imgui_gamepad.cpp still runs SDL's own instance on Windows and `SDL_PollEvent` in the launcher (the pre-fix code); no src/pad_slot_scan.h, no tests/launcher_gamepad_tests.cpp. Issue #9 in SSF2T (gap 3) |
+
+## 6. Reusable launcher infrastructure on test/final-parity-gate
+
+The generic launcher pages reused from SSF2T and Hard Corps are present on both platforms: Play, Display, Graphics,
+Gameplay, SNES, Cheats, Online, Achievements, Controls, Bug Report and About, with settings persistence, sidebar icons,
+the compact layout, keyboard and controller navigation, Ctrl+S, Enter and the same Online tabs (Settings, Friends,
+Lobby). Their availability is asserted by `tests/platform_parity_tests.cpp` and `tools/parity-manifest.txt`;
+`tools/test.ps1` and `tools/test.sh` read the same manifest.
+
+The game-specific SSF2T features (Infinite Time, fight-area hooks, character and matchup analytics) are not applicable.
+The Linux case-variant game-file lookup (SSF2T `7d19af9`) is now implemented in `src/game_files.cpp` and covered by
+`tests/installer_tests.cpp`. SNES gameplay, Classic Soundtrack and Cheats are integrated from the historical chain
+`01f0d7e..44bdc30` and are registered on both platforms. The chain's DEBUG_SAULO AA838/graphics diagnostics were not
+restored; the production feature sources contain no Windows-only guards, and the manifest now treats them as `feature`
+rows rather than pending rows.

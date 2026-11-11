@@ -591,16 +591,16 @@ void TestStatus() {
 void TestLauncher() {
   std::printf("launcher: SNES page after Gameplay, soundtrack rows moved, gameplay rows and defaults\n");
   const std::string launcher = ReadText(kRoot / "src" / "launcher.cpp");
-  const size_t play = launcher.find("{\"Play\", ");
-  const size_t display = launcher.find("{\"Display\", ");
-  const size_t graphics = launcher.find("{\"Graphics\", ");
-  const size_t gameplay = launcher.find("{\"Gameplay\", ");
-  const size_t snes_page = launcher.find("{\"SNES\", \"Features based on the original SNES version\", [this](trg::Ui& ui) { PageSnes(ui); }},");
-  const size_t cheats = launcher.find("{\"Cheats\", ");
-  const size_t online = launcher.find("{\"Online\", ");
-  const size_t achievements = launcher.find("{\"Achievements\", ");
-  const size_t controls = launcher.find("{\"Controls\", ");
-  const size_t about = launcher.find("{\"About\", ");
+  const size_t play = launcher.find("MakePage(LauncherPage::kPlay, \"Play\"");
+  const size_t display = launcher.find("MakePage(LauncherPage::kDisplay, \"Display\"");
+  const size_t graphics = launcher.find("MakePage(LauncherPage::kGraphics, \"Graphics\"");
+  const size_t gameplay = launcher.find("MakePage(LauncherPage::kGameplay, \"Gameplay\"");
+  const size_t snes_page = launcher.find("MakePage(LauncherPage::kSnes, \"SNES\"");
+  const size_t cheats = launcher.find("MakePage(LauncherPage::kCheats, \"Cheats\"");
+  const size_t online = launcher.find("MakePage(LauncherPage::kOnline, \"Online\"");
+  const size_t achievements = launcher.find("MakePage(LauncherPage::kAchievements, \"Achievements\"");
+  const size_t controls = launcher.find("MakePage(LauncherPage::kControls, \"Controls\"");
+  const size_t about = launcher.find("MakePage(LauncherPage::kAbout, \"About\"");
   CHECK(snes_page != std::string::npos);
   CHECK(play < display && display < graphics && graphics < gameplay && gameplay < snes_page && snes_page < cheats &&
         cheats < online && online < achievements && achievements < controls && controls < about);

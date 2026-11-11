@@ -84,6 +84,13 @@ PrivateFacts Facts() {
 std::string Scrub(std::string_view text) { return ScrubText(text, Facts()); }
 bool Has(const std::string& text, std::string_view part) { return text.find(part) != std::string::npos; }
 
+std::string ReadSource(const char* relative) {
+  std::ifstream in(fs::path(TMNT_SOURCE_DIR) / relative, std::ios::binary);
+  std::stringstream text;
+  text << in.rdbuf();
+  return text.str();
+}
+
 std::vector<std::string> ReadMessages(const fs::path& path) {
   std::vector<std::string> messages;
   std::ifstream in(path, std::ios::binary);
@@ -281,6 +288,73 @@ void TestPackageAndRequest() {
   CHECK(IncidentOutcomeOf("weird") == IncidentOutcome::kServiceError);
 }
 
+// The same payload on Linux: the platform is Linux, the distribution is in the OS text, and Linux home and install
+// paths are scrubbed like Windows ones.
+void TestLinuxPackageAndScrubber() {
+  const ReportFacts facts{"0.1.0", "TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)", "Linux",
+                          "Linux: Ubuntu 24.04 LTS", "ReXGlue SDK 0.10.0"};
+  const std::string log_text =
+      "Runtime configuration:\nRuntime OS: Linux: Ubuntu 24.04 LTS\n"
+      "User data: /home/zefa/.local/share/TMNT\n"
+      "Install: /home/zefa/Applications/TMNT/game/user_data/settings.toml\n"
+      "peer 1234567890 connected 203.0.113.7\n";
+  TempFolder temp;
+  const fs::path file = WriteLog(temp.path, LogName(1), log_text, 0);
+  const GameLog log{file, LogName(1), std::time(nullptr), fs::file_size(file), LogActivity::kGameplay, LogRole::kLastGameplay};
+  PrivateFacts private_facts;
+  private_facts.user_names = {"zefa"};
+  private_facts.machine_names = {"turtle-deck"};
+  private_facts.profile_folders = {"/home/zefa"};
+  private_facts.install_folders = {"/home/zefa/Applications/TMNT"};
+  const std::optional<IncidentPackage> package =
+      BuildIncidentPackage("The game crashes on Linux", log, facts, private_facts);
+  CHECK(package.has_value());
+  if (!package) return;
+  CHECK(package->Value("platform") == "Linux");
+  CHECK(package->Value("operating_system") == "Linux: Ubuntu 24.04 LTS");
+  CHECK(Has(package->Value("log_text"), "<home>"));
+  CHECK(Has(package->Value("log_text"), "<install>"));
+  CHECK(!Has(package->Value("log_text"), "/home/zefa"));
+  CHECK(Has(package->Value("log_text"), "<ipv4>"));
+  const std::string request = IncidentFileMessage(1, *package);
+  CHECK(Has(request, "\"platform\":\"Linux\""));
+  CHECK(Has(request, "\"operating_system\":\"Linux: Ubuntu 24.04 LTS\""));
+}
+
+void TestLinuxScrubber() {
+  PrivateFacts facts;
+  facts.user_names = {"zefa"};
+  facts.machine_names = {"turtle-deck"};
+  facts.profile_folders = {"/home/zefa", "/var/home/zefa", "/run/user/1000", "/mnt/games/zefa"};
+  facts.install_folders = {"/home/zefa/Applications/TMNT"};
+  const std::string text =
+      "User data: /home/zefa/.local/share/tmnt_turtles_in_time_reshelled\n"
+      "Config: /home/zefa/.config/tmnt/settings.toml\n"
+      "Cache: /var/home/zefa/.cache/tmnt/shaders\n"
+      "Runtime: /run/user/1000/tmnt.sock\n"
+      "Custom data: /mnt/games/zefa/state\n"
+      "AppImage: /home/zefa/Applications/TMNT/TurtlesInTimeReshelled-v0.1.0-x86_64.AppImage\n"
+      "Mount: /tmp/.mount_TMNTabc123/usr/bin/tmnt_turtles_in_time_reshelled\n"
+      "user zefa host turtle-deck\n"
+      "driver Mesa 24.0.9\n";
+  const std::string out = ScrubText(text, facts);
+  CHECK(Has(out, "<home>/.local/share/tmnt_turtles_in_time_reshelled"));
+  CHECK(Has(out, "<home>/.config/tmnt/settings.toml"));
+  CHECK(Has(out, "<home>/.cache/tmnt/shaders"));
+  CHECK(Has(out, "<home>/tmnt.sock"));
+  CHECK(Has(out, "<home>/state"));
+  CHECK(Has(out, "<install>/TurtlesInTimeReshelled-v0.1.0-x86_64.AppImage"));
+  CHECK(!Has(out, "/home/zefa"));
+  CHECK(!Has(out, "/var/home/zefa"));
+  CHECK(!Has(out, "/run/user/1000"));
+  CHECK(!Has(out, "/mnt/games/zefa"));
+  CHECK(Has(out, "/tmp/.mount_TMNTabc123/usr/bin/tmnt_turtles_in_time_reshelled"));
+  CHECK(Has(out, "<user>"));
+  CHECK(Has(out, "<computer>"));
+  CHECK(!Has(out, "turtle-deck"));
+  CHECK(Has(out, "Mesa 24.0.9"));
+}
+
 void TestWireVectors() {
   const fs::path path = fs::path(TMNT_SOURCE_DIR) / "tests" / "incident_wire_vectors.txt";
   const std::vector<std::string> messages = WireMessages();
@@ -344,6 +418,12 @@ void TestStatusParsing() {
   CHECK(statuses[0].fixed_version == "0.2.0");
   CHECK(statuses[0].player_message == "Fixed in the next build.");
   CHECK(ReadReportStatuses("{}").empty());
+  // A malformed answer must leave the last known state alone, not crash or invent a status.
+  CHECK(ReadReportStatuses("not json").empty());
+  CHECK(ReadReportStatuses("[]").empty());
+  CHECK(ReadReportStatuses("{\"reports\":[1,2]}").empty());
+  CHECK(SentReportOf("not json").fields.empty());
+  CHECK(SentReportOf("{\"report\":[]}").fields.empty());
   TrackedReport tracked;
   tracked.ticket = "TMNT-ABCDEF";
   tracked.receipt = std::string(64, 'a');
@@ -434,6 +514,13 @@ void TestDeletedHistoryEntry() {
   CHECK(history.reports().empty());
 }
 
+void TestFailedSubmissionIsNotRemembered() {
+  const std::string page = ReadSource("src/incident_page.cpp");
+  CHECK(Has(page, "if (result_->outcome == IncidentOutcome::kSent) sent_report_remembered_ = my_reports_.Remember"));
+  const std::string reports = ReadSource("src/my_reports.cpp");
+  CHECK(Has(reports, "if (receipt.credential.empty()) return false;"));
+}
+
 }  // namespace
 
 int main() {
@@ -446,11 +533,14 @@ int main() {
   TestLastBytes();
   TestScrubber();
   TestPackageAndRequest();
+  TestLinuxPackageAndScrubber();
+  TestLinuxScrubber();
   TestWireVectors();
   TestClipping();
   TestStatusParsing();
   TestHistory();
   TestDeletedHistoryEntry();
+  TestFailedSubmissionIsNotRemembered();
   std::printf("%d checks, %d failures\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
 }

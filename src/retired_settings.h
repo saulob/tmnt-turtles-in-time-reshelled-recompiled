@@ -7,8 +7,6 @@
 
 namespace tmnt {
 
-// tmnt_snes_movement_speeds: a removed SNES feature. present_letterbox: the presenter always letterboxes the chosen format. tmnt_snes_gameplay: the SNES features no longer
-// have a master switch and each stands alone.
 inline constexpr std::array<std::string_view, 3> kRetiredPlayerSettings{"present_letterbox", "tmnt_snes_gameplay",
                                                                           "tmnt_snes_movement_speeds"};
 

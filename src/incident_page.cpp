@@ -230,7 +230,6 @@ void IncidentPage::TogglePreview(const ReportFacts& facts) {
 
 void IncidentPage::Send(trg::Ui& ui, const ReportFacts& facts) {
   (void)ui;
-  REXLOG_INFO("DEBUG_SAULO INCIDENT button pressed");
   if (!AcceptDraft()) return;
   std::shared_ptr<const IncidentPackage> package = previewed_ ? previewed_ : BuildPackage(facts);
   if (!package) return;

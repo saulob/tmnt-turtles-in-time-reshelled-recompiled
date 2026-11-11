@@ -310,7 +310,6 @@ inline std::string SavedKeyboardBinding(const trg::SettingsStore& settings, cons
 inline constexpr const KeyboardAction& kSpinAttackKeyAction = kKeyboardActions[1];
 static_assert(std::string_view(kSpinAttackKeyAction.key) == "keybind_b");
 
-// "Quote,Backspace" -> "Quote / Backspace"
 inline std::string KeyboardBindingSlashLabel(std::string_view binding) {
   std::string label = KeyboardBindingLabel(binding);
   for (std::size_t at = label.find(" or "); at != std::string::npos; at = label.find(" or ", at + 3)) {

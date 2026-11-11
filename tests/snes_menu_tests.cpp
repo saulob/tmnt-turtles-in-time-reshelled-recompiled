@@ -702,7 +702,7 @@ void TestPortuguese() {
       "Unavailable: another player does not support this feature",
       "Unavailable: the online service does not support this feature", "Waiting for players", "Incompatible SNES data",
       "Online: every player needs compatible SNES gameplay data, and each player's choices apply to their own turtle. Classic Soundtrack is local.",
-      "Cheats are unavailable while Online play is enabled.",
+      "Cheats are disabled while Online Play is enabled",
       "SNES ROM not imported", "SNES gameplay data unavailable: re-import the ROM in the launcher",
       "SNES gameplay data unavailable: unsupported ROM version", "SNES soundtrack: Unavailable", "SNES soundtrack: On",
       "Classic Soundtrack", "Directional Combat", "SNES Throw Control", "SNES Dash", "On", "Off",

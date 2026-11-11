@@ -258,7 +258,7 @@ Left stick press	Apertar alavanca esquerda
 Left stick right	Alavanca esquerda para a direita
 Left stick up	Alavanca esquerda para cima
 Left trigger	Gatilho esquerdo
-Lets the game's own online menus create and join matches with your friends. Players meet through the online service; the game itself runs directly between your PCs whenever it can.	Permite criar e entrar em partidas com seus amigos pelos menus online do próprio jogo. Os jogadores se encontram pelo serviço online; o jogo roda diretamente entre seus PCs sempre que possível.
+Lets the game's own Online menu create and join matches. Players meet in the lobby; the game itself runs directly between your PCs whenever it can.	Permite que o menu Online do próprio jogo crie e entre em partidas. Os jogadores se encontram no lobby; o jogo em si roda diretamente entre os seus PCs sempre que possível.
 Libraries	Bibliotecas
 Limited: direct connections may be blocked by your network	Limitado: as conexões diretas podem estar bloqueadas pela sua rede
 Limited: some players may not be able to connect to you	Limitado: alguns jogadores podem não conseguir se conectar com você
@@ -273,7 +273,7 @@ Multisampling	Multisampling
 Name is too long for the game (15-byte limit).	O nome é longo demais para o jogo (limite de 15 bytes).
 Names shown in Local Game. Online Game uses your Online name.	Nomes mostrados no Jogo Local. O Jogo Online usa o seu nome Online.
 New friend request	Novo pedido de amizade
-No friends yet. Add someone with their friend code.	Nenhum amigo ainda. Adicione alguém com o código de amigo.
+No friends yet. A friend in a room appears in the game's Online menu.	Nenhum amigo ainda. Um amigo em uma sala aparece no menu Online do jogo.
 No friends yet. Add them on the launcher's Online page.	Nenhum amigo ainda. Adicione amigos na página Online do launcher.
 No game folder	Sem pasta do jogo
 No game folder was given: start the game with --game_data_root.	Nenhuma pasta do jogo foi informada: inicie o jogo com --game_data_root.
@@ -395,7 +395,7 @@ Shown	Visível
 Shows the game's frame rate in the corner. F2 toggles it while playing.	Mostra a taxa de quadros do jogo no canto. F2 alterna durante o jogo.
 Shows the game's frame rate in the window title: Turtles in Time Re-Shelled Recompiled | FPS: 60.00	Mostra a taxa de quadros do jogo no título da janela: Turtles in Time Re-Shelled Recompiled | FPS: 60.00
 Shows the game's render resolution in the window title	Mostra a resolução de render do jogo no título da janela
-Shows the round trip to the other player in game. F3 switches it while playing.	Mostra, durante o jogo, o tempo de ida e volta até o outro jogador. F3 liga ou desliga enquanto você joga.
+Shows the round trip to the other players in game. F3 switches it while playing.	Mostra, durante o jogo, o tempo de ida e volta até os outros jogadores. F3 liga ou desliga enquanto você joga.
 Skip intro	Pular introdução
 Slow as a Turtle	Lento como uma Tartaruga
 Smooths jagged edges after the frame is drawn. Extreme is softer but cleaner.	Suaviza as bordas serrilhadas depois que o quadro é desenhado. Extreme deixa a imagem mais suave, porém mais limpa.
@@ -566,7 +566,7 @@ VSync	VSync
 Wait for the current install to finish.	Aguarde a instalação atual terminar.
 Wait for the install to finish.	Aguarde a instalação terminar.
 What other players see: up to 16 letters, digits, - or _.	O que os outros jogadores veem: até 16 letras, dígitos, - ou _.
-Language, on-screen information, Quick Play stages and player names.	Idioma, informações na tela, fases do Quick Play e nomes dos jogadores.
+Language, on-screen information, Quick Play stages and player names.	Idioma, informaçoes na tela, fases do Quick Play e nomes dos jogadores.
 Where the game data is read from.	De onde os dados do jogo são lidos.
 Window size	Tamanho da janela
 Window, monitor and how the picture fits your screen.	Janela, monitor e como a imagem se ajusta à tela.
@@ -588,107 +588,6 @@ Your launcher choices, as plain text. Loaded after tmnt_turtles_in_time_reshelle
 Your online identity could not be created.	Não foi possível criar sua identidade online.
 Your request is waiting for an answer.	Seu pedido está aguardando resposta.
 Your router may stop some players from connecting to you.	Seu roteador pode impedir que alguns jogadores se conectem a você.
-Classic Soundtrack	Trilha sonora clássica
-Plays the SNES soundtrack instead of the Re-Shelled music	Toca a trilha sonora do SNES no lugar da música do Re-Shelled
-SNES soundtrack	Trilha sonora SNES
-Import SNES soundtrack	Importar trilha sonora SNES
-Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards.	Sua própria ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time (.sfc, .smc ou .zip). A música é importada neste PC; depois a ROM não é mais necessária.
-Import again...	Importar de novo...
-Import...	Importar...
-Remove SNES soundtrack	Remover trilha sonora SNES
-Deletes the imported music and SNES Gameplay data. Your ROM file is not touched.	Apaga a música e os dados de Jogabilidade SNES importados. Seu arquivo de ROM não é alterado.
-Remove...	Remover...
-Remove the imported SNES soundtrack?	Remover a trilha sonora SNES importada?
-Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM	Selecione sua ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time
-SNES ROM	ROM de SNES
-Importing SNES soundtrack...	Importando trilha sonora SNES...
-Could not remove the imported SNES soundtrack.	Não foi possível remover a trilha sonora SNES importada.
-Removed the imported SNES soundtrack.	Trilha sonora SNES importada removida.
-SNES soundtrack: On	Trilha sonora SNES: Ligada
-SNES soundtrack: Unavailable	Trilha sonora SNES: Indisponível
-Not imported	Não importada
-Ready	Pronta
-Importing	Importando
-Re-import required	Reimportação necessária
-Invalid ROM	ROM inválida
-Unsupported ROM	ROM não suportada
-Unsupported soundtrack	Trilha sonora não suportada
-Corrupt soundtrack data	Dados da trilha sonora corrompidos
-Import failed	Falha na importação
-The file is not a SNES ROM the importer can read. Choose an unmodified .sfc, .smc or .zip dump.	O arquivo não é uma ROM de SNES que o importador consiga ler. Escolha um dump sem modificações em .sfc, .smc ou .zip.
-This SNES ROM is not Teenage Mutant Ninja Turtles IV: Turtles in Time.	Esta ROM de SNES não é Teenage Mutant Ninja Turtles IV: Turtles in Time.
-The music in this ROM differs from the known USA, Europe and Australia versions.	A música desta ROM é diferente das versões conhecidas dos EUA, da Europa e da Austrália.
-The music data in this ROM is damaged. Try another dump.	Os dados de música desta ROM estão danificados. Tente outro dump.
-The imported music could not be saved. Check that the user data folder can be written.	Não foi possível salvar a música importada. Verifique se a pasta de dados do usuário pode ser gravada.
-SNES soundtrack imported from the USA ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM dos EUA. Ative a Trilha sonora clássica para usá-la.
-SNES soundtrack imported from the Europe ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Europa. Ative a Trilha sonora clássica para usá-la.
-SNES soundtrack imported from the Australia ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Austrália. Ative a Trilha sonora clássica para usá-la.
-SNES soundtrack imported from a compatible ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada de uma ROM compatível. Ative a Trilha sonora clássica para usá-la.
-Could not save the Classic soundtrack setting.	Não foi possível salvar a configuração da Trilha sonora clássica.
-Cheats	Trapaças
-Optional gameplay modifiers	Modificadores opcionais de jogabilidade
-Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.	Pressione F10 durante o jogo para abrir o menu de Trapaças. As alterações feitas ali valem apenas para a sessão atual.
-PLAYER	JOGADOR
-COMBAT	COMBATE
-CHEATS	TRAPAÇAS
-F10 Close	F10 Fechar
-Not saved to the launcher	Não salvo no launcher
-No effect in online matches	Sem efeito em partidas online
-Cheats are unavailable while Online play is enabled.	Trapaças não estão disponíveis enquanto o jogo online estiver ativado.
-Online: every player needs compatible SNES gameplay data, and each player's choices apply to their own turtle. Classic Soundtrack is local.	Online: todos os jogadores precisam de dados de jogabilidade SNES compatíveis, e as escolhas de cada jogador valem para a própria tartaruga. A Trilha sonora clássica é local.
-Online: each player's gameplay choices apply to their own turtle	Online: as escolhas de jogabilidade de cada jogador valem para a própria tartaruga
-Applies to the next online match	Vale para a próxima partida online
-Unavailable	Indisponível
-Unavailable: another player does not support this feature	Indisponível: outro jogador não oferece suporte a este recurso
-Unavailable: the online service does not support this feature	Indisponível: o serviço online não oferece suporte a este recurso
-Waiting for players	Aguardando os jogadores
-Incompatible SNES data	Dados SNES incompatíveis
-Turbo Strong Attack	Ataque forte turbo
-Repeatedly uses the strong attack while the strong attack button is held	Repete o ataque forte enquanto o botão estiver pressionado
-Damage Multiplier	Multiplicador de dano
-Multiplies damage dealt by players	Multiplica o dano causado pelos jogadores
-Super Armor	Super Armor
-Take damage without attack interruption or knockback	Recebe dano sem interromper ataques ou sofrer knockback
-Spin Attack	Ataque giratório
-Use Spin Attack at any time with B or	Use o Ataque giratório com B ou
-Controller: B	Controle: B
-Keyboard:	Teclado:
-Unlock all stages	Desbloquear todas as fases
-Makes every Quick Play stage selectable without changing saved progress	Torna todas as fases do Quick Play selecionáveis sem alterar o progresso salvo
-Infinite Health	Vida infinita
-Keeps player health at maximum	Mantém a vida do jogador no máximo
-Infinite Lives	Vidas infinitas
-Lives do not decrease when a player is defeated	As vidas não diminuem quando o jogador é derrotado
-Turbo Attack	Ataque turbo
-Repeatedly attacks while the attack button is held	Repete o ataque enquanto o botão de ataque estiver pressionado
-SNES	SNES
-Features based on the original SNES version	Recursos baseados na versão original de SNES
-Press F9 while playing to open the SNES menu. Changes made there apply only to the current session.	Pressione F9 durante o jogo para abrir o menu SNES. As alterações feitas ali valem apenas para a sessão atual.
-Imported SNES ROM used for classic audio and optional gameplay mechanics	ROM de SNES importada usada para áudio clássico e mecânicas opcionais de jogabilidade
-AUDIO	ÁUDIO
-GAMEPLAY	JOGABILIDADE
-Directional Combat	Combate direcional
-Use SNES-style combat facing and attack direction	Usa direção de combate e ataques no estilo SNES
-SNES Throw Control	Controle de arremesso SNES
-Use predictable SNES-style throw selection	Usa seleção previsível de arremessos no estilo SNES
-Disable Double Jump	Desativar pulo duplo
-Use SNES jump behavior without Re-Shelled's double jump	Usa o pulo do SNES, sem o pulo duplo do Re-Shelled
-SNES Dash	Dash SNES
-Off uses Re-Shelled movement. Auto dashes after holding a direction. Manual dashes with a double tap.	Desligado usa a movimentação do Re-Shelled. Automático corre depois de segurar uma direção. Manual corre com um toque duplo.
-Auto	Automático
-Manual	Manual
-Unavailable: the online service does not support Manual Dash	Indisponível: o serviço online não oferece suporte ao Dash manual
-Unavailable: import your SNES ROM above.	Indisponível: importe sua ROM de SNES acima.
-Unavailable: import the SNES ROM again to add its gameplay data.	Indisponível: importe a ROM de SNES de novo para adicionar os dados de jogabilidade.
-Unavailable: the gameplay code in this ROM is not a known USA, Europe or Australia version.	Indisponível: o código de jogabilidade desta ROM não é de uma versão conhecida dos EUA, da Europa ou da Austrália.
-USA	EUA
-Europe	Europa
-Australia	Austrália
-Compatible	Compatível
-F9 Close	F9 Fechar
-SNES ROM not imported	ROM de SNES não importada
-SNES gameplay data unavailable: re-import the ROM in the launcher	Dados de jogabilidade SNES indisponíveis: reimporte a ROM no launcher
-SNES gameplay data unavailable: unsupported ROM version	Dados de jogabilidade SNES indisponíveis: versão da ROM não suportada
 Bug Report	Relatar bug
 Report a problem and send it with one game log.	Relate um problema e envie-o com um log do jogo.
 No personal user data is intentionally included.	Nenhum dado pessoal do usuário é incluído intencionalmente.
@@ -783,23 +682,127 @@ Log shortened to its end	Log reduzido ao trecho final
 Log after privacy filtering	Log depois do filtro de privacidade
 Settings	Configurações
 Lobby	Lobby
-Show me in Lobby	Mostrar-me no Lobby
-Turn on to let other players of this game see your Online name in the Lobby and send you a friend request.	Ative para outros jogadores deste jogo verem seu nome online no Lobby e enviarem um pedido de amizade.
-Other players of this game can see your Online name, status, platform and game version in the Lobby and send you a friend request. Nothing else about you is shown.	Outros jogadores deste jogo podem ver seu nome online, status, plataforma e versão do jogo no Lobby e enviar um pedido de amizade. Nada mais sobre você é mostrado.
-Players in the Lobby	Jogadores no Lobby
-No players are in the Lobby right now.	Nenhum jogador está no Lobby agora.
-Looking for players...	Procurando jogadores...
-Cannot read the Lobby right now.	Não foi possível ler o Lobby agora.
+Show me in Lobby	Mostrar meu nome no Lobby
+Enable this option to let other Turtles in Time Re-Shelled players see your Online name and send you a friend request.	Ative esta opção para que outros jogadores de Turtles in Time Re-Shelled vejam seu nome online e possam enviar um pedido de amizade.
+Other Turtles in Time Re-Shelled players can see your Online name and send you a friend request.	Outros jogadores de Turtles in Time Re-Shelled podem ver seu nome online e enviar um pedido de amizade.
+Players in Lobby	Jogadores no Lobby
+Send friend request	Enviar pedido de amizade
+Pending	Pendente
+Refresh lobby	Atualizar lobby
+Refreshing...	Atualizando...
+Updated just now	Atualizado agora
+Updated %s min ago	Atualizado há %s min
+Version unknown	Versão desconhecida
+Play with others over the Internet: friends and the connection test.	Jogue com outras pessoas pela internet: amigos e o teste de conexão.
+No players are currently visible in the Lobby.	Nenhum jogador está visível no Lobby no momento.
 Could not refresh the Lobby.	Não foi possível atualizar o Lobby.
-The online service does not have the public Lobby yet.	O serviço online ainda não tem o Lobby público.
-Add friend	Adicionar amigo
+The Lobby is not available right now.	O Lobby não está disponível no momento.
 Friend request	Pedido de amizade
 Friend	Amigo
-Request sent	Pedido enviado
 Compatible	Compatível
 Incompatible	Incompatível
 The online service cannot take reports yet	O serviço online ainda não consegue receber relatórios
 Direct reports need a newer online service. Your text is kept; try again after the service is updated.	Relatórios diretos precisam de um serviço online mais novo. Seu texto foi mantido; tente de novo depois que o serviço for atualizado.
+Classic Soundtrack	Trilha sonora clássica
+Plays the SNES soundtrack instead of the Re-Shelled music	Toca a trilha sonora do SNES no lugar da música do Re-Shelled
+SNES soundtrack	Trilha sonora SNES
+Import SNES soundtrack	Importar trilha sonora SNES
+Your own Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM (.sfc, .smc or .zip). The music is imported on this PC; the ROM is not needed afterwards.	Sua própria ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time (.sfc, .smc ou .zip). A música é importada neste PC; depois a ROM não é mais necessária.
+Import again...	Importar de novo...
+Import...	Importar...
+Remove SNES soundtrack	Remover trilha sonora SNES
+Deletes the imported music and SNES Gameplay data. Your ROM file is not touched.	Apaga a música e os dados de Jogabilidade SNES importados. Seu arquivo de ROM não é alterado.
+Remove...	Remover...
+Remove the imported SNES soundtrack?	Remover a trilha sonora SNES importada?
+Select your Teenage Mutant Ninja Turtles IV: Turtles in Time SNES ROM	Selecione sua ROM de SNES de Teenage Mutant Ninja Turtles IV: Turtles in Time
+SNES ROM	ROM de SNES
+Importing SNES soundtrack...	Importando trilha sonora SNES...
+Could not remove the imported SNES soundtrack.	Não foi possível remover a trilha sonora SNES importada.
+Removed the imported SNES soundtrack.	Trilha sonora SNES importada removida.
+SNES soundtrack: On	Trilha sonora SNES: Ligada
+SNES soundtrack: Unavailable	Trilha sonora SNES: Indisponível
+Not imported	Não importada
+Ready	Pronta
+Importing	Importando
+Re-import required	Reimportação necessária
+Invalid ROM	ROM inválida
+Unsupported ROM	ROM não suportada
+Unsupported soundtrack	Trilha sonora não suportada
+Corrupt soundtrack data	Dados da trilha sonora corrompidos
+Import failed	Falha na importação
+The file is not a SNES ROM the importer can read. Choose an unmodified .sfc, .smc or .zip dump.	O arquivo não é uma ROM de SNES que o importador consiga ler. Escolha um dump sem modificações em .sfc, .smc ou .zip.
+This SNES ROM is not Teenage Mutant Ninja Turtles IV: Turtles in Time.	Esta ROM de SNES não é Teenage Mutant Ninja Turtles IV: Turtles in Time.
+The music in this ROM differs from the known USA, Europe and Australia versions.	A música desta ROM é diferente das versões conhecidas dos EUA, da Europa e da Austrália.
+The music data in this ROM is damaged. Try another dump.	Os dados de música desta ROM estão danificados. Tente outro dump.
+The imported music could not be saved. Check that the user data folder can be written.	Não foi possível salvar a música importada. Verifique se a pasta de dados do usuário pode ser gravada.
+SNES soundtrack imported from the USA ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM dos EUA. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Europe ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Europa. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from the Australia ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada da ROM da Austrália. Ative a Trilha sonora clássica para usá-la.
+SNES soundtrack imported from a compatible ROM. Switch Classic soundtrack On to use it.	Trilha sonora SNES importada de uma ROM compatível. Ative a Trilha sonora clássica para usá-la.
+Could not save the Classic soundtrack setting.	Não foi possível salvar a configuração da Trilha sonora clássica.
+Cheats	Trapaças
+Optional gameplay modifiers	Modificadores opcionais de jogabilidade
+Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.	Pressione F10 durante o jogo para abrir o menu de Trapaças. As alterações feitas ali valem apenas para a sessão atual.
+PLAYER	JOGADOR
+COMBAT	COMBATE
+CHEATS	TRAPAÇAS
+F10 Close	F10 Fechar
+Not saved to the launcher	Não salvo no launcher
+No effect in online matches	Sem efeito em partidas online
+Cheats are disabled while Online Play is enabled	As trapaças ficam desativadas enquanto o jogo online está ativado
+Online: every player needs compatible SNES gameplay data, and each player's choices apply to their own turtle. Classic Soundtrack is local.	Online: todos os jogadores precisam de dados de jogabilidade SNES compatíveis, e as escolhas de cada jogador valem para a própria tartaruga. A Trilha sonora clássica é local.
+Online: each player's gameplay choices apply to their own turtle	Online: as escolhas de jogabilidade de cada jogador valem para a própria tartaruga
+Applies to the next online match	Vale para a próxima partida online
+Unavailable	Indisponível
+Unavailable: another player does not support this feature	Indisponível: outro jogador não oferece suporte a este recurso
+Unavailable: the online service does not support this feature	Indisponível: o serviço online não oferece suporte a este recurso
+Waiting for players	Aguardando os jogadores
+Incompatible SNES data	Dados SNES incompatíveis
+Turbo Strong Attack	Ataque forte turbo
+Repeatedly uses the strong attack while the strong attack button is held	Repete o ataque forte enquanto o botão estiver pressionado
+Damage Multiplier	Multiplicador de dano
+Multiplies damage dealt by players	Multiplica o dano causado pelos jogadores
+Super Armor	Super Armor
+Take damage without attack interruption or knockback	Recebe dano sem interromper ataques ou sofrer knockback
+Spin Attack	Ataque giratório
+Use Spin Attack at any time with B or	Use o Ataque giratório com B ou
+Controller: B	Controle: B
+Keyboard:	Teclado:
+Unlock all stages	Desbloquear todas as fases
+Makes every Quick Play stage selectable without changing saved progress	Torna todas as fases do Quick Play selecionáveis sem alterar o progresso salvo
+Infinite Health	Vida infinita
+Keeps player health at maximum	Mantém a vida do jogador no máximo
+Infinite Lives	Vidas infinitas
+Lives do not decrease when a player is defeated	As vidas não diminuem quando o jogador é derrotado
+Turbo Attack	Ataque turbo
+Repeatedly attacks while the attack button is held	Repete o ataque enquanto o botão de ataque estiver pressionado
+SNES	SNES
+Features based on the original SNES version	Recursos baseados na versão original de SNES
+Press F9 while playing to open the SNES menu. Changes made there apply only to the current session.	Pressione F9 durante o jogo para abrir o menu SNES. As alterações feitas ali valem apenas para a sessão atual.
+Imported SNES ROM used for classic audio and optional gameplay mechanics	ROM de SNES importada usada para áudio clássico e mecânicas opcionais de jogabilidade
+AUDIO	ÁUDIO
+GAMEPLAY	JOGABILIDADE
+Directional Combat	Combate direcional
+Use SNES-style combat facing and attack direction	Usa direção de combate e ataques no estilo SNES
+SNES Throw Control	Controle de arremesso SNES
+Use predictable SNES-style throw selection	Usa seleção previsível de arremessos no estilo SNES
+Disable Double Jump	Desativar pulo duplo
+Use SNES jump behavior without Re-Shelled's double jump	Usa o pulo do SNES, sem o pulo duplo do Re-Shelled
+SNES Dash	Dash SNES
+Off uses Re-Shelled movement. Auto dashes after holding a direction. Manual dashes with a double tap.	Desligado usa a movimentação do Re-Shelled. Automático corre depois de segurar uma direção. Manual corre com um toque duplo.
+Auto	Automático
+Manual	Manual
+Unavailable: the online service does not support Manual Dash	Indisponível: o serviço online não oferece suporte ao Dash manual
+Unavailable: import your SNES ROM above.	Indisponível: importe sua ROM de SNES acima.
+Unavailable: import the SNES ROM again to add its gameplay data.	Indisponível: importe a ROM de SNES de novo para adicionar os dados de jogabilidade.
+Unavailable: the gameplay code in this ROM is not a known USA, Europe or Australia version.	Indisponível: o código de jogabilidade desta ROM não é de uma versão conhecida dos EUA, da Europa ou da Austrália.
+USA	EUA
+Europe	Europa
+Australia	Austrália
+F9 Close	F9 Fechar
+SNES ROM not imported	ROM de SNES não importada
+SNES gameplay data unavailable: re-import the ROM in the launcher	Dados de jogabilidade SNES indisponíveis: reimporte a ROM no launcher
+SNES gameplay data unavailable: unsupported ROM version	Dados de jogabilidade SNES indisponíveis: versão da ROM não suportada
 )PTBR";
 
 }  // namespace tmnt::localization

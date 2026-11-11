@@ -1,5 +1,5 @@
 // Online SNES gameplay: support is global, each player's choice applies to their own turtle, one locked table per
-// gameplay match; Classic Soundtrack stays local; F10 says cheats are unavailable online. Headless: no sockets, no
+// gameplay match; Classic Soundtrack stays local; F10 says cheats are disabled while Online Play is enabled. Headless: no sockets, no
 // threads, no window.
 // Run: tmnt_online_snes_tests
 
@@ -476,8 +476,8 @@ void TestF10Online() {
   CHECK(menu.Press(MenuKey::kEnter, true, true).action == CheatMenuModel::Action::kNone);
   CHECK(menu.Press(MenuKey::kEnter, true, false).action == CheatMenuModel::Action::kChange);
   CHECK(menu.Press(MenuKey::kF10, true, true).action == CheatMenuModel::Action::kClose && !menu.open());
-  CHECK(std::string(kCheatsOnlineUnavailable) == "Cheats are unavailable while Online play is enabled.");
-  CHECK(std::string(tmnt::SoundtrackNoticeText(tmnt::SoundtrackNotice::kCheatsUnavailable)) == kCheatsOnlineUnavailable);
+  CHECK(std::string(kOnlineLockoutText) == "Cheats are disabled while Online Play is enabled");
+  CHECK(std::string(tmnt::SoundtrackNoticeText(tmnt::SoundtrackNotice::kCheatsUnavailable)) == kOnlineLockoutText);
 
   const std::string source = ReadFile("src/cheat_menu.cpp");
   const std::string key = Between(source, "void CheatMenu::OnKeyDown(", "\n}\n");
@@ -486,7 +486,7 @@ void TestF10Online() {
   CHECK(Contains(source, "if (CheatsBlocked()) {\n      RequestClose();\n      return;\n    }"));
   CHECK(Contains(ReadFile("src/cheats_tmnt_r.cpp"), "return Effective(cheat) && cheats::CheatActive(true, InOnlineSession(ctx, base));"));
   CHECK(Contains(ReadFile("src/localization/pt_br_ui_text.cpp"),
-                 "Cheats are unavailable while Online play is enabled.\tTrapa\xC3\xA7" "as n\xC3\xA3o est\xC3\xA3o dispon\xC3\xADveis enquanto o jogo online estiver ativado."));
+                 "Cheats are disabled while Online Play is enabled\tAs trapa\xC3\xA7" "as ficam desativadas enquanto o jogo online est\xC3\xA1 ativado"));
 }
 
 void TestTheSoundtrackStaysLocal() {

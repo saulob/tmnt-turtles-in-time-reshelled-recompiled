@@ -81,28 +81,6 @@ void Say(const IncidentServiceConfig& config, const std::string& line) {
   if (config.log) config.log(line);
 }
 
-std::string EndpointHost(std::string_view url) {
-  const size_t scheme = url.find("://");
-  const std::string_view rest = scheme == std::string_view::npos ? url : url.substr(scheme + 3);
-  const size_t end = rest.find_first_of(":/?#");
-  const std::string host(rest.substr(0, end));
-  return host.empty() ? "unknown" : host;
-}
-
-std::string RequestKeys(const IncidentPackage& package) {
-  std::string keys;
-  for (const IncidentField& field : package.fields) {
-    if (!keys.empty()) keys += ',';
-    keys += field.key;
-  }
-  return keys;
-}
-
-std::string WorkerBuild(const json::Value* capabilities) {
-  const json::Value* build = capabilities ? capabilities->Find("worker_build") : nullptr;
-  return build && build->IsString() ? build->AsString() : std::string("unknown");
-}
-
 std::string StringOf(const json::Value* value) { return value && value->IsString() ? value->AsString() : std::string(); }
 bool BoolOf(const json::Value* value, bool fallback) { return value && value->IsBool() ? value->AsBool() : fallback; }
 int64_t Int64Of(const json::Value* value) {
@@ -629,7 +607,6 @@ IncidentServiceConfig IncidentServiceFromEnvironment() {
 }
 
 IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path& user_dir, const IncidentPackage& package) {
-  Say(config, "DEBUG_SAULO INCIDENT endpoint=" + EndpointHost(config.url));
   const online::Identity identity = online::LoadOrCreateIdentity(user_dir);
   if (!identity.ok()) {
     Say(config, "Bug report: no online identity (" + identity.error + ")");
@@ -652,8 +629,6 @@ IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path
   }
   const json::Value* capabilities = greeted->Find("capabilities");
   const bool supported = capabilities && capabilities->IsObject() && BoolOf(capabilities->Find("bug_reports"), false);
-  Say(config, "DEBUG_SAULO INCIDENT hello bug_reports=" + std::string(supported ? "1" : "0") +
-                  " worker_build=" + WorkerBuild(capabilities));
   if (!supported) {
     Say(config, "Bug report: the service takes no reports");
     session.Close();
@@ -663,9 +638,6 @@ IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path
   const std::string message = IncidentFileMessage(seq, package);
   const std::optional<json::Value> parsed = json::Parse(message);
   const bool valid = parsed && parsed->IsObject();
-  Say(config, "DEBUG_SAULO INCIDENT request op=incident.file seq=" + std::to_string(seq) +
-                  " bytes=" + std::to_string(message.size()) + " json_valid=" + (valid ? "1" : "0"));
-  Say(config, "DEBUG_SAULO INCIDENT request keys=" + RequestKeys(package));
   if (!valid) {
     Say(config, "Bug report: the report request was not valid JSON");
     session.Close();
@@ -673,7 +645,6 @@ IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path
   }
   const std::optional<json::Value> answer = session.CallRaw(message, seq, &code);
   session.Close();
-  Say(config, "DEBUG_SAULO INCIDENT response code=" + code + " seq=" + std::to_string(seq));
   if (!answer || code != "ok") {
     Say(config, "Bug report: not accepted (" + code + ")");
     return NotSent(IncidentOutcomeOf(code));
@@ -688,7 +659,6 @@ IncidentReceipt FileIncident(const IncidentServiceConfig& config, const fs::path
     Say(config, "Bug report: the service sent no valid receipt");
     return NotSent(IncidentOutcome::kServiceError);
   }
-  Say(config, "DEBUG_SAULO INCIDENT ticket=" + ticket);
   Say(config, "Bug report: sent as " + ticket);
   return {IncidentOutcome::kSent, ticket, receipt, Int64Of(answer->Find("submitted_at"))};
 }

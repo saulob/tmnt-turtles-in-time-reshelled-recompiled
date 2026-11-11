@@ -31,6 +31,7 @@
 
 #include "aspect_ratio.h"
 #include "cheats.h"
+#include "cheats_settings.h"
 #include "classic_soundtrack_page.h"
 #include "classic_soundtrack_runtime.h"
 #include "dpi.h"
@@ -314,10 +315,6 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       io.ClearInputKeys();
       io.ClearInputMouse();
     }
-    if (!starting_ && (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl)) &&
-        ImGui::IsKeyPressed(ImGuiKey_S, false)) {
-      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY ctrl_s detected");
-    }
     ImGui::BeginDisabled(starting_);
     launcher_->config().render_scale = g_font_density;
     const trg::Result result = launcher_->Frame();
@@ -348,6 +345,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (starting_ || install_.running() || dlc_task_.running() || game_files_ != GameFiles::kReady) {
       return;
     }
+    KeepCheatsOffOnline();
     if (!launcher_->Save()) {
       return;
     }
@@ -525,6 +523,13 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (!notices.empty()) {
       launcher_->SetStatus(TrMessage(notices.back()), 5.0);
     }
+    KeepCheatsOffOnline();
+  }
+
+  void KeepCheatsOffOnline() {
+    if (cheats::KeepCheatsOffOnline(settings_)) {
+      REXLOG_INFO("Cheats turned off for Online play");
+    }
   }
 
   // One page entry with its sidebar icon; the icon is rendered at the exact pixel size the sidebar asks for and
@@ -572,13 +577,6 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         [this](std::string_view key, const std::string& value) { return settings_.SaveNow({{std::string(key), value}}); });
     // PLAY saves in RequestPlay, so a failed save keeps the launcher open.
     c.save_on_play = false;
-    c.on_save = [] {
-      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY save dispatched");
-      return true;
-    };
-    c.on_save_result = [](bool ok) {
-      REXLOG_INFO("DEBUG_SAULO LAUNCHER_HOTKEY save result={}", ok ? "success" : "failure");
-    };
     c.theme = LauncherTheme();
     c.note = "Play applies the changes. Save keeps them without starting.";
     c.hints = "Enter  Play     Alt+F4  Quit     Ctrl+S  Save";
@@ -613,7 +611,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
         MakePage(LauncherPage::kCheats, "Cheats", "Optional gameplay modifiers",
                  [](trg::Ui& ui) { PageCheats(ui); }),
         MakePage(LauncherPage::kOnline, "Online",
-                 "Add friends and see who is online. Play them from the game's own online menus.",
+                 "Play with others over the Internet: friends and the connection test.",
                  [this](trg::Ui& ui) { online_page_.Draw(ui); }, [this] { return online_page_.NeedsAttention(); }),
         MakePage(LauncherPage::kAchievements, "Achievements", "Your achievements on this PC.",
                  [this](trg::Ui& ui) { PageAchievements(ui); }),
@@ -1208,7 +1206,6 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     if (const std::optional<int> adapter =
             ResolveGraphicsAdapter(settings_.Get("tmnt_graphics_adapter"), graphics_adapters_)) {
       const std::string value = std::to_string(*adapter);
-      settings_.Set("tmnt_graphics_adapter", value);
       std::vector<trg::Option> adapters;
       for (const auto& [option_value, label] : GraphicsAdapterOptions(graphics_adapters_)) {
         adapters.push_back({option_value, label});
@@ -1257,6 +1254,11 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
   }
 
   static void PageCheats(trg::Ui& ui) {
+    if (cheats::OnlinePlayOn(ui.settings())) {
+      ui.Help(Tr(cheats::kOnlineLockoutText));
+      ui.EndRows();
+      return;
+    }
     ui.Help("Press F10 while playing to open the Cheats menu. Changes made there apply only to the current session.");
     ui.Spacer(12);
     ui.Heading("PLAYER");

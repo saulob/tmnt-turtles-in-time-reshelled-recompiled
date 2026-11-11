@@ -48,7 +48,7 @@ export const BUCKETS = {
   beaconAll: { burst: 60, perSecond: 5 },
 };
 
-export const WORKER_BUILD = '2026-11-09-lobby1';
+export const WORKER_BUILD = '2026-11-10-lobby2';
 
 // Binary relay frames: magic "SR", version, type, src slot, dst slot, token (u32), sequence (u32), payload length (u16),
 // payload.
@@ -74,10 +74,10 @@ export const CAPABILITIES = {
   relay_max_payload: RELAY.maxPayload,
   relay_frame_version: RELAY.version,
   max_party: MAX_PARTY,
-  snes_features: true,
-  snes_modes: true,
   public_lobby: true,
   bug_reports: true,
+  snes_features: true,
+  snes_modes: true,
 };
 
 // SNES gameplay mechanics only: the soundtrack is each player's own and is never negotiated.

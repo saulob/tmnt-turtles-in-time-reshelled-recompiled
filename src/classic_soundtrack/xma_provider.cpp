@@ -65,7 +65,7 @@ void ClassicSoundtrackProvider::NoteUnmatched(std::uint64_t fingerprint, std::ui
   unmatched_[unmatched_count_++] = fingerprint;
   char message[160];
   std::snprintf(message, sizeof(message),
-                "Classic soundtrack: DEBUG_SAULO XMA stream not recognised, %u bytes, %u channels, fingerprint %016llX",
+                "Classic soundtrack: XMA stream not recognised, %u bytes, %u channels, fingerprint %016llX",
                 unsigned(input_bytes), unsigned(channels), static_cast<unsigned long long>(fingerprint));
   note_(message);
 }

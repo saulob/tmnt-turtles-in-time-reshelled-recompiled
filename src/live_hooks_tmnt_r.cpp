@@ -258,7 +258,7 @@ REX_HOOK_RAW(sub_875BA998) {
   const uint32_t stage_track = LoadBE32(base, var + kStageSelectTrackOffset);
   if (quick_play.lock_all_first) QueueEveryStage(ctx, base, __imp__sub_875B10B0, self, stage_track);
   const uint32_t track = LoadBE32(base, var + kFireEventSourceOffset);
-  if (ClaimsLocalProfile(LoadBE32(base, var), LoadBE32(base, var + kFireEventSourceOffset))) {
+  if (ClaimsLocalProfile(event, track)) {
     ClaimLocalProfile(int32_t(LoadBE32(base, var + kFireEventControllerOffset)));
   }
   const char* name = LocalOnlineEventName(event, track);

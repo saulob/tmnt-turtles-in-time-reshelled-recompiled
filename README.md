@@ -27,7 +27,7 @@ This is a native PC port, not an emulator: the game's own PowerPC code is transl
 - **Skip intro** goes straight to the title screen.
 - **Render Resolution** from 1x to 4x (1280×720 to 5120×2880), scaled to your window. The game keeps its original 16:9 picture.
 - **Anti-aliasing and filtering**: MSAA, FXAA and FXAA Extreme, and texture filtering from the game's own up to 16x anisotropic.
-- **Graphics card selection** (Windows): choose which compatible GPU renders the game, useful on PCs with integrated and dedicated graphics.
+- **Graphics card selection**: choose which compatible GPU renders the game, useful on PCs with integrated and dedicated graphics (DirectX 12 adapters on Windows, Vulkan devices on Linux).
 - **In-game overlays**: **F2** shows the FPS counter, and **F3** shows Ping while Online play is on.
 - **Window handling**: **F11** switches between Windowed and Borderless Fullscreen, and **Exit Game** closes the program cleanly.
 - **Portable user data**: saves, settings, achievements and caches are in a `user_data` folder beside the program.
@@ -140,7 +140,8 @@ Match and Custom Match, and **X Invite Friends** in your lobby invites a friend.
 
 Peers connect directly over UDP when they can (**Direct**) and through the online service's relay for any pair that
 cannot (**Relay**). The online service only sees what it needs to bring players together; see
-[docs/online.md](docs/online.md), which also covers what it stores and the Xbox LIVE menus this port removes.
+[docs/online.md](docs/online.md), which also covers what it stores and the Xbox LIVE menus this port removes. Turning
+Online play on switches every saved cheat Off and keeps it off; turning it off restores nothing.
 
 ## Languages
 

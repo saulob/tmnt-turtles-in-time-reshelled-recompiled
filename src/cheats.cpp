@@ -10,6 +10,7 @@
 #include <rex/logging.h>
 
 #include "guest_memory.h"
+#include "online_setting.h"
 #include "settings.h"
 
 REXCVAR_DEFINE_UINT64(tmnt_turbo_gameplay, 0, "TMNT",
@@ -49,9 +50,13 @@ bool SavedValue(Cheat cheat) { return rex::cvar::Query<bool>(kCheats[static_cast
 
 int SavedMultiplier() { return ParseDamageMultiplier(REXCVAR_GET(tmnt_cheat_damage_multiplier)); }
 
+bool OnlineLocked() { return !CheatsAllowed(rex::cvar::Query<bool>(kOnlineEnabledSetting)); }
+
 }  // namespace
 
-bool Enabled(Cheat cheat) { return EffectiveCheat(REXCVAR_GET(tmnt_cheat_session), cheat, SavedValue(cheat)); }
+bool Enabled(Cheat cheat) {
+  return !OnlineLocked() && EffectiveCheat(REXCVAR_GET(tmnt_cheat_session), cheat, SavedValue(cheat));
+}
 
 void ToggleForSession(Cheat cheat) {
   const uint32_t next = ToggledOverride(REXCVAR_GET(tmnt_cheat_session), cheat, SavedValue(cheat));
@@ -60,12 +65,27 @@ void ToggleForSession(Cheat cheat) {
               Enabled(cheat) ? "On" : "Off");
 }
 
-int DamageMultiplier() { return EffectiveMultiplier(REXCVAR_GET(tmnt_cheat_session), SavedMultiplier()); }
+int DamageMultiplier() {
+  return OnlineLocked() ? 0 : EffectiveMultiplier(REXCVAR_GET(tmnt_cheat_session), SavedMultiplier());
+}
 
 void CycleDamageMultiplierForSession() {
   const uint32_t next = CycledMultiplier(REXCVAR_GET(tmnt_cheat_session), SavedMultiplier());
   rex::cvar::SetFlagByName(kSessionSetting, std::to_string(next));
   REXLOG_INFO("Cheats: Damage Multiplier {}x for this session", DamageMultiplier());
+}
+
+// Turning Online play off restores nothing.
+void SetOnline(bool online) {
+  if (!online) {
+    return;
+  }
+  rex::cvar::SetFlagByName(kSessionSetting, "0");
+  for (const CheatInfo& cheat : kCheats) {
+    rex::cvar::SetFlagByName(cheat.setting, "false");
+  }
+  rex::cvar::SetFlagByName(kDamageMultiplierSetting, "0");
+  REXLOG_INFO("Cheats: disabled while Online play is enabled");
 }
 
 void ApplyTurboAttack(uint8_t* base, uint32_t user, uint32_t state) {
