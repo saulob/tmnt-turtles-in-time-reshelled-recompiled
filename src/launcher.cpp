@@ -93,18 +93,48 @@ trg::Theme LauncherTheme() {
 }
 
 constexpr float kHeaderArtAspect = 1600.0f / 180.0f;
+// Same placement as the Dragon's Crown launcher: the art is taller than the header, loses its
+// nearly empty top band and runs down to the panels, so the shells fill the header's height.
+constexpr float kHeaderArtScale = 1.15f;
+constexpr float kHeaderArtTopCrop = 0.12f;
+constexpr float kHeaderFade = 0.35f;  // of the header, over its gradient only
+
+struct HeaderArtRect {
+  float min_x, min_y, max_x, max_y;
+};
+
+// Right edge of the window. `bottom` is where the art is cut; the art is usually taller.
+HeaderArtRect PlaceHeaderArt(float top, float right, float bottom, float viewport_height, float scale,
+                             float aspect) {
+  const float art_height =
+      std::clamp(viewport_height * 0.2f, 120.0f * scale, 190.0f * scale) * kHeaderArtScale;
+  const float height = std::ceil(std::max(bottom - top, art_height));
+  const float width = std::round(height * aspect);
+  const float above = std::floor(std::min(height - (bottom - top), height * kHeaderArtTopCrop));
+  return {right - width, top - above, right, top - above + height};
+}
 
 trg::HeaderPainter LauncherHeader(ImTextureID art, float art_aspect) {
   return [art, art_aspect](const trg::HeaderContext& c) {
     c.draw->AddRectFilledMultiColor(c.min, c.max, IM_COL32(14, 18, 30, 255), IM_COL32(10, 52, 32, 255),
                                     IM_COL32(8, 28, 18, 255), IM_COL32(8, 10, 18, 255));
+    const ImU32 clear = trg::Col(c.theme.bg, 0.0f), solid = trg::Col(c.theme.bg);
+    c.draw->AddRectFilledMultiColor(ImVec2(c.min.x, c.max.y - (c.max.y - c.min.y) * kHeaderFade), c.max, clear,
+                                    clear, solid, solid);
     if (art == ImTextureID{}) {
       return;
     }
-    const float height = c.max.y - c.min.y;
-    const float width = height * art_aspect;
-    const ImVec2 top_left(c.max.x - width, c.min.y);
-    c.draw->AddImage(ImTextureRef(art), top_left, c.max);
+    // Down to the panels, which are drawn later and cover the rest.
+    const float bottom = c.max.y + trg::layout::kBodyGap * c.scale;
+    const HeaderArtRect rect =
+        PlaceHeaderArt(c.min.y, c.max.x, bottom, ImGui::GetMainViewport()->Size.y, c.scale, art_aspect);
+    const float art_height = rect.max_y - rect.min_y;
+    const float top_v = (c.min.y - rect.min_y) / art_height;
+    const float bottom_v = (bottom - rect.min_y) / art_height;
+    c.draw->PushClipRect(c.min, ImVec2(c.max.x, bottom), false);
+    c.draw->AddImage(ImTextureRef(art), ImVec2(rect.min_x, c.min.y), ImVec2(rect.max_x, bottom),
+                     ImVec2(0.0f, top_v), ImVec2(1.0f, bottom_v));
+    c.draw->PopClipRect();
   };
 }
 
@@ -555,6 +585,7 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
     c.fonts = g_fonts;
     c.render_scale = g_font_density;
     c.branding.title = "TURTLES IN TIME RE-SHELLED";
+    c.branding.fade_into_page = false;  // LauncherHeader fades its gradient under the art instead
     c.branding.subtitle_segments = {
         {"PC PORT   \xC2\xB7   ", ""},
         {"v" + PortVersion() + "   \xC2\xB7   ", ""},
