@@ -151,8 +151,8 @@ class OnlineService {
   FriendRequestResult AddFriend(const std::string& code);
   // A friend request sent from a public Lobby row, addressed by its random handle rather than a friend code.
   FriendRequestResult AddFriendFromLobby(const std::string& player);
-  void AcceptFriend(const std::string& player);
-  void DeclineFriend(const std::string& player);  // also withdraws an outgoing request
+  void AcceptFriend(const std::string& key);  // key is RequestKey
+  void DeclineFriend(const std::string& key);  // also withdraws an outgoing request; key is RequestKey
   // Declines an incoming request or withdraws an outgoing one addressed by a public Lobby handle.
   void DeclineLobbyFriend(const std::string& player);
   void RemoveFriend(const std::string& player);

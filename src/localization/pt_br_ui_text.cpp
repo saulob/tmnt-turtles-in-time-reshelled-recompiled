@@ -53,7 +53,6 @@ Achieved more than 8,000 points. \r\n	Fez mais de 8.000 pontos.
 Achievement Unlocked	Conquista Desbloqueada
 Achievements	Conquistas
 Add a friend	Adicionar amigo
-Add friends and see who is online. Play them from the game's own online menus.	Adicione amigos e veja quem está online. Jogue com eles pelos menus online do próprio jogo.
 All files	Todos os arquivos
 Already friends.	Vocês já são amigos.
 Anisotropic filtering keeps textures sharp at oblique angles. Game leaves it to the game.	A filtragem anisotrópica mantém as texturas nítidas em ângulos oblíquos. Jogo deixa a escolha para o jogo.
@@ -674,9 +673,9 @@ The online service could not take the report	O serviço online não conseguiu re
 This is not your fault. Try again in a few minutes; your text is kept.	Isso não é culpa sua. Tente de novo em alguns minutos; seu texto foi mantido.
 Description	Descrição
 Launcher version	Versão do launcher
-Game build	Build do jogo
-Game version	Versão do jogo
-Game ID	ID do jogo
+Game image	Imagem do jogo
+Platform	Plataforma
+Runtime	Runtime
 Operating system	Sistema operacional
 Log shortened to its end	Log reduzido ao trecho final
 Log after privacy filtering	Log depois do filtro de privacidade
@@ -697,7 +696,6 @@ Play with others over the Internet: friends and the connection test.	Jogue com o
 No players are currently visible in the Lobby.	Nenhum jogador está visível no Lobby no momento.
 Could not refresh the Lobby.	Não foi possível atualizar o Lobby.
 The Lobby is not available right now.	O Lobby não está disponível no momento.
-Friend request	Pedido de amizade
 Friend	Amigo
 Compatible	Compatível
 Incompatible	Incompatível

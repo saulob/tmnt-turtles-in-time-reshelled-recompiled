@@ -77,8 +77,8 @@ Directory ops (`wss://<host>/`):
 | `hello` | `proto` (4), `game`, `guest` (`base`), `build`, `player`, `token`, `name`, `version`, `platform`, `presence`, `relay` | `player`, `name`, `friend_code`, `capabilities`; a party member then also gets `party.update` |
 | `ping` | | `time` |
 | `friends.list` / `friends.requests` | | `friends[]` / `incoming[]`, `outgoing[]` |
-| `friends.add` | `code`, or `player` (a public Lobby handle) | `player`, `name`, optional `display_name`, `state` (`pending`/`friends`) |
-| `friends.accept` / `.decline` / `.remove` | `player` (a friend code; `.decline` also takes a public Lobby handle) | `friend` / - / - |
+| `friends.add` | `code`, or `player` (a public Lobby handle) | `name`, optional `display_name`, `state` (`pending`/`friends`), `request` when pending, and `player` (the friend code) only for `code` |
+| `friends.accept` / `.decline` / `.remove` | `request` (a pending request's id), or `player` (a friend code; `.decline` also takes a public Lobby handle); `.remove` takes only `player` | `friend` / - / - |
 | `lobby.publish` | `visible` | `visible` |
 | `lobby.list` | optional `rev` | `players[]`, `rev`, `visible`; `unchanged` when `rev` is current; errors `not_visible`, `bad_request`, `limit` |
 | `party.create` | | `match`, `diag`, `slot` 1, `join_token`, `generation` 0, `party`; `busy` when already in a party |
@@ -105,15 +105,22 @@ invited[{player, name}]}`; `generation` is a revision counter, `state` is `joine
 `{player, name, online, state, platform, version, guest, build, compatible}`; `state` is `offline`, `online`, `party`,
 `connecting` or `in_game`. Friend rows and requests also carry `display_name` when the account kept the default
 `Player`; clients show it in place of `name`. `capabilities` is `{protocol_version, worker_build, public_endpoints,
-relay_supported, relay_max_payload, relay_frame_version, max_party, snes_features, snes_modes}`.
+relay_supported, relay_max_payload, relay_frame_version, max_party, public_lobby, bug_reports, snes_features,
+snes_modes}`.
 
 A public Lobby row is `{player, name, version, state}`. `player` is a random 32 lowercase hex action handle, never a
 friend code, account, address or token, and is never shown by the launcher. `name` is the presentation name: a custom
 Online name unchanged, or `Player-XXXX` for the default `Player`, with the four uppercase hex digits derived from the
 Worker's private salt and the account, so the same account keeps the same alias. `state` is the relation `none`,
 `pending`, `friend` or `incoming`; incompatible builds are filtered out before the row is built. The handle stays the
-same while a listing remains visible and is replaced when visibility goes Off and On again. `friends.add` with the
-handle reaches that account; `friends.decline` accepts the handle for pending or incoming Lobby requests.
+same while a listing remains visible and is replaced when visibility goes Off and On again.
+
+A request made with a Lobby handle never carries a friend code before it is accepted. `friends.add`, `friends.requests`
+(`incoming[]`, `outgoing[]`) and the `friend.request` event name it by `request`, a 32-hex id derived from the Worker's
+private salt and the two accounts, so both players see the same id and it survives a handle being replaced. Accept,
+decline and withdraw it with `request`. The friend codes appear only in `friends.list`, `friend.added` and the
+`friends.accept` answer, after acceptance. A request made with `code` keeps `player` (the other player's friend code)
+beside `request` for older clients. Requests stored before the `friend_requests.lobby` column existed read as code requests.
 
 Room ops (`wss://<host>/match/<match>`; the first frame must be `match.hello` within 10 s, else close `4003`):
 

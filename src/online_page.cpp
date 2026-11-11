@@ -234,7 +234,7 @@ void OnlinePage::DrawFriendRequests(trg::Ui& ui, const online::Snapshot& state) 
   const float s = ImGui::GetFontSize() / 18.0f;
   ui.Spacer(4);
   for (const online::Request& sender : state.incoming) {
-    ImGui::PushID(("request" + sender.player).c_str());
+    ImGui::PushID(("request" + online::RequestKey(sender)).c_str());
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f * s);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f * s, 10.0f * s));
@@ -249,9 +249,9 @@ void OnlinePage::DrawFriendRequests(trg::Ui& ui, const online::Snapshot& state) 
     ImGui::TextUnformatted((sender.name + Tr(" wants to be your friend")).c_str());
     ImGui::PopStyleColor();
     ImGui::Dummy(ImVec2(0, 2.0f * s));
-    if (AcceptButton(ui, Tr("     Accept"))) Online().AcceptFriend(sender.player);
+    if (AcceptButton(ui, Tr("     Accept"))) Online().AcceptFriend(online::RequestKey(sender));
     ImGui::SameLine();
-    if (ImGui::Button(Tr("Decline"))) Online().DeclineFriend(sender.player);
+    if (ImGui::Button(Tr("Decline"))) Online().DeclineFriend(online::RequestKey(sender));
     ImGui::EndChild();
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(3);
@@ -409,8 +409,8 @@ void OnlinePage::DrawFriends(trg::Ui& ui, const online::Snapshot& state) {
   if (code.empty() && std::strlen(add_code_) >= 8) ImGui::TextDisabled("%s", Tr("That is not a valid friend code."));
   for (const online::Request& r : state.outgoing) {
     ui.Row(r.name.c_str(), "Your request is waiting for an answer.");
-    ImGui::PushID(("out" + r.player).c_str());
-    if (ImGui::Button(Tr("Cancel request"))) Online().DeclineFriend(r.player);
+    ImGui::PushID(("out" + online::RequestKey(r)).c_str());
+    if (ImGui::Button(Tr("Cancel request"))) Online().DeclineFriend(online::RequestKey(r));
     ImGui::PopID();
   }
   for (const online::Friend& f : state.friends) {

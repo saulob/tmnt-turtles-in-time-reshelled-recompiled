@@ -34,6 +34,8 @@ $Cases = [ordered]@{
     'Xbox package'       = 'rexruntime.dll'
     'Xbox executable'    = 'rexgpu-xenos.dll'
     'DEBUG_SAULO marker' = 'README.txt'
+    'marker in the game' = 'tmnt_turtles_in_time_reshelled.exe'
+    'shipped GPU telemetry' = 'rexgpu-xenos.dll'
     'repository path'    = 'tmnt_turtles_in_time_reshelled.toml'
     'user profile path'  = 'tmnt_turtles_in_time_reshelled.toml'
     'other user profile' = 'tmnt_turtles_in_time_reshelled.toml'
@@ -57,6 +59,8 @@ $Content = @{
     'Xbox package'       = 'LIVE'
     'Xbox executable'    = 'XEX2'
     'DEBUG_SAULO marker' = 'DEBUG_SAULO'
+    'marker in the game' = 'DEBUG_SAULO'
+    'shipped GPU telemetry' = 'DEBUG_SAULO ISSUE2 config'
     'repository path'    = "cache_root = '$(Split-Path $PSScriptRoot -Parent)'"
     'user profile path'  = "cache_root = '$env:USERPROFILE'"
     'other user profile' = "cache_root = 'D:\Users\Somebody\Documents'"
@@ -67,6 +71,8 @@ $Bytes = @{
     'UTF-16 user path' = [Text.Encoding]::Unicode.GetBytes("cache_root = 'F:\Users\Somebody\Games'")
     'UTF-16 marker'    = [Text.Encoding]::Unicode.GetBytes('DEBUG_SAULO')
 }
+# Accepted although they add something: the GPU telemetry tools/debug-markers.txt ships on purpose (release).
+$AcceptedCases = @('shipped GPU telemetry')
 $failures = 0
 try {
     foreach ($case in $Cases.Keys) {
@@ -96,7 +102,7 @@ try {
         $global:LASTEXITCODE = 0
         & $ReleaseCheck -VerifyOnly $stage *> $null
         $accepted = $LASTEXITCODE -eq 0
-        if ($accepted -ne ($null -eq $extra)) {
+        if ($accepted -ne (($null -eq $extra) -or $AcceptedCases -contains $case)) {
             Write-Host "  FAIL $case"
             $failures++
         }

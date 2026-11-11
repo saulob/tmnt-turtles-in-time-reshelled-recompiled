@@ -107,15 +107,16 @@ try {
     if (!aliasA || !aliasB) throw new Error('could not map the two default-name rows');
     const request = await a.call('friends.add', { player: aliasB.player });
     if (request.code !== 'ok' || request.display_name !== visible(aliasB)) throw new Error('friends.add lost the alias');
+    if (request.player !== undefined) throw new Error('friends.add from the Lobby named a friend code');
     const event = await b.next((message) => message.ev === 'friend.request');
-    if (event.player !== a.hello.player || event.display_name !== visible(aliasA)) {
-      throw new Error('friend.request lost the alias');
+    if (event.player !== undefined || !event.request || event.display_name !== visible(aliasA)) {
+      throw new Error('friend.request named a friend code or lost the alias');
     }
     const requests = await a.call('friends.requests');
-    if (!requests.outgoing?.some((row) => row.player === b.hello.player && row.display_name === visible(aliasB))) {
-      throw new Error('friends.requests lost the alias');
+    if (!requests.outgoing?.some((row) => row.request === event.request && row.player === undefined && row.display_name === visible(aliasB))) {
+      throw new Error('friends.requests named a friend code or lost the alias');
     }
-    const accepted = await b.call('friends.accept', { player: a.hello.player });
+    const accepted = await b.call('friends.accept', { request: event.request });
     if (accepted.friend?.display_name !== visible(aliasA)) throw new Error('friends.accept lost the alias');
     const friends = await a.call('friends.list');
     if (!friends.friends?.some((row) => row.player === b.hello.player && row.display_name === visible(aliasB))) {

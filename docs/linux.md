@@ -1,7 +1,7 @@
 # Linux and Steam Deck
 
-> **Experimental.** Windows is the primary platform. The AppImage has not yet been validated on real Linux or Steam Deck
-> hardware, so rendering, audio, controllers and online play on Linux are unconfirmed.
+> **Experimental.** Windows is the primary platform. A first Steam Deck report (issue #3) shows the AppImage running, with
+> graphical bugs still under investigation; audio, controllers and online play on Linux are not yet confirmed.
 
 The Linux build uses the same code as the Windows build: ReXGlue SDK 0.10.0's Linux runtime and the Xenos GPU
 plugin's Vulkan backend, both built with the project's patches, and the same TRG launcher. It ships as one
@@ -20,8 +20,9 @@ look for `lib<name>.so` beside the executable first.
 
 The cyan turtle flicker fix (`0080`) has its Vulkan counterpart in `0091`, not yet confirmed on a Steam Deck. One
 Direct3D 12 fix that a player can see still has none: vertex buffers rewritten at the same address (`0079`), which can
-show as stale geometry; the temporary `0092` telemetry logs when that happens. The Vulkan equivalents of `0040` and
-`0055` are deferred too; those two are performance work. These three are parity `vulkan-candidate` in
+show as stale geometry; the temporary `0092` telemetry logs when that happens. The Shredder lighting flicker fix (`0090`)
+is Direct3D 12 only as well: it was found and confirmed there, and has not been seen on Vulkan. The Vulkan equivalents
+of `0040` and `0055` are deferred too; those two are performance work. These four are parity `vulkan-candidate` in
 `patches/rexglue-sdk/patches.txt`.
 
 The AppImage FUSE fallback (the image unpacks itself and runs from there when it cannot be mounted) is part of the
@@ -50,7 +51,7 @@ is older than GCC 13.
 
 ### Steam Deck
 
-This is the intended flow. It has not been tried on a Steam Deck yet.
+The game has been reported running on a Steam Deck with this flow.
 
 1. In **Desktop Mode**, do steps 1 to 5 above. Copy your package to the Deck first (USB stick, SD card or network).
 2. In Steam: **Games** > **Add a Non-Steam Game to My Library**, and pick the AppImage.

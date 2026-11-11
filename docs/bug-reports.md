@@ -23,7 +23,7 @@ Both are accepted. The file tail is read (up to 256 KiB), scrubbed, then limited
 | Field | Meaning |
 | --- | --- |
 | `description` | The player's text, trimmed and scrubbed. |
-| `launcher_version` | The port version (`0.1.0`). |
+| `launcher_version` | The port version, for example `0.2.0`. |
 | `guest` | The game image/build: `TMNT: Turtles in Time Re-Shelled (XBLA) 0.0.1.3 (584109D2)`, or `Not installed`. |
 | `platform` | `Windows` or `Linux`. |
 | `operating_system` | Windows version and build, or the Linux distribution. |
@@ -84,7 +84,7 @@ WebSocket connection and envelope as the rest of the online service:
   accepted reports per rolling hour and 10 per rolling 24 hours; the service-wide and per-address ceilings are
   infrastructure protection. Refusals answer `incident_hourly_limit`, `incident_daily_limit`, `limit`, `bad_request` or
   `too_large`.
-- `incident.status` sends up to 50 `{ticket, receipt}` claims and returns only the claims that match. A wrong receipt and
+- `incident.status` sends up to 30 `{ticket, receipt}` claims and returns only the claims that match. A wrong receipt and
   an unknown ticket look the same.
 - `incident.read` returns a stored report only for the matching receipt.
 

@@ -65,6 +65,7 @@ namespace tmnt::online {
   X(busy, service)  \
   X(offline, service)  \
   X(not_found, service)  \
+  X(not_visible, service)  \
   X(not_friends, service)  \
   X(already_invited, service)  \
   X(no_party, service)  \

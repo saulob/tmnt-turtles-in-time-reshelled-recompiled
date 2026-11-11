@@ -41,10 +41,16 @@ struct Friend {
   bool compatible = true;
 };
 
+// A pending friend request. A request made from the public Lobby has no friend code until it is accepted: `player` is
+// then empty and the service's opaque `id` names it.
 struct Request {
   std::string player;
   std::string name;  // display name: display_name from the service when present
+  std::string id;
 };
+
+// What friends.accept and friends.decline address a request by.
+inline const std::string& RequestKey(const Request& request) { return request.player.empty() ? request.id : request.player; }
 
 // A player who chose to be listed in the public Lobby. `player` is the random public handle Add friend sends to; it is
 // never shown. `relation` is the service's view of this listing; empty from an older Worker.
@@ -260,6 +266,8 @@ std::string EncodeFriendsAdd(int seq, const std::string& code);
 std::string EncodeFriendsAddPlayer(int seq, const std::string& player);
 std::string EncodeFriendsAccept(int seq, const std::string& player);
 std::string EncodeFriendsDecline(int seq, const std::string& player);
+std::string EncodeFriendsAcceptRequest(int seq, const std::string& request);
+std::string EncodeFriendsDeclineRequest(int seq, const std::string& request);
 std::string EncodeFriendsRemove(int seq, const std::string& player);
 std::string EncodePlayerMatchHost(int seq, const PlayerMatchRules& rules, const std::string& qos_hex = {}, int slots = 4);
 std::string EncodePlayerMatchCancel(int seq);

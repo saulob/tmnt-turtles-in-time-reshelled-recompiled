@@ -48,7 +48,7 @@ export const BUCKETS = {
   beaconAll: { burst: 60, perSecond: 5 },
 };
 
-export const WORKER_BUILD = '2026-11-10-lobby2';
+export const WORKER_BUILD = '2026-11-11-lobby3';
 
 // Binary relay frames: magic "SR", version, type, src slot, dst slot, token (u32), sequence (u32), payload length (u16),
 // payload.

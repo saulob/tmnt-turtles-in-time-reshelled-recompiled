@@ -11,6 +11,7 @@ Cheats
 Controls
 Achievements
 Online
+Friends / Lobby
 Bug Report
 Worker
 Updater

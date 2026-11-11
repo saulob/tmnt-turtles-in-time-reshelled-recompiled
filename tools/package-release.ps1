@@ -66,6 +66,9 @@ $LocalPathRegexes = @(
     '[A-Za-z]:[\\/]msys64'
 ) | ForEach-Object { [regex]::new($_, 'IgnoreCase') }
 $MarkerNeedles = @('DEBUG_SAULO', $Latin1.GetString([Text.Encoding]::Unicode.GetBytes('DEBUG_SAULO')))
+# Diagnostics tools/debug-markers.txt ships on purpose (`release`) live in the GPU plugin; nothing else may hold a marker.
+$ReleaseGpuMarkers = [bool](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'debug-markers.txt') |
+    Where-Object { $_ -match '^\s*patches/rexglue-sdk/[0-9]{4}-[^\s]+\.windows\.patch\s+[0-9]+\s+release\s*$' })
 
 function Test-ReleaseFolder([string]$Dir) {
     $problems = New-Object System.Collections.Generic.List[string]
@@ -84,6 +87,7 @@ function Test-ReleaseFolder([string]$Dir) {
                 if ($regex.IsMatch($stripped)) { $problems.Add("user or repository path in file: $relative"); break }
             }
             foreach ($marker in $MarkerNeedles) {
+                if ($ReleaseGpuMarkers -and $relative -eq 'rexgpu-xenos.dll') { break }
                 if ($text.IndexOf($marker, [StringComparison]::Ordinal) -ge 0) { $problems.Add("DEBUG_SAULO marker in file: $relative"); break }
             }
             if ($item.Length -ge 4 -and ($ForbiddenMagic -contains $text.Substring(0, 4))) { $problems.Add("Xbox 360 package or executable: $relative") }

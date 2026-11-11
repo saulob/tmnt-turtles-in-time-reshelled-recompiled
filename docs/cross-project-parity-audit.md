@@ -79,7 +79,7 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 
 ## 3. Deferred and rejected
 
-Deferred, each with the reason: Vulkan equivalents of 0040, 0055 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); runtime check of the Windows launcher XInput reader (ported, idle and replug test pending); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; release notes (not prepared on request); `docs/rexglue-reference/`.
+Deferred, each with the reason: Vulkan equivalents of 0040, 0055 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); runtime check of the Windows launcher XInput reader (ported, idle and replug test pending); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; `docs/rexglue-reference/`.
 
 Rejected: HC 0058 tile heap debug patch, GW2 0056 frame trace and 0057 HDR/float resolve copies, SSF2T 0049 progress wake and the guest sign-in half of 0053, all DEBUG_SAULO instrumentation, every game-specific feature (cheats, skip intro, aspect hooks, interpolation, achievements, saves).
 

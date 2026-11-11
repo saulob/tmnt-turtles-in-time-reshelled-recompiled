@@ -16,7 +16,8 @@ model pass their headless tests here, including a four-client run on loopback ag
 2. Share **Your friend code** (`XXXX-XXXX`, **Copy** puts it on the clipboard). Paste or type a friend's code under
    **Friends** and **Send request**; they **Accept** or **Decline** it on their page. **Show me in Lobby** on the
    **Lobby** tab lists your presentation name and game version for other players of this game; they can send you a friend
-   request from there. Each listing carries a random action handle that is never shown: it stays the same while the
+   request from there; the request names the player by a private id, so the Lobby never gives out a friend code before
+   the request is accepted. Each listing carries a random action handle that is never shown: it stays the same while the
    listing remains on and is replaced when it is turned Off and On again. The Lobby tab shows the compatible players,
    when the list was last updated, and a **Refresh lobby** button; it also refreshes automatically every five minutes
    while it is open. The listing belongs to the connection: turn it off, or close Online play, and you leave the Lobby.

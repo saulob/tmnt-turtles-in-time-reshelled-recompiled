@@ -112,18 +112,30 @@ if [ -n "$CPP_TESTS" ] && [ -f "$CPP_TESTS/CMakeCache.txt" ]; then
   if cmake --build "$CPP_TESTS" --target tmnt_runtime_tests >/tmp/tmnt-cpp-build.log 2>&1; then
     failures=""
     count=0
+    fl_cpp_missing="tmnt_online_protocol_tests tmnt_online_service_tests tmnt_online_identity_tests tmnt_online_setting_tests tmnt_online_telemetry_tests tmnt_platform_parity_tests tmnt_incident_tests"
+    fl_cpp_failures=""
     # A build folder can keep a test binary from another branch; run only targets this configuration defines.
     known_targets="$(cmake --build "$CPP_TESTS" --target help 2>/dev/null |
       sed -n 's/^[[:space:]]*\(tmnt_[A-Za-z0-9_]*_tests\)[[:space:]]*:.*/\1/p')"
     while IFS= read -r program; do
-      base="$(basename "$program")"
+      base="$(basename "$program" .exe)"
       case "$base" in tmnt_shutdown_order_tests*) continue ;; esac
       if [ -n "$known_targets" ] && ! printf '%s\n' "$known_targets" | grep -qx "$base"; then continue; fi
       count=$((count + 1))
       "$program" >/dev/null 2>&1
       code=$?
       if [ "$code" -ne 0 ] && [ "$code" -ne 77 ]; then failures="$failures $base($code)"; fi
-    done < <(find "$CPP_TESTS" -maxdepth 1 -type f -name 'tmnt_*_tests' | sort)
+      case " $fl_cpp_missing " in *" $base "*)
+        fl_cpp_missing="${fl_cpp_missing/$base/}"
+        [ "$code" -ne 0 ] && fl_cpp_failures="$fl_cpp_failures $base($code)" ;;
+      esac
+    done < <(find "$CPP_TESTS" -maxdepth 1 -type f \( -name 'tmnt_*_tests' -o -name 'tmnt_*_tests.exe' \) | sort)
+    for missing in $fl_cpp_missing; do fl_cpp_failures="$fl_cpp_failures $missing(not built)"; done
+    if [ -n "${fl_cpp_failures// /}" ]; then
+      record "Friends / Lobby" "client: protocol, service, identity, setting, telemetry, platform parity and Bug Report test programs" FAIL "$fl_cpp_failures"
+    else
+      record "Friends / Lobby" "client: protocol, service, identity, setting, telemetry, platform parity and Bug Report test programs" PASS ""
+    fi
     if [ -n "$failures" ]; then
       record Core "C++ tests ($count programs)" FAIL "$failures"
     else
@@ -134,6 +146,7 @@ if [ -n "$CPP_TESTS" ] && [ -f "$CPP_TESTS/CMakeCache.txt" ]; then
   fi
 else
   record Core "C++ tests" "NOT RUN" "pass --cpp-tests <a configured build folder> to build and run them"
+  record "Friends / Lobby" "client: protocol, service, identity, setting, telemetry, platform parity and Bug Report test programs" "NOT RUN" "pass --cpp-tests <a configured build folder>"
 fi
 
 # ---- Cross-platform parity: the same C++ static test the Windows gate builds -----------------------------------------
@@ -186,15 +199,13 @@ focused_test Gameplay "Skip intro: setting, boot path Off and On, game image" "$
 focused_test Gameplay "Menu cleanup: removed Xbox rows and footers" "$ROOT/tests/fire_movie_patch_tests.cpp"
 focused_test Graphics "Aspect ratio: 16:9 only, old values normalized" "$ROOT/tests/aspect_ratio_tests.cpp" "-DTMNT_SRC_DIR=\"$ROOT/src\""
 focused_test Graphics "Internal render resolution removed" "$ROOT/tests/internal_render_removed_tests.cpp"
-if [ "$(uname -s)" = "Linux" ]; then
-  focused_test Core "Detailed logging: normal and Detailed-only lines" "$ROOT/tests/log_policy_tests.cpp" \
-    "-I$ROOT/third_party/trg-launcher/include" "$ROOT/third_party/trg-launcher/src/settings.cpp" \
-    "$ROOT/third_party/trg-launcher/src/platform.cpp"
-else
-  focused_test Core "Detailed logging: normal and Detailed-only lines" "$ROOT/tests/log_policy_tests.cpp" \
-    "-I$ROOT/third_party/trg-launcher/include" "$ROOT/third_party/trg-launcher/src/settings.cpp" \
-    "$ROOT/third_party/trg-launcher/src/platform.cpp" -luser32 -lshell32 -lole32 -lcomdlg32
+trg_sources=("-I$ROOT/third_party/trg-launcher/include" "$ROOT/third_party/trg-launcher/src/settings.cpp"
+  "$ROOT/third_party/trg-launcher/src/platform.cpp")
+if [ "$(uname -s)" != "Linux" ]; then
+  trg_sources+=(-luser32 -lshell32 -lole32 -lcomdlg32)
 fi
+focused_test Core "Detailed logging: normal and Detailed-only lines" "$ROOT/tests/log_policy_tests.cpp" "${trg_sources[@]}"
+focused_test Cheats "Cheats: rows, session overrides, online suppression" "$ROOT/tests/cheats_tests.cpp" "${trg_sources[@]}"
 focused_test Localization "Portugues Brasil: registration, tables and font" "$ROOT/tests/localization_tests.cpp"
 focused_test Core "Audio teardown regression (patch 0086)" "$ROOT/tests/audio_client_teardown_tests.cpp" -pthread \
   "-DTMNT_PATCH_DIR=\"$ROOT/patches/rexglue-sdk\""
@@ -216,14 +227,72 @@ else
 fi
 
 # ---- Online and Worker ------------------------------------------------------------------------------------------------
+friends_lobby_files=()
+while IFS= read -r line; do
+  line="${line%$''}"
+  case "$line" in ''|\#*) continue ;; esac
+  friends_lobby_files+=("$line")
+done < tools/friends-lobby-tests.txt
+
 if have node; then
-  if (cd server/tmnt-lobby && timeout 120 node --test test/*.test.js >/tmp/tmnt-worker-tests.log 2>&1); then
-    record Worker "Worker tests (node --test)" PASS ""
+  worker_files=()
+  for file in server/tmnt-lobby/test/*.test.js; do
+    name="$(basename "$file")"
+    skip=0
+    for listed in "${friends_lobby_files[@]}"; do [ "$listed" = "$name" ] && skip=1; done
+    [ "$skip" -eq 0 ] && worker_files+=("test/$name")
+  done
+  if (cd server/tmnt-lobby && timeout 120 node --test "${worker_files[@]}" >/tmp/tmnt-worker-tests.log 2>&1); then
+    record Worker "Worker tests (node --test), without the Friends / Lobby files" PASS ""
   else
-    record Worker "Worker tests (node --test)" FAIL "$(tail -n 3 /tmp/tmnt-worker-tests.log | tr '\n' ' ')"
+    record Worker "Worker tests (node --test), without the Friends / Lobby files" FAIL "$(tail -n 3 /tmp/tmnt-worker-tests.log | tr '
+' ' ')"
+  fi
+  lobby_args=()
+  for listed in "${friends_lobby_files[@]}"; do lobby_args+=("test/$listed"); done
+  if (cd server/tmnt-lobby && timeout 120 node --test "${lobby_args[@]}" >/tmp/tmnt-friends-lobby-tests.log 2>&1); then
+    record "Friends / Lobby" "Worker: aliases, handles, request flow, privacy before acceptance, Lobby and Bug Report" PASS ""
+  else
+    record "Friends / Lobby" "Worker: aliases, handles, request flow, privacy before acceptance, Lobby and Bug Report" FAIL       "$(grep -E 'leaked|did not|alias|handle|Pending|request' /tmp/tmnt-friends-lobby-tests.log | head -n 3 | tr '
+' ' ')"
   fi
 else
   record Worker "Worker tests (node --test)" "NOT RUN" "node is not installed"
+  record "Friends / Lobby" "Worker: aliases, handles, request flow, privacy before acceptance, Lobby and Bug Report" "NOT RUN" "node is not installed"
+fi
+
+fl_problems=""
+worker_build="$(sed -nE "s/.*WORKER_BUILD = '([^']+)'.*/\1/p" server/tmnt-lobby/src/protocol.js | tr -d '\r' | head -n 1)"
+pinned_build="$(sed -nE "s/.*WORKER_BUILD, '([^']+)'.*/\1/p" server/tmnt-lobby/test/lobby.test.js | tr -d '\r' | head -n 1)"
+[ -n "$worker_build" ] && [ "$worker_build" = "$pinned_build" ] || fl_problems="$fl_problems lobby.test.js pins '$pinned_build' but protocol.js says '$worker_build';"
+while IFS= read -r other; do
+  [ "$other" = "$worker_build" ] || fl_problems="$fl_problems a source names worker build $other;"
+done < <(git ls-files -z -- server/tmnt-lobby/src server/tmnt-lobby/local server/tmnt-lobby/tools docs src |
+  xargs -0 grep -ohE '\b20[0-9]{2}-[0-9]{2}-[0-9]{2}-(lobby|party)[0-9]+\b' 2>/dev/null | sort -u)
+client_protocol="$(sed -nE 's/.*kLobbyProtocol = ([0-9]+).*/\1/p' src/online/protocol.h | tr -d '\r')"
+worker_protocol="$(sed -nE 's/.*export const PROTOCOL = ([0-9]+).*/\1/p' server/tmnt-lobby/src/protocol.js | tr -d '\r')"
+[ "$client_protocol" = "$worker_protocol" ] && [ "$worker_protocol" = 4 ] || fl_problems="$fl_problems lobby protocol is client '$client_protocol', Worker '$worker_protocol', and must stay 4;"
+if [ -z "$fl_problems" ]; then
+  record "Friends / Lobby" "contract: one Worker build constant, pinned by its test; protocol 4 on both sides" PASS ""
+else
+  record "Friends / Lobby" "contract: one Worker build constant, pinned by its test; protocol 4 on both sides" FAIL "$fl_problems"
+fi
+
+offline=""
+for listed in "${friends_lobby_files[@]}"; do
+  grep -qiE 'workers\.dev|(https?|wss?)://[a-z0-9-]+\.[a-z]' "server/tmnt-lobby/test/$listed" && offline="$offline $listed"
+done
+if [ -z "$offline" ]; then
+  record "Friends / Lobby" "offline: the gate tests never name the production Worker or any external host" PASS ""
+else
+  record "Friends / Lobby" "offline: the gate tests never name the production Worker or any external host" FAIL "names a host:$offline"
+fi
+
+if grep -nE '\b(player|sender|r|request)\.(player|id)\b' src/online_page.cpp | grep -E 'Text|ui\.Row|ui\.Info|Label|Notice' >/tmp/tmnt-ui-identity.txt; then
+  record "Friends / Lobby" "UI: the Lobby page never renders a handle or a friend code as text" FAIL "$(head -n 2 /tmp/tmnt-ui-identity.txt | tr '
+' ' ')"
+else
+  record "Friends / Lobby" "UI: the Lobby page never renders a handle or a friend code as text" PASS ""
 fi
 
 if [ -f server/tmnt-lobby/local/server.js ] && [ -f server/tmnt-lobby/wrangler.toml ]; then
@@ -352,26 +421,29 @@ if have git; then
   fi
 
   declare -A marker_allowed=()
+  declare -A marker_release=()
   if [ -f tools/debug-markers.txt ]; then
-    while read -r path count; do
+    while read -r path count ship; do
       path="${path%$'\r'}"
       [ -z "$path" ] && continue
       case "$path" in \#*) continue ;; esac
       marker_allowed["$path"]="${count%$'\r'}"
+      [ "${ship%$'\r'}" = release ] && marker_release["$path"]=1
     done < tools/debug-markers.txt
   fi
   marker_failures=""
   while IFS= read -r file; do
     path="${file#./}"
     actual="$(grep -o 'DEBUG_SAULO' "$file" | wc -l | tr -d ' ')"
-    if [ "$RELEASE" -eq 1 ]; then
+    if [ "$RELEASE" -eq 1 ] && [ -z "${marker_release[$path]:-}" ]; then
       marker_failures="$marker_failures $path"
     elif [ -z "${marker_allowed[$path]:-}" ]; then
       marker_failures="$marker_failures $path"
     elif [ "$actual" -ne "${marker_allowed[$path]}" ]; then
       marker_failures="$marker_failures $path($actual!=${marker_allowed[$path]})"
     fi
-  done < <(grep -rl 'DEBUG_SAULO' src tools docs server 2>/dev/null |
+  done < <(git ls-files -z --cached --others --exclude-standard -- src tools docs server patches |
+    xargs -0 grep -l 'DEBUG_SAULO' 2>/dev/null |
     grep -v -E '^(docs/|tests/|tools/(test\.ps1|test\.sh|debug-markers\.txt|package-release\.ps1|linux-policy\.sh|test-appimage-release\.sh|test-release-check\.ps1))' || true)
   if [ "${#marker_allowed[@]}" -gt 0 ]; then
     for path in "${!marker_allowed[@]}"; do
@@ -452,6 +524,6 @@ if [ "${#failed_groups[@]}" -gt 0 ]; then
   echo "Failed groups: ${failed_groups[*]}"
 fi
 if [ "$RELEASE" -eq 1 ]; then
-  echo "Release gate: temporary DEBUG_SAULO diagnostics are not accepted."
+  echo "Release gate: only the DEBUG_SAULO diagnostics marked release in tools/debug-markers.txt are accepted."
 fi
 [ "$fail_count" -eq 0 ]

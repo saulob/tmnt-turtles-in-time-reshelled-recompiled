@@ -16,6 +16,12 @@ policy_init() {  # root
   [[ "$APP_ID" =~ ^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+$ ]] ||
     fail "src/platform.cpp must declare kApplicationId exactly once, as a dotted name on one line (found: '$APP_ID')"
   [ -f "$root/packaging/linux/$APP_ID.desktop" ] || fail "packaging/linux/$APP_ID.desktop is missing: the desktop file is named after kApplicationId"
+  # Diagnostics tools/debug-markers.txt ships on purpose (`release`) live in the GPU plugin; nothing else may hold a marker.
+  RELEASE_GPU_MARKERS=0
+  if tr -d '\r' < "$root/tools/debug-markers.txt" |
+    grep -qE '^[[:space:]]*patches/rexglue-sdk/[0-9]{4}-[^[:space:]]+\.linux\.patch[[:space:]]+[0-9]+[[:space:]]+release[[:space:]]*$'; then
+    RELEASE_GPU_MARKERS=1
+  fi
   EXPECTED="$(LC_ALL=C sort <<EOF
 .DirIcon
 AppRun
@@ -74,7 +80,9 @@ scan_appdir() {  # appdir label [extra_paths...]
         utf16="$(printf '%s' "$path" | od -An -tx1 | tr -d ' \n' | sed 's/../\\x&\\x00/g')"
         LC_ALL=C grep -qaP "$utf16" "$item" && problem "UTF-16 local path in file: $rel ($path)"
       done
-      grep -qaF DEBUG_SAULO "$item" && problem "DEBUG_SAULO in file: $rel"
+      if grep -qaF DEBUG_SAULO "$item" && ! { [ "${RELEASE_GPU_MARKERS:-0}" = 1 ] && [ "$rel" = usr/bin/librexgpu-xenos.so ]; }; then
+        problem "DEBUG_SAULO in file: $rel"
+      fi
       [ "$(head -c 2 "$item")" = MZ ] && problem "Windows binary: $rel"
     fi
   done < <(find "$appdir" -mindepth 1 -print0)

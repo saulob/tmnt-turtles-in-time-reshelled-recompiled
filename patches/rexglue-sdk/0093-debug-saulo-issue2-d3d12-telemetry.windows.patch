@@ -1,5 +1,5 @@
 diff --git a/include/rex/graphics/d3d12/command_processor.h b/include/rex/graphics/d3d12/command_processor.h
-index 6010f56..2a0b21e 100644
+index ac86e22..7064fc6 100644
 --- a/include/rex/graphics/d3d12/command_processor.h
 +++ b/include/rex/graphics/d3d12/command_processor.h
 @@ -27,6 +27,7 @@
@@ -10,9 +10,9 @@ index 6010f56..2a0b21e 100644
  #include <rex/graphics/d3d12/deferred_command_list.h>
  #include <rex/graphics/d3d12/graphics_system.h>
  #include <rex/graphics/d3d12/pipeline_cache.h>
-@@ -748,6 +749,37 @@ class D3D12CommandProcessor : public CommandProcessor {
-   bool aa838_stage_a_pending_ = false;
-   bool aa838_stage_a_bool_state_ = false;
+@@ -752,6 +753,37 @@ class D3D12CommandProcessor : public CommandProcessor {
+   bool shredder_tint_fix_pending_ = false;
+   bool shredder_tint_fix_bool_state_ = false;
  
 +  // DEBUG_SAULO: issue #2 telemetry, see debug_saulo_issue2.h.
 +  struct DebugSauloIssue2State {
@@ -129,7 +129,7 @@ index 7493c7b..ff8caf2 100644
    bool IsHostDepthEncodingDifferent(xenos::DepthRenderTargetFormat format) const override;
  
 diff --git a/src/graphics/d3d12/command_processor.cpp b/src/graphics/d3d12/command_processor.cpp
-index e2bfc25..065af71 100644
+index 323b226..626914c 100644
 --- a/src/graphics/d3d12/command_processor.cpp
 +++ b/src/graphics/d3d12/command_processor.cpp
 @@ -1971,6 +1971,145 @@ void D3D12CommandProcessor::OnGammaRampPWLValueWritten() {
@@ -286,16 +286,16 @@ index e2bfc25..065af71 100644
  
    // Obtain the actual swap source texture size (resolution-scaled if it's a
    // resolve destination, or not otherwise).
-@@ -2449,6 +2589,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
- 
-   aa838_stage_a_pending_ =
-       aa838_stage_a_fix_.OnDraw(pixel_shader ? pixel_shader->ucode_data_hash() : 0);
+@@ -2456,6 +2596,8 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+         vertex_shader->ucode_data_hash(), pixel_shader ? pixel_shader->ucode_data_hash() : 0,
+         tint.type == xenos::FetchConstantType::kVertex, tint.size);
+   }
 +  DebugSauloIssue2Draw(vertex_shader, pixel_shader ? pixel_shader->ucode_data_hash() : 0,  // DEBUG_SAULO
 +                       aa838_stage_a_pending_);
  
    if (!BeginSubmission(true)) {
      return false;
-@@ -2523,6 +2665,9 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
+@@ -2530,6 +2672,9 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type, uint3
    }
    if (REXCVAR_GET(async_shader_compilation) &&
        pipeline_cache_->GetD3D12PipelineByHandle(pipeline_handle) == nullptr) {
@@ -305,7 +305,7 @@ index e2bfc25..065af71 100644
      return true;
    }
  
-@@ -3523,6 +3668,7 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
+@@ -3530,6 +3675,7 @@ bool D3D12CommandProcessor::EndSubmission(bool is_swap) {
      primitive_processor_->EndFrame();
  
      aa838_stage_a_fix_.OnFrameEnd();

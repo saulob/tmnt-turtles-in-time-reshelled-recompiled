@@ -36,4 +36,22 @@ if ($code -ne 0) {
     [Console]::Error.WriteLine("worker: wrangler exited with code $code")
     exit $code
 }
-Write-Host ($(if ($DryRun) { 'Worker bundle checked (dry run, nothing uploaded).' } else { 'Worker deployed.' }))
+if ($DryRun) {
+    Write-Host 'Worker bundle checked (dry run, nothing uploaded).'
+    exit 0
+}
+Write-Host 'Worker deployed.'
+
+. (Join-Path $PSScriptRoot 'worker-health.ps1')
+$expectedBuild = Get-ExpectedWorkerBuild $repoRoot
+$healthUrl = Get-WorkerHealthUrl $repoRoot
+$health = Test-WorkerHealth $healthUrl $expectedBuild { param($url) Get-WorkerHealth $url }
+if (-not $health.Ok) {
+    [Console]::Error.WriteLine('Health check: FAILED')
+    [Console]::Error.WriteLine("Expected worker build: $expectedBuild")
+    [Console]::Error.WriteLine("Production worker build: $(if ($health.Build) { $health.Build } else { '(none)' })")
+    [Console]::Error.WriteLine("worker: $($health.Reason) after $($health.Attempts) attempts at $healthUrl; the deploy is not retried, run .	ools\worker.ps1 again if it should be")
+    exit 1
+}
+Write-Host 'Health check: OK'
+Write-Host "Worker build: $($health.Build)"

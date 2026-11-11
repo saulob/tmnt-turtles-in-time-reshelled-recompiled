@@ -80,7 +80,7 @@ Why a restart: ReXGlue 0.10.0 has no API to resize or move an open window (its `
 
 ### Aspect Ratio and the guest picture
 
-v0.1.0 uses the original 16:9 presentation: a 1280×720 guest base and an 853×480 guest video mode. The launcher has no Aspect Ratio control. Any other `tmnt_aspect_ratio` value in `settings.toml`, and any hand-edited `video_mode_width`, is replaced by 16:9 when the game starts; the file itself is left as it is, and the Window size list shows 16:9 sizes. Additional native ratios are deferred.
+The game uses the original 16:9 presentation: a 1280×720 guest base and an 853×480 guest video mode. The launcher has no Aspect Ratio control. Any other `tmnt_aspect_ratio` value in `settings.toml`, and any hand-edited `video_mode_width`, is replaced by 16:9 when the game starts; the file itself is left as it is, and the Window size list shows 16:9 sizes. Additional native ratios are deferred.
 
 The Render resolution labels assume a 1280×720 render base at 16:9, as in the template. The real Turtles render size has not been measured yet.
 

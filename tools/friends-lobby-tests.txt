@@ -1,0 +1,7 @@
+# The Worker test files that make up the Friends / Lobby release gate: aliases, handles, requests, privacy, the Lobby
+# and the Bug Report service. tools/test.ps1 and tools/test.sh run exactly these in their Friends / Lobby group and leave
+# them out of the general Worker run, so no file runs twice.
+lobby.test.js
+lobby_requests.test.js
+friends_lobby_release.test.js
+incidents.test.js

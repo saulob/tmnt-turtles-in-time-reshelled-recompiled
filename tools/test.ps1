@@ -615,7 +615,7 @@ function Invoke-ParityGate {
 Invoke-ParityGate
 
 Invoke-Check 'parity: Windows-only ReXGlue patches that change what a player sees are declared' {
-    $declared = '0040', '0055', '0079'
+    $declared = '0040', '0055', '0079', '0090'
     $found = @(Read-PatchManifest | Where-Object { $_.Fields.Count -eq 5 -and $_.Fields[4] -eq 'vulkan-candidate' } | ForEach-Object { $_.Fields[0].Substring(0, 4) })
     foreach ($number in $found) { if ($number -notin $declared) { "$number is a new deferred Vulkan candidate: list it in docs/linux.md and here" } }
     $linuxDoc = Read-Text 'docs\linux.md'
@@ -638,13 +638,15 @@ Invoke-Check 'hygiene: no game data, logs, saves, player data or build output in
 }
 
 # Temporary diagnostics of the current development branch, with how many markers each file may hold: remove a row when
-# its file is clean. -Release accepts none of them.
+# its file is clean. -Release accepts only the rows marked `release` (shipped on purpose).
 $TemporaryMarkers = @{}
+$ReleaseMarkers = @{}
 foreach ($line in Get-Content -LiteralPath (Join-Root 'tools\debug-markers.txt')) {
     $line = $line.Trim()
     if (-not $line -or $line.StartsWith('#')) { continue }
     $fields = @($line -split '\s+')
-    if ($fields.Count -eq 2) { $TemporaryMarkers[$fields[0]] = [int]$fields[1] }
+    if ($fields.Count -in 2, 3) { $TemporaryMarkers[$fields[0]] = [int]$fields[1] }
+    if ($fields.Count -eq 3 -and $fields[2] -eq 'release') { $ReleaseMarkers[$fields[0]] = $true }
 }
 
 Invoke-Check 'hygiene: player-facing documents make no stale claims and advertise nothing removed' {
@@ -702,17 +704,20 @@ Invoke-Check 'hygiene: no temporary markers or local absolute paths in the proje
         $text = [IO.File]::ReadAllText($path)
         if ($text.Contains('DEBUG_SAULO') -and -not ($markerAllowed | Where-Object { $normalized -match $_ })) {
             $markers = [regex]::Matches($text, 'DEBUG_SAULO').Count
-            if ($Release -or -not $TemporaryMarkers.ContainsKey($normalized)) { $problems.Add("$normalized has a DEBUG_SAULO marker") }
+            if (-not $TemporaryMarkers.ContainsKey($normalized) -or ($Release -and -not $ReleaseMarkers.ContainsKey($normalized))) { $problems.Add("$normalized has a DEBUG_SAULO marker") }
             elseif ($markers -gt $TemporaryMarkers[$normalized]) { $problems.Add("$normalized has $markers DEBUG_SAULO markers, $($TemporaryMarkers[$normalized]) are listed") }
             else { $temporary.Add($normalized) }
         }
         if ($normalized -notlike 'tests/*' -and $text -match $localPath) { $problems.Add("$normalized names a local path") }
         if ($normalized -notlike 'tests/*' -and $normalized -notlike 'patches/*' -and $text -match '(?m)^\s*(//|#)\s*TODO\b') { $problems.Add("$normalized has a TODO") }
     }
-    if (-not $Release) {
-        foreach ($listed in $TemporaryMarkers.Keys) { if ($listed -notin $temporary) { $problems.Add("$listed has no DEBUG_SAULO marker left: remove it from `$TemporaryMarkers") } }
-        $script:TemporaryMarkerFiles = $temporary.Count
+    foreach ($listed in $TemporaryMarkers.Keys) {
+        if ($listed -notin $temporary -and (-not $Release -or $ReleaseMarkers.ContainsKey($listed))) { $problems.Add("$listed has no DEBUG_SAULO marker left: remove it from tools/debug-markers.txt") }
     }
+    foreach ($listed in $ReleaseMarkers.Keys) {
+        if ($listed -notmatch '^patches/rexglue-sdk/[0-9]{4}-debug-saulo-[a-z0-9-]+\.(windows|linux)\.patch$') { $problems.Add("$listed is marked release, but only a platform GPU telemetry patch may ship") }
+    }
+    $script:TemporaryMarkerFiles = $temporary.Count
     $problems
 }
 
@@ -725,14 +730,26 @@ Invoke-Check 'hygiene: .gitignore keeps game data, player data, logs and build o
 
 $Node = Get-Command node -ErrorAction SilentlyContinue
 $CurrentGroup = 'Worker'
+$FriendsLobbyWorkerTests = @(Get-Content -LiteralPath (Join-Root 'tools\friends-lobby-tests.txt') | Where-Object { $_.Trim() -and -not $_.TrimStart().StartsWith('#') } | ForEach-Object { $_.Trim() })
 
-Invoke-Check 'online service: Worker tests (node --test, no network)' {
-    if (-not $Node) { return 'NOT RUN: node is not installed' }
+function Invoke-WorkerTests([string[]]$Files) {
     Push-Location (Join-Root 'server/tmnt-lobby')
     try {
-        & $Node.Source --test 'test/*.test.js' 2>&1 | Select-Object -Last 8 | ForEach-Object { Write-Host "   $_" }
+        & $Node.Source --test @Files 2>&1 | Select-Object -Last 8 | ForEach-Object { Write-Host "   $_" }
         if ($LASTEXITCODE) { "node --test failed ($LASTEXITCODE)" }
     } finally { Pop-Location }
+}
+
+Invoke-Check 'online service: Worker tests (node --test, no network), without the Friends / Lobby files' {
+    if (-not $Node) { return 'NOT RUN: node is not installed' }
+    $files = @(Get-ChildItem -LiteralPath (Join-Root 'server/tmnt-lobby/test') -Filter '*.test.js' | Where-Object { $_.Name -notin $FriendsLobbyWorkerTests } |
+        ForEach-Object { "test/$($_.Name)" })
+    Invoke-WorkerTests $files
+}
+
+Invoke-Check 'worker tool: the deploy verifies /health against the canonical WORKER_BUILD (mock fetchers, no deploy, no network)' {
+    $output = & $PowerShellHost -NoProfile -File (Join-Root 'tools/test-worker-health.ps1') 2>&1 | Out-String
+    if ($LASTEXITCODE) { $output.Trim() -split "`r?`n" | Select-Object -Last 8 }
 }
 
 Invoke-Check 'worker tool: tools/worker.ps1 deploys server/tmnt-lobby with Wrangler and -DryRun uploads nothing' {
@@ -756,6 +773,7 @@ Invoke-Check 'online instances: four isolated local test instances (PrepareOnly,
 
 # Real windows and input drivers: Saulo runs these by hand.
 $WindowedTests = 'tmnt_shutdown_order_tests'
+$CppProgramResults = @{}
 $CurrentGroup = 'Core'
 
 Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every headless test program (-CppTests <build folder>)' {
@@ -791,6 +809,7 @@ Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every headless test pr
             })
         foreach ($program in $programs) {
             & $program.FullName *> $null
+            $script:CppProgramResults[$program.BaseName] = $LASTEXITCODE
             # 77: the program had nothing to run against (the integration test without a lobby).
             if ($LASTEXITCODE -and $LASTEXITCODE -ne 77) { $problems.Add("$($program.Name) failed ($LASTEXITCODE)") }
         }
@@ -803,6 +822,74 @@ Invoke-Check 'cpp tests: build tmnt_runtime_tests and run every headless test pr
     $problems
 }
 
+# ---- Friends / Lobby release gate ------------------------------------------------------------------------------------
+
+$CurrentGroup = 'Friends / Lobby'
+$FriendsLobbyCppPrograms = 'tmnt_online_protocol_tests', 'tmnt_online_service_tests', 'tmnt_online_identity_tests', 'tmnt_online_setting_tests',
+    'tmnt_online_telemetry_tests', 'tmnt_platform_parity_tests', 'tmnt_incident_tests'
+
+Invoke-Check 'Friends / Lobby Worker: aliases, handles, request flow, privacy before acceptance, Lobby and Bug Report (in process, offline)' {
+    if (-not $Node) { return 'NOT RUN: node is not installed' }
+    $missing = @($FriendsLobbyWorkerTests | Where-Object { -not (Test-Path -LiteralPath (Join-Root "server/tmnt-lobby/test/$_")) })
+    if ($missing) { return "tools/friends-lobby-tests.txt lists missing files: $($missing -join ', ')" }
+    Invoke-WorkerTests ($FriendsLobbyWorkerTests | ForEach-Object { "test/$_" })
+}
+
+Invoke-Check 'Friends / Lobby contract: one Worker build constant, pinned by its test; protocol 4 on both sides' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $source = Read-Text 'server\tmnt-lobby\src\protocol.js'
+    if ($source -notmatch "WORKER_BUILD = '(?<build>[^']+)'") { return 'protocol.js has no WORKER_BUILD' }
+    $build = $Matches['build']
+    $pin = [regex]::Match((Read-Text 'server\tmnt-lobby\test\lobby.test.js'), "WORKER_BUILD, '([^']+)'")
+    if (-not $pin.Success) { $problems.Add('lobby.test.js no longer pins WORKER_BUILD') }
+    elseif ($pin.Groups[1].Value -ne $build) { $problems.Add("lobby.test.js pins worker build $($pin.Groups[1].Value) but protocol.js says $build") }
+    foreach ($file in $ProjectFiles) {
+        $normalized = $file -replace '\\', '/'
+        if ($normalized -notmatch '^(server/tmnt-lobby/(src|local|tools)|docs|src|tools)/' -or $normalized -in 'server/tmnt-lobby/src/protocol.js', 'tools/test.ps1', 'tools/test.sh') { continue }
+        $path = Join-Root $normalized
+        if (-not (Test-Path -LiteralPath $path) -or [IO.Path]::GetExtension($normalized) -notin '.js', '.md', '.cpp', '.h') { continue }
+        foreach ($other in [regex]::Matches([IO.File]::ReadAllText($path), '\b20\d\d-\d\d-\d\d-(?:lobby|party)\d+\b')) {
+            if ($other.Value -ne $build) { $problems.Add("$normalized names worker build $($other.Value), not $build") }
+        }
+    }
+    $clientProtocol = [regex]::Match((Read-Text 'src\online\protocol.h'), 'kLobbyProtocol = (\d+)').Groups[1].Value
+    $workerProtocol = [regex]::Match($source, 'export const PROTOCOL = (\d+)').Groups[1].Value
+    if ($clientProtocol -ne $workerProtocol) { $problems.Add("lobby protocol differs: client $clientProtocol, Worker $workerProtocol") }
+    if ($workerProtocol -ne '4') { $problems.Add("the lobby protocol is ${workerProtocol}: it must stay 4 unless the wire contract truly changed") }
+    $problems
+}
+
+Invoke-Check 'Friends / Lobby offline: the gate tests never name the production Worker or any external host' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in $FriendsLobbyWorkerTests) {
+        $text = Read-Text "server\tmnt-lobby\test\$name"
+        if ($text -match '(?i)workers\.dev|(?:https?|wss?)://(?!127\.0\.0\.1|localhost)[a-z0-9-]+\.[a-z]') { $problems.Add("$name names a host other than loopback") }
+    }
+    $problems
+}
+
+Invoke-Check 'Friends / Lobby UI: the Lobby page never renders a handle or a friend code as text' {
+    $problems = [System.Collections.Generic.List[string]]::new()
+    $lines = (Read-Text 'src\online_page.cpp') -split "`r?`n"
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '\b(player|sender|r|request)\.(player|id)\b' -and $lines[$i] -match 'Text|ui\.Row|ui\.Info|Label|Notice') {
+            $problems.Add("src/online_page.cpp:$($i + 1) shows an internal identity: $($lines[$i].Trim())")
+        }
+    }
+    $problems
+}
+
+Invoke-Check 'Friends / Lobby client: protocol, service, identity, setting, telemetry, platform parity and Bug Report test programs (-CppTests)' {
+    if (-not $CppTests) { return 'NOT RUN: pass -CppTests <a configured build folder> to run the client Friends / Lobby tests' }
+    $problems = [System.Collections.Generic.List[string]]::new()
+    foreach ($program in $FriendsLobbyCppPrograms) {
+        if (-not $script:CppProgramResults.ContainsKey($program)) { $problems.Add("$program was not built or not run by the C++ test check") }
+        elseif ($script:CppProgramResults[$program]) { $problems.Add("$program failed ($($script:CppProgramResults[$program]))") }
+    }
+    $problems
+}
+
+$CurrentGroup = 'Core'
 # ---- Audio client teardown (patch 0086) --------------------------------------------------------------------------------
 
 function Find-CppCompiler {
@@ -920,6 +1007,24 @@ Invoke-Check 'Internal render resolution removed: launcher, setting, source, con
     Invoke-FocusedTest 'tests\internal_render_removed_tests.cpp'
 }
 
+Invoke-Check 'Shredder lighting flicker fix: patch 0090 header and wiring, tests/shredder_tint_fix_tests.cpp, standalone' {
+    $header = 'include/rex/graphics/d3d12/shredder_tint_fetch_fix.h'
+    $lines = [IO.File]::ReadAllLines((Join-Path $PatchDir '0090-shredder-tint-fetch-fix.windows.patch'))
+    $start = [Array]::IndexOf($lines, "+++ b/$header")
+    if ($start -lt 0) { return "the patch does not create $header" }
+    $body = [System.Collections.Generic.List[string]]::new()
+    for ($i = $start + 2; $i -lt $lines.Count -and -not $lines[$i].StartsWith('diff --git'); $i++) { $body.Add($lines[$i].Substring(1)) }
+    $include = Join-Path ([IO.Path]::GetTempPath()) 'tmnt_shredder_tint_fix_include'
+    $target = Join-Path $include ($header -replace '^include/', '')
+    New-Item -ItemType Directory -Force (Split-Path $target -Parent) | Out-Null
+    try {
+        [IO.File]::WriteAllLines($target, $body)
+        Invoke-FocusedTest 'tests\shredder_tint_fix_tests.cpp' @($include)
+    } finally {
+        Remove-Item -LiteralPath $include -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $CurrentGroup = 'Core'
 Invoke-Check 'Detailed logging: normal log and Detailed-only lines, failures kept, default On, saved choice, pt-BR, tests/log_policy_tests.cpp, standalone' {
     $trg = Join-Root 'third_party\trg-launcher'
@@ -957,6 +1062,7 @@ $ClassicSoundtrackSources = @(Get-ChildItem (Join-Root 'src\classic_soundtrack')
     @($ClassicSoundtrackMiniz | Where-Object { $_ }) + @('-DBLARGG_LITTLE_ENDIAN=1')
 $ClassicSoundtrackIncludes = @((Join-Root 'third_party\snes_spc'), (Join-Root 'tests'))
 
+$CurrentGroup = 'Classic Soundtrack'
 Invoke-Check 'Classic Soundtrack importer: ROM validation, Konami LZ, sound set, manifest, atomic import, status, remove, safeguards, tests/classic_soundtrack_tests.cpp, standalone' {
     if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
     Invoke-FocusedTest 'tests\classic_soundtrack_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
@@ -975,6 +1081,7 @@ Invoke-Check 'Classic Soundtrack launcher: Gameplay rows, import and remove mode
         $ClassicSoundtrackSources + @((Join-Path $trg 'src\settings.cpp'), (Join-Path $trg 'src\platform.cpp')) + $libraries)
 }
 
+$CurrentGroup = 'SNES'
 Invoke-Check 'SNES Gameplay: rules, data file, extractor, import status, start decision, launcher rows, TMNT_r wiring, tests/snes_gameplay_tests.cpp, standalone' {
     if (-not $ClassicSoundtrackMiniz) { return 'miniz.c does not compile with the C compiler' }
     Invoke-FocusedTest 'tests\snes_gameplay_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
@@ -985,10 +1092,15 @@ Invoke-Check 'SNES menu: F9 model, session overrides, availability by import sta
     Invoke-FocusedTest 'tests\snes_menu_tests.cpp' $ClassicSoundtrackIncludes $ClassicSoundtrackSources
 }
 
+$CurrentGroup = 'Cheats'
 Invoke-Check 'Cheats: every row, session overrides, online suppression, F10 menu, Quick Play unlock, tests/cheats_tests.cpp, standalone' {
-    Invoke-FocusedTest 'tests\cheats_tests.cpp'
+    $trg = Join-Root 'third_party\trg-launcher'
+    $libraries = if ($IsLinux) { @() } else { @('-luser32', '-lshell32', '-lole32', '-lcomdlg32') }
+    Invoke-FocusedTest 'tests\cheats_tests.cpp' @((Join-Path $trg 'include')) (@(
+        (Join-Path $trg 'src\settings.cpp'), (Join-Path $trg 'src\platform.cpp')) + $libraries)
 }
 
+$CurrentGroup = 'Core'
 Invoke-Check 'XMA PCM provider patch: 0087 state machine against the patch stack (tests/xma_pcm_override_tests.cpp) and patched xma_context.cpp syntax' {
     if (-not $CppCompiler) { return $CompilerHelp }
     if (-not $PatchedSdk) { return 'NOT RUN: the patch stack did not produce a patched source tree' }
@@ -1070,6 +1182,6 @@ $failed = @($Results | Where-Object Status -eq 'FAIL').Count
 $notRun = @($Results | Where-Object Status -eq 'NOT RUN').Count
 Write-Host "$($Results.Count) checks: $(@($Results | Where-Object Status -eq 'PASS').Count) passed, $failed failed, $notRun not run"
 if ($FailedGroups.Count) { Write-Host "Failed groups: $($FailedGroups -join ', ')" -ForegroundColor Red }
-if ($TemporaryMarkerFiles) { Write-Host "Development gate: $TemporaryMarkerFiles listed files hold temporary DEBUG_SAULO diagnostics; tools\test.ps1 -Release fails until they are removed." -ForegroundColor Yellow }
+if ($TemporaryMarkerFiles) { Write-Host "$TemporaryMarkerFiles listed files hold temporary DEBUG_SAULO diagnostics; $($ReleaseMarkers.Count) ship on purpose (release in tools\debug-markers.txt); -Release refuses the others." -ForegroundColor Yellow }
 if ($failed) { exit 1 }
 $global:LASTEXITCODE = 0

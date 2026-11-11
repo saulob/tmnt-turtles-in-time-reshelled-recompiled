@@ -93,8 +93,8 @@ std::optional<std::vector<Request>> ReadRequests(const json::Value* v) {
   std::vector<Request> out;
   for (const json::Value& row : v->AsArray()) {
     if (!row.IsObject()) return std::nullopt;
-    Request r{StringOf(row.Find("player")), ShownNameOf(row)};
-    if (r.player.empty()) return std::nullopt;
+    Request r{StringOf(row.Find("player")), ShownNameOf(row), StringOf(row.Find("request"))};
+    if (RequestKey(r).empty()) return std::nullopt;
     out.push_back(std::move(r));
   }
   return out;
@@ -397,8 +397,8 @@ std::optional<ServerMessage> DecodeServerMessage(std::string_view text) {
   }
   if (event == "friend.request") {
     message.kind = Kind::kFriendRequest;
-    message.request = {StringOf(root->Find("player")), ShownNameOf(*root)};
-    return message.request.player.empty() ? std::nullopt : std::optional<ServerMessage>(message);
+    message.request = {StringOf(root->Find("player")), ShownNameOf(*root), StringOf(root->Find("request"))};
+    return RequestKey(message.request).empty() ? std::nullopt : std::optional<ServerMessage>(message);
   }
   if (event == "friend.removed" || event == "friend.offline") {
     message.kind = event == "friend.removed" ? Kind::kFriendRemoved : Kind::kFriendOffline;
@@ -525,6 +525,12 @@ std::string EncodeFriendsAddPlayer(int seq, const std::string& player) {
 }
 std::string EncodeFriendsAccept(int seq, const std::string& player) { return WithPlayer("friends.accept", seq, player); }
 std::string EncodeFriendsDecline(int seq, const std::string& player) { return WithPlayer("friends.decline", seq, player); }
+std::string EncodeFriendsAcceptRequest(int seq, const std::string& request) {
+  return Envelope("friends.accept", seq, ",\"request\":" + Quote(request));
+}
+std::string EncodeFriendsDeclineRequest(int seq, const std::string& request) {
+  return Envelope("friends.decline", seq, ",\"request\":" + Quote(request));
+}
 std::string EncodeFriendsRemove(int seq, const std::string& player) { return WithPlayer("friends.remove", seq, player); }
 std::string EncodePlayerMatchHost(int seq, const PlayerMatchRules& rules, const std::string& qos_hex, int slots) {
   std::string object = "{";

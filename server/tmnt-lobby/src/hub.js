@@ -32,6 +32,7 @@ const INVITE_AUDIENCE = {
 const KEEP_ENDED = new Set(['host_left', 'party_full']);
 const DEFAULT_NAME = 'Player';
 const LOBBY_PLAYER = /^[0-9a-f]{32}$/;
+const REQUEST_ID = /^[0-9a-f]{32}$/;
 const LOBBY_RANK = { incoming: 0, pending: 1, friend: 2, none: 3 };
 
 const SCHEMA = [
@@ -66,6 +67,7 @@ const ADDED_COLUMNS = [
   ['parties', 'peak', 'INTEGER NOT NULL DEFAULT 0'],
   ['parties', 'relayed', 'INTEGER NOT NULL DEFAULT 0'],
   ['players', 'session', 'INTEGER NOT NULL DEFAULT 0'],
+  ['friend_requests', 'lobby', 'INTEGER NOT NULL DEFAULT 0'],
 ];
 
 function playerOf(value) {
@@ -720,6 +722,20 @@ export class Hub {
     };
   }
 
+  // Names one pending request to both of its players. A request made from the public Lobby is addressed only by this
+  // id, so the Lobby handle never leads to a friend code before the request is accepted.
+  requestId(sender, target) {
+    return sha256Hex(`${this.meta('salt')}|request|${sender}|${target}`).slice(0, 32);
+  }
+
+  // The other player of this player's pending request with that id.
+  requestPeer(att, id) {
+    if (typeof id !== 'string' || !REQUEST_ID.test(id)) fail('bad_request', 'request');
+    const rows = this.host.sql.all('SELECT sender, target FROM friend_requests WHERE sender = ? OR target = ?', att.player, att.player);
+    const row = rows.find((r) => this.requestId(r.sender, r.target) === id);
+    return row ? (row.sender === att.player ? row.target : row.sender) : fail('not_found');
+  }
+
   lobbyTarget(att, player) {
     if (typeof player !== 'string' || !LOBBY_PLAYER.test(player)) fail('bad_request', 'player');
     if (!att.lobby) fail('not_visible');
@@ -1236,19 +1252,22 @@ const HANDLERS = {
     this.expireRequests();
     const named = (rows, key) => rows.map((r) => {
       const name = this.playerRow(r[key])?.name ?? '';
-      return { player: r[key], name, ...this.shownAs(r[key], name), ms: r.ms };
+      const row = { request: this.requestId(r.sender, r.target), name, ...this.shownAs(r[key], name), ms: r.ms };
+      return r.lobby ? row : { player: r[key], ...row };
     });
     return {
-      incoming: named(this.host.sql.all('SELECT sender, ms FROM friend_requests WHERE target = ? ORDER BY ms', att.player), 'sender'),
-      outgoing: named(this.host.sql.all('SELECT target, ms FROM friend_requests WHERE sender = ? ORDER BY ms', att.player), 'target'),
+      incoming: named(this.host.sql.all('SELECT sender, target, ms, lobby FROM friend_requests WHERE target = ? ORDER BY ms', att.player), 'sender'),
+      outgoing: named(this.host.sql.all('SELECT sender, target, ms, lobby FROM friend_requests WHERE sender = ? ORDER BY ms', att.player), 'target'),
     };
   },
 
   'friends.add'(att, msg) {
-    const target = msg.player !== undefined ? this.lobbyTarget(att, msg.player) : this.playerRow(normalizeFriendCode(msg.code));
+    const fromLobby = msg.player !== undefined;
+    const target = fromLobby ? this.lobbyTarget(att, msg.player) : this.playerRow(normalizeFriendCode(msg.code));
     if (!target) fail('not_found');
     if (target.player === att.player) fail('bad_request', 'own code');
-    const result = { player: target.player, name: target.name, ...this.shownAs(target.player, target.name) };
+    const result = { name: target.name, ...this.shownAs(target.player, target.name) };
+    if (!fromLobby) result.player = target.player;
     if (this.areFriends(att.player, target.player)) return { ...result, state: 'friends' };
     this.expireRequests();
     if (this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', target.player, att.player)) {
@@ -1262,21 +1281,23 @@ const HANDLERS = {
       return { ...result, state: 'friends' };
     }
     if (this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', att.player, target.player)) {
-      return { ...result, state: 'pending' };
+      return { ...result, request: this.requestId(att.player, target.player), state: 'pending' };
     }
     const outgoing = this.host.sql.get('SELECT COUNT(*) AS n FROM friend_requests WHERE sender = ?', att.player).n;
     const incoming = this.host.sql.get('SELECT COUNT(*) AS n FROM friend_requests WHERE target = ?', target.player).n;
     if (outgoing >= LIMITS.pendingOut || incoming >= LIMITS.pendingIn) fail('limit', 'too many pending requests');
     this.requireFriendRoom(att.player, target.player);
     this.limitFriendRequest(att);
-    this.host.sql.run('INSERT INTO friend_requests (sender, target, ms) VALUES (?, ?, ?)', att.player, target.player, this.host.now());
-    this.notifyPlayer(target.player, { ev: 'friend.request', player: att.player, name: att.name, ...this.shownAs(att.player, att.name) });
+    this.host.sql.run('INSERT INTO friend_requests (sender, target, ms, lobby) VALUES (?, ?, ?, ?)', att.player, target.player,
+      this.host.now(), fromLobby ? 1 : 0);
+    const event = { ev: 'friend.request', request: this.requestId(att.player, target.player), name: att.name, ...this.shownAs(att.player, att.name) };
+    this.notifyPlayer(target.player, fromLobby ? event : { ...event, player: att.player });
     this.touchLobby();
-    return { ...result, state: 'pending' };
+    return { ...result, request: this.requestId(att.player, target.player), state: 'pending' };
   },
 
   'friends.accept'(att, msg) {
-    const sender = playerOf(msg.player);
+    const sender = msg.request !== undefined ? this.requestPeer(att, msg.request) : playerOf(msg.player);
     this.expireRequests();
     if (!this.host.sql.get('SELECT 1 AS x FROM friend_requests WHERE sender = ? AND target = ?', sender, att.player)) fail('not_found');
     this.requireFriendRoom(att.player, sender);
@@ -1289,8 +1310,8 @@ const HANDLERS = {
   },
 
   'friends.decline'(att, msg) {
-    const other = typeof msg.player === 'string' && LOBBY_PLAYER.test(msg.player)
-      ? this.lobbyTarget(att, msg.player).player : playerOf(msg.player);
+    const other = msg.request !== undefined ? this.requestPeer(att, msg.request)
+      : typeof msg.player === 'string' && LOBBY_PLAYER.test(msg.player) ? this.lobbyTarget(att, msg.player).player : playerOf(msg.player);
     const pair = [other, att.player, att.player, other];
     if (!this.host.sql.get(`SELECT 1 AS x FROM friend_requests WHERE (sender = ? AND target = ?) OR (sender = ? AND target = ?)`, ...pair)) {
       fail('not_found');

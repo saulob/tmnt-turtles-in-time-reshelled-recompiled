@@ -255,7 +255,7 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
             lobby_pending_handles_.end());
         SoonLobbyRefresh();
         Notice(DescribeServiceError(message.code));
-        Log("online friend request failed code=" + pending.player + " reason=" + message.code);
+        Log("online friend request failed friend_code=" + pending.player + " reason=" + message.code);
       } else {
         if (message.state == "friends") {
           lobby_pending_handles_.erase(
@@ -263,7 +263,7 @@ void OnlineService::OnResponse(const ServerMessage& message, double now) {
               lobby_pending_handles_.end());
         }
         NoticeStatus(message.state == "friends" ? "You are now friends." : "Friend request sent.");
-        Log("online friend request accepted by service code=" + pending.player + " state=" + message.state);
+        Log("online friend request accepted by service friend_code=" + pending.player + " state=" + message.state);
         Refresh();
         SoonLobbyRefresh();
       }
@@ -1510,7 +1510,7 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
   Locked lock(*this);
   const std::string code = NormalizeFriendCode(text);
   const auto refuse = [&](FriendRequestResult result, const char* reason, const std::string& notice) {
-    Log("online friend request failed code=" + (code.empty() ? std::string("-") : code) + " reason=" + reason);
+    Log("online friend request failed friend_code=" + (code.empty() ? std::string("-") : code) + " reason=" + reason);
     Notice(notice);
     return result;
   };
@@ -1532,7 +1532,7 @@ FriendRequestResult OnlineService::AddFriend(const std::string& text) {
     }
     SoonLobbyRefresh();
   }
-  Log("online friend request sent code=" + code);
+  Log("online friend request sent friend_code=" + code);
   Send(Purpose::kAdd, [&code](int seq) { return EncodeFriendsAdd(seq, code); }, code);
   return FriendRequestResult::kSent;
 }
@@ -1551,30 +1551,30 @@ FriendRequestResult OnlineService::AddFriendFromLobby(const std::string& player)
     lobby_pending_handles_.push_back(player);
   }
   SoonLobbyRefresh();
-  Log("online lobby friend request sent handle=" + player);
+  Log("online lobby friend request sent");
   Send(Purpose::kAdd, [player](int seq) { return EncodeFriendsAddPlayer(seq, player); }, player);
   return FriendRequestResult::kSent;
 }
 
-void OnlineService::AcceptFriend(const std::string& player) {
+void OnlineService::AcceptFriend(const std::string& key) {
   Locked lock(*this);
-  incoming_.erase(std::remove_if(incoming_.begin(), incoming_.end(), [&](const Request& r) { return r.player == player; }),
+  incoming_.erase(std::remove_if(incoming_.begin(), incoming_.end(), [&](const Request& r) { return RequestKey(r) == key; }),
                   incoming_.end());
-  Send(Purpose::kAccept, [&player](int seq) { return EncodeFriendsAccept(seq, player); });
+  Send(Purpose::kAccept, [&key](int seq) { return IsLobbyHandle(key) ? EncodeFriendsAcceptRequest(seq, key) : EncodeFriendsAccept(seq, key); });
 }
 
-void OnlineService::DeclineFriend(const std::string& player) {
+void OnlineService::DeclineFriend(const std::string& key) {
   Locked lock(*this);
   const auto drop = [&](std::vector<Request>& list) {
-    list.erase(std::remove_if(list.begin(), list.end(), [&](const Request& r) { return r.player == player; }), list.end());
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const Request& r) { return RequestKey(r) == key; }), list.end());
   };
   drop(incoming_);
   drop(outgoing_);
   if (std::any_of(lobby_players_.begin(), lobby_players_.end(),
-                  [&](const LobbyPlayer& p) { return p.player == player; })) {
+                  [&](const LobbyPlayer& p) { return p.player == key; })) {
     SoonLobbyRefresh();
   }
-  Send(Purpose::kDecline, [&player](int seq) { return EncodeFriendsDecline(seq, player); });
+  Send(Purpose::kDecline, [&key](int seq) { return IsLobbyHandle(key) ? EncodeFriendsDeclineRequest(seq, key) : EncodeFriendsDecline(seq, key); });
 }
 
 void OnlineService::DeclineLobbyFriend(const std::string& player) {

@@ -162,6 +162,7 @@ refused "a bundled Vulkan loader" touch usr/lib/libvulkan.so.1
 refused "a Vulkan layer manifest" touch usr/bin/VkLayer_khronos_validation.json
 refused "a Windows binary" sh -c 'printf MZ > usr/bin/assets/launcher/header-art.png'
 refused "a DEBUG_SAULO marker" sh -c 'printf DEBUG_SAULO >> usr/bin/assets/launcher/header-art.png'
+refused "a DEBUG_SAULO marker in the program" sh -c "printf DEBUG_SAULO >> usr/bin/$BIN_NAME"
 refused "an Xbox package" sh -c 'printf LIVE > usr/bin/assets/launcher/header-art.png'
 refused "an Xbox executable" sh -c 'printf XEX2 > usr/bin/assets/launcher/header-art.png'
 refused "a local path" sh -c "printf %s '$work/nowhere' >> usr/bin/$BIN_NAME.toml"
@@ -169,6 +170,13 @@ refused "a UTF-16 local path" sh -c "printf %s '$work/nowhere' | sed 's/./&\\x00
 refused "a program without the application id" sh -c "sed -i 's/io.github.saulob/io.github.nobody/' usr/bin/$BIN_NAME"
 refused "a desktop file with another Exec" sed -i 's/^Exec=.*/Exec=\/home\/dev\/program/' "$APP_ID.desktop"
 refused "a program with debug sections" cp "$bin/$BIN_NAME" "usr/bin/$BIN_NAME"
+
+copy="$work/mutated"
+rm -rf "$copy"
+cp -a "$appdir" "$copy"
+printf 'DEBUG_SAULO VULKAN summary' >> "$copy/usr/bin/librexgpu-xenos.so"
+( scan_appdir "$copy" fixture "$work/nowhere" ) >/dev/null 2>&1
+expect "scan_appdir accepts the GPU telemetry tools/debug-markers.txt ships (release)" $?
 
 tools="${TMNT_APPIMAGE_TOOLS:-}"
 tool="$(ls "$tools"/appimagetool-*-x86_64.AppImage 2>/dev/null | head -1)"

@@ -28,7 +28,7 @@ test('the service announces the public Lobby and the report service', () => {
   assert.equal(CAPABILITIES.public_lobby, true);
   assert.equal(CAPABILITIES.bug_reports, true);
   assert.equal(CAPABILITIES.protocol_version, PROTOCOL);
-  assert.equal(WORKER_BUILD, '2026-11-10-lobby2');
+  assert.equal(WORKER_BUILD, '2026-11-11-lobby3');
   const env = makeHub();
   const reply = env.connect(identity(1)).hello();
   assert.equal(reply.capabilities.public_lobby, true);
@@ -143,11 +143,11 @@ test('a default-name alias reaches the Lobby action, the request, the list and t
   const added = b.call('friends.add', { player: target.player });
   assert.deepEqual([added.name, added.display_name, added.state], ['Player', aliasOf(env, 1), 'pending']);
   const [event] = a.events('friend.request');
-  assert.deepEqual([event.player, event.name, event.display_name], [identity(2).player, 'Player', aliasOf(env, 2)]);
+  assert.deepEqual([event.name, event.display_name], ['Player', aliasOf(env, 2)]);
   assert.deepEqual(b.call('friends.requests').outgoing.map((r) => [r.name, r.display_name]), [['Player', aliasOf(env, 1)]]);
   assert.deepEqual(a.call('friends.requests').incoming.map((r) => [r.name, r.display_name]), [['Player', aliasOf(env, 2)]]);
 
-  const accepted = a.call('friends.accept', { player: identity(2).player });
+  const accepted = a.call('friends.accept', { request: event.request });
   assert.deepEqual([accepted.friend.name, accepted.friend.display_name], ['Player', aliasOf(env, 2)]);
   assert.deepEqual(a.call('friends.list').friends.map((f) => [f.name, f.display_name]), [['Player', aliasOf(env, 2)]]);
   assert.deepEqual(b.call('friends.list').friends.map((f) => [f.name, f.display_name]), [['Player', aliasOf(env, 1)]]);
@@ -309,9 +309,8 @@ test('a Lobby player can be added with the existing friend request, and the targ
   const [row] = b.call('lobby.list').players;
   assert.equal(b.call('friends.add', { player: row.player }).state, 'pending');
   const [event] = a.events('friend.request');
-  assert.deepEqual([event.player, event.name], [identity(2).player, 'Bob']);
-  assert.deepEqual(b.call('friends.requests').outgoing.map((r) => r.player), [identity(1).player]);
-  assert.equal(a.call('friends.accept', { player: identity(2).player }).code, 'ok');
+  assert.equal(event.name, 'Bob');
+  assert.equal(a.call('friends.accept', { request: event.request }).code, 'ok');
   assert.deepEqual(b.call('friends.list').friends.map((f) => f.player), [identity(1).player]);
 });
 
@@ -472,7 +471,9 @@ test('two local instances: visibility, listing, a friend request from the Lobby 
   assert.notEqual(handle, ida.player);
 
   assert.equal((await b.call('friends.add', { player: handle })).state, 'pending');
-  assert.equal((await a.next((m) => m.ev === 'friend.request')).player, idb.player);
+  const heard = await a.next((m) => m.ev === 'friend.request');
+  assert.match(heard.request, /^[0-9a-f]{32}$/);
+  assert.equal(Object.hasOwn(heard, 'player'), false);
 
   assert.equal((await a.call('lobby.publish', { visible: false })).visible, false);
   assert.deepEqual((await b.call('lobby.list')).players, []);

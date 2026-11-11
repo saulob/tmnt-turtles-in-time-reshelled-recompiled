@@ -341,8 +341,41 @@ void TestRelaySignalling() {
   CHECK(DescribeServiceError("relay_unavailable") == "The connection through the online service is not available.");
 }
 
+void TestLobbyRequestsCarryNoFriendCode() {
+  const std::string id(32, 'a');
+  const auto event = DecodeServerMessage("{\"ev\":\"friend.request\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(event && event->kind == ServerMessage::Kind::kFriendRequest && event->request.player.empty() &&
+        event->request.id == id && event->request.name == "Bob" && RequestKey(event->request) == id);
+  const auto both = DecodeServerMessage(
+      "{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(both && RequestKey(both->request) == "ABCD-2345" && both->request.id == id);
+  const auto legacy = DecodeServerMessage("{\"ev\":\"friend.request\",\"player\":\"ABCD-2345\",\"name\":\"Bob\"}");
+  CHECK(legacy && legacy->request.id.empty() && RequestKey(legacy->request) == "ABCD-2345");
+  CHECK(!DecodeServerMessage("{\"ev\":\"friend.request\",\"name\":\"Bob\"}"));
+
+  const auto rows = DecodeServerMessage(
+      "{\"re\":5,\"code\":\"ok\",\"incoming\":[{\"request\":\"" + id + "\",\"name\":\"Bob\",\"ms\":1},"
+      "{\"player\":\"EFGH-6789\",\"name\":\"Kim\"}],\"outgoing\":[{\"request\":\"" + std::string(32, 'b') +
+      "\",\"name\":\"Cat\",\"display_name\":\"Player-0A1B\"}]}");
+  CHECK(rows && rows->incoming && rows->incoming->size() == 2 && (*rows->incoming)[0].player.empty() &&
+        RequestKey((*rows->incoming)[0]) == id && RequestKey((*rows->incoming)[1]) == "EFGH-6789");
+  CHECK(rows && rows->outgoing && (*rows->outgoing)[0].name == "Player-0A1B" && (*rows->outgoing)[0].player.empty());
+  CHECK(!DecodeServerMessage("{\"re\":5,\"code\":\"ok\",\"incoming\":[{\"name\":\"Bob\"}],\"outgoing\":[]}")->incoming);
+
+  const auto added = DecodeServerMessage("{\"re\":6,\"code\":\"ok\",\"state\":\"pending\",\"request\":\"" + id + "\",\"name\":\"Bob\"}");
+  CHECK(added && added->state == "pending" && added->friend_code.empty());
+
+  CHECK(Contains(EncodeFriendsAcceptRequest(3, id), "\"op\":\"friends.accept\"") &&
+        Contains(EncodeFriendsAcceptRequest(3, id), "\"request\":\"" + id + "\"") &&
+        !Contains(EncodeFriendsAcceptRequest(3, id), "\"player\""));
+  CHECK(Contains(EncodeFriendsDeclineRequest(3, id), "\"op\":\"friends.decline\"") &&
+        Contains(EncodeFriendsDeclineRequest(3, id), "\"request\":\"" + id + "\"") &&
+        !Contains(EncodeFriendsDeclineRequest(3, id), "\"player\""));
+}
+
 int main() {
   std::printf("online protocol tests\n");
+  TestLobbyRequestsCarryNoFriendCode();
   TestRelaySignalling();
   TestRequestsAreWellFormed();
   TestAnswersDecode();

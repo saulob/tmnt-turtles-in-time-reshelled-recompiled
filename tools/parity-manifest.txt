@@ -93,10 +93,6 @@ feature	Gameplay	Player names	src/launcher.cpp	PlayerNameRow
 feature	Gameplay	Online ping display	src/ping_display.cpp	PingOverlay;kPingDisplayKey
 
 # ---- SNES, Classic Soundtrack and Cheats ------------------------------------------------------------------------------
-# These three families are not on test/final-parity-gate: they exist only on the unmerged feature chain
-# 01f0d7e..44bdc30 (feature/classic-soundtrack-import .. fix/shredder-lighting-flicker). They are absent on
-# Windows and Linux alike here, so the rows are NOT RUN, never PASS. Merging that chain must turn them into
-# feature rows; the extra column makes this gate fail as soon as one of the sources appears in CMakeLists.txt.
 feature	SNES	SNES gameplay	src/snes_gameplay/rules.h	kDirectionalCombatSetting;kThrowControlSetting;kDoubleJumpSetting;kDashSetting
 feature	SNES	F9 SNES menu	src/snes_menu.cpp	SnesMenu;VirtualKey::kF9
 feature	SNES	ROM import and validation	src/classic_soundtrack/importer.cpp	ImportSoundtrack
@@ -145,6 +141,14 @@ feature	Online	STUN	src/online/stun.cpp	stun
 feature	Online	Online identity	src/online/identity.cpp	LoadOrCreateIdentity
 test	Online	Wire parity test	tests/wire_parity_tests.cpp	tmnt_wire_parity_tests
 contract	Online	Online test suite registration	CMakeLists.txt	foreach(_test protocol identity service rendezvous connection integration peer_ping telemetry match_session party_report snes)
+
+# ---- Friends / Lobby ---------------------------------------------------------------------------------------------------
+contract	Friends / Lobby	Request ids and keys	src/online/protocol.h	RequestKey;EncodeFriendsAcceptRequest;EncodeFriendsDeclineRequest;IsLobbyHandle
+contract	Friends / Lobby	Lobby view model	src/online/friend_view.h	DescribeLobbyPlayer;VisibleLobbyPlayers;LobbyActionOf
+contract	Friends / Lobby	Lobby request actions	src/online/online_service.cpp	AddFriendFromLobby;AcceptFriend;DeclineFriend
+test	Friends / Lobby	Service model test	tests/online_service_tests.cpp	tmnt_online_service_tests
+test	Friends / Lobby	Protocol test	tests/online_protocol_tests.cpp	tmnt_online_protocol_tests
+test	Friends / Lobby	Setting and presentation test	tests/online_setting_tests.cpp	tmnt_online_setting_tests
 
 # ---- Bug Report ------------------------------------------------------------------------------------------------------
 feature	Bug Report	Page	src/incident_page.cpp	IncidentPage::Draw;MyReports;LogRoleText
