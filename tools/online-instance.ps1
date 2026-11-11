@@ -38,7 +38,13 @@ $BuildDir = Join-Path $Root 'build'
 if (-not $Executable) { $Executable = Join-Path $BuildDir 'tmnt_turtles_in_time_reshelled.exe' }
 if (-not $GameData) { $GameData = Join-Path $Root 'game\extracted' }
 if (-not $CopyFrom) { $CopyFrom = Join-Path $BuildDir 'user_data' }
-if (-not $InstanceRoot) { $InstanceRoot = Join-Path $BuildDir 'online-instances' }
+$DefaultInstanceRoot = Join-Path $BuildDir 'online-instances'
+if (-not $InstanceRoot) { $InstanceRoot = $DefaultInstanceRoot }
+elseif (-not [IO.Path]::IsPathRooted($InstanceRoot)) { $InstanceRoot = Join-Path $DefaultInstanceRoot $InstanceRoot }
+$InstanceRoot = [IO.Path]::GetFullPath($InstanceRoot)
+$insideRepo = $InstanceRoot.StartsWith($Root.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+$insideBuild = $InstanceRoot.StartsWith($BuildDir.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+if ($insideRepo -and -not $insideBuild) { throw "InstanceRoot must be outside the repository or under build\: $InstanceRoot" }
 $label = $Name.ToLowerInvariant()
 if (-not $OnlineName) { $OnlineName = "Test-$label" }
 $OnlineName = ($OnlineName -replace '[^A-Za-z0-9_-]', '')

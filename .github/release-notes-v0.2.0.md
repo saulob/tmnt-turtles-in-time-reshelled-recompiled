@@ -17,10 +17,11 @@ Already on v0.1.0? The launcher offers this update on its own: choose **UPDATE N
 
 ## Highlights
 
-- **Classic Soundtrack**: play with the SNES *Turtles in Time* music, read from your own SNES ROM.
+- **Classic Soundtrack** ([issue #1](https://github.com/saulob/tmnt-turtles-in-time-reshelled-recompiled/issues/1)): play with the SNES *Turtles in Time* music, imported from your own SNES ROM and played back from the SNES sound data.
 - **SNES Gameplay**: Directional Combat, SNES Throw Control, Disable Double Jump and SNES Dash, offline and online.
 - **Cheats** for offline play, with an in-game **F10** menu.
-- **Friend requests and a public Lobby** on the launcher's Online page.
+- **Online multiplayer** with **Friends** (requests by friend code) and a **public Lobby** on the launcher's Online page.
+- **Achievements** shown in the language you chose.
 - **Bug Report**: send a description and one sanitized log from the launcher, and follow replies in **My reports**.
 - **Shredder lighting flicker fixed** on Windows.
 
@@ -72,7 +73,7 @@ Already on v0.1.0? The launcher offers this update on its own: choose **UPDATE N
 ## Graphics
 
 - **Fixed (Windows):** in the final fight, Shredder no longer flickers to an almost black silhouette.
-- **Linux:** the cyan turtle flicker fix that Windows got in v0.1.0 is now in the Vulkan renderer too. It is not yet confirmed on a Steam Deck.
+- **Linux:** the Vulkan renderer now has the AA838 fix (the cyan turtle flicker fix that Windows got in v0.1.0), plus targeted Vulkan telemetry for further Steam Deck reports. It is not yet confirmed on a Steam Deck.
 
 ## Diagnostics
 
@@ -124,8 +125,19 @@ The SHA-256 of each file is also published with the release in its `.sha256` fil
 
 | File | SHA-256 |
 | --- | --- |
-| `TurtlesInTimeReshelled-v0.2.0-windows-x64.zip` | `pending` |
-| `TurtlesInTimeReshelledRecompiled-v0.2.0-x86_64.AppImage` | `pending` |
+| `TurtlesInTimeReshelled-v0.2.0-windows-x64.zip` | `222e06d00346462ac1ef6d2e30533382a544418bf6d495f982f5831cf02e4d61` |
+| `TurtlesInTimeReshelledRecompiled-v0.2.0-x86_64.AppImage` | `74d4e7793d46c46d1f5be2fdb253f1f5139e9b2bbe3bcdfcd8b031bfe6de2771` |
+
+## VirusTotal
+
+Saulo verified the final artifacts on VirusTotal:
+
+| File | VirusTotal |
+| --- | --- |
+| Windows ZIP | [`222e06d0…4d61`](https://www.virustotal.com/gui/file/222e06d00346462ac1ef6d2e30533382a544418bf6d495f982f5831cf02e4d61) |
+| Windows executable | [`ecd0898a…dff`](https://www.virustotal.com/gui/file/ecd0898ab3ddde6736032ea2240acc017ac3c8aa46b9848d9fa8f178193cfdff) |
+| Updater | [`9c891b6f…17b9`](https://www.virustotal.com/gui/file/9c891b6fc582daa76d3d236f0a4a1085e843fe2b159a4c4841f005383e3117b9) |
+| Linux AppImage | [`74d4e779…2771`](https://www.virustotal.com/gui/file/74d4e7793d46c46d1f5be2fdb253f1f5139e9b2bbe3bcdfcd8b031bfe6de2771) |
 
 ## Legal
 
