@@ -1,5 +1,8 @@
 #include "launcher_achievements.h"
 
+#include <string>
+
+#include <rex/cvar.h>
 #include <rex/kernel/init.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -20,8 +23,12 @@ struct LauncherAchievements::Runtime {
 };
 
 LauncherAchievements::LauncherAchievements(const std::filesystem::path& game_dir,
-                                           const std::filesystem::path& user_dir,
-                                           rex::ui::ImmediateDrawer* immediate_drawer) {
+                                           const std::filesystem::path& user_dir, uint32_t language,
+                                           rex::ui::ImmediateDrawer* immediate_drawer)
+    : language_(language) {
+  // The store and the zero-achievement alias read their strings in user_language. ApplyLanguage sets it again
+  // when the game starts, so this only decides what the launcher shows.
+  rex::cvar::SetFlagByName("user_language", std::to_string(language));
   std::error_code ec;
   auto runtime = std::make_unique<Runtime>(std::filesystem::absolute(game_dir, ec),
                                            std::filesystem::absolute(user_dir, ec));

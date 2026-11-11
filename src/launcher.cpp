@@ -1489,9 +1489,16 @@ class LauncherDialog final : public rex::ui::ImGuiDialog {
       ui.Paragraph("Install the game to see its achievements.");
       return;
     }
+    // Read again in the chosen language when it changes; otherwise once, even when reading failed.
+    const uint32_t language = LanguageFor(settings_.Get(kLanguageSetting, kLanguageDefault)).xbox_language;
+    if (achievements_ && achievements_->language() != language) {
+      achievements_.reset();
+      achievements_tried_ = false;
+    }
     if (!achievements_ && !achievements_tried_) {
       achievements_tried_ = true;
-      achievements_ = std::make_unique<LauncherAchievements>(paths_.game_dir, paths_.user_dir, paths_.immediate_drawer);
+      achievements_ = std::make_unique<LauncherAchievements>(paths_.game_dir, paths_.user_dir, language,
+                                                             paths_.immediate_drawer);
     }
     if (!achievements_ || !achievements_->ok()) {
       ui.Paragraph("The achievements could not be read from the game files.");

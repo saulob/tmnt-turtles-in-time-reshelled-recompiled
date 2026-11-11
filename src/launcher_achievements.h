@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <vector>
@@ -19,11 +20,13 @@ namespace tmnt {
 // before the game's own runtime is built.
 class LauncherAchievements {
  public:
+  // `language` is the XLanguage the strings are read in (LanguageSetting::xbox_language).
   LauncherAchievements(const std::filesystem::path& game_dir, const std::filesystem::path& user_dir,
-                       rex::ui::ImmediateDrawer* immediate_drawer);
+                       uint32_t language, rex::ui::ImmediateDrawer* immediate_drawer);
   ~LauncherAchievements();
 
   bool ok() const { return ok_; }
+  uint32_t language() const { return language_; }
   const std::vector<AchievementEntry>& entries() const { return entries_; }
   ImTextureID Icon(const rex::system::AchievementInfo& info);
 
@@ -32,6 +35,7 @@ class LauncherAchievements {
 
   std::unique_ptr<Runtime> runtime_;
   std::vector<AchievementEntry> entries_;
+  uint32_t language_ = 0;
   bool ok_ = false;
 };
 
