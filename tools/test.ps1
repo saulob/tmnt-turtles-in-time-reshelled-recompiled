@@ -588,7 +588,7 @@ function Invoke-ParityGate {
 Invoke-ParityGate
 
 Invoke-Check 'parity: Windows-only ReXGlue patches that change what a player sees are declared' {
-    $declared = '0040', '0055', '0079', '0080'
+    $declared = '0040', '0055', '0079'
     $found = @(Read-PatchManifest | Where-Object { $_.Fields.Count -eq 5 -and $_.Fields[4] -eq 'vulkan-candidate' } | ForEach-Object { $_.Fields[0].Substring(0, 4) })
     foreach ($number in $found) { if ($number -notin $declared) { "$number is a new deferred Vulkan candidate: list it in docs/linux.md and here" } }
     $linuxDoc = Read-Text 'docs\linux.md'

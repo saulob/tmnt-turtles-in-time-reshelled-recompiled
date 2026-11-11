@@ -1,2 +1,3 @@
 # Temporary DEBUG_SAULO diagnostics accepted by the development gate, with how many markers each file may hold.
 # tools/test.ps1 and tools/test.sh read this list; -Release accepts none of them. Remove a row when its file is clean.
+patches/rexglue-sdk/0092-debug-saulo-vulkan-draw-telemetry.linux.patch 15

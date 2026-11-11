@@ -73,13 +73,13 @@ Status values: ALREADY PRESENT, PORT, PORT WITH ADAPTATION, NOT APPLICABLE, REJE
 
 - Windows patch with a Linux counterpart: 0011-0014 (D3D12 submissions, transfers, stencil, EDRAM) with 0016-0018; 0023 with 0024; 0027 with 0026; 0031 with 0032; 0037 with 0038.
 - Windows only, nothing to port: 0015 (high-resolution sleep), 0041 sampler memo, 0044 async submission, 0049 host threads off CPU 0, 0052 ThinLTO, 0053 unchanged constant writes, 0056 PGO.
-- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0079 per-draw vertex residency (stale geometry possible), 0080 AA838 Stage A fix (the cyan flicker may still show on Linux).
+- Windows only, Vulkan candidates deferred (cannot be profiled or verified here): 0040 transfer short-circuit, 0055 per-draw loops, 0079 per-draw vertex residency (stale geometry possible). 0080 AA838 Stage A fix is ported to Vulkan as 0091 (issue #3, Steam Deck; not yet confirmed on Linux).
 - Linux only: 0019, 0021 (POSIX waits), 0034, 0035 (Vulkan), 0046 (SDL video guidance), 0082 (module library).
 - Made common in this branch: 0051, 0054, 0081.
 
 ## 3. Deferred and rejected
 
-Deferred, each with the reason: Vulkan equivalents of 0040, 0055, 0080 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); runtime check of the Windows launcher XInput reader (ported, idle and replug test pending); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; release notes (not prepared on request); `docs/rexglue-reference/`.
+Deferred, each with the reason: Vulkan equivalents of 0040, 0055 (no Linux build to verify); game-side fence waiter and native memcpy (need reverse engineering and a profile); runtime check of the Windows launcher XInput reader (ported, idle and replug test pending); VERSIONINFO resource (needs a build); `-rcN` version suffix; shutdown-order probe and presenter pacing test; negative updater tests; release notes (not prepared on request); `docs/rexglue-reference/`.
 
 Rejected: HC 0058 tile heap debug patch, GW2 0056 frame trace and 0057 HDR/float resolve copies, SSF2T 0049 progress wake and the guest sign-in half of 0053, all DEBUG_SAULO instrumentation, every game-specific feature (cheats, skip intro, aspect hooks, interpolation, achievements, saves).
 

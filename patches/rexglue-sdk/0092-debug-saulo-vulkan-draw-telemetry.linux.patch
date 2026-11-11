@@ -1,0 +1,206 @@
+diff --git a/include/rex/graphics/shared_memory.h b/include/rex/graphics/shared_memory.h
+index 1877c0e..4142b7e 100644
+--- a/include/rex/graphics/shared_memory.h
++++ b/include/rex/graphics/shared_memory.h
+@@ -78,6 +78,11 @@ class SharedMemory {
+   // the range has been fully updated and is usable.
+   bool RequestRanges(const std::pair<uint32_t, uint32_t>* ranges, size_t count);
+   bool RequestRange(uint32_t start, uint32_t length);
++  // DEBUG_SAULO: read-only validity probe for the Vulkan telemetry of patch 0092.
++  bool DebugSauloIsRangeValid(uint32_t start, uint32_t length) const {
++    std::pair<uint32_t, uint32_t> range(start, length);
++    return AreRangesValidLockFree(&range, 1);
++  }
+ 
+   // Marks the range and, if not exact_range, potentially its surroundings
+   // (to up to the first GPU-written page, as an access violation exception
+diff --git a/include/rex/graphics/vulkan/command_processor.h b/include/rex/graphics/vulkan/command_processor.h
+index 2b36fc7..bc9f15c 100644
+--- a/include/rex/graphics/vulkan/command_processor.h
++++ b/include/rex/graphics/vulkan/command_processor.h
+@@ -831,6 +831,32 @@ class VulkanCommandProcessor : public CommandProcessor {
+   // buffer from UpdateBindings when it differs from aa838_stage_a_bool_state_.
+   bool aa838_stage_a_pending_ = false;
+   bool aa838_stage_a_bool_state_ = false;
++
++  // DEBUG_SAULO: temporary Steam Deck telemetry (issue #3), bounded logs plus a periodic summary.
++  struct DebugSauloTelemetry {
++    uint64_t frame = 0;
++    uint64_t summary_frame = 0;
++    uint64_t summary_events = 0;
++    uint32_t aa838_draws_in_frame = 0;
++    uint64_t aa838_frames = 0;
++    uint64_t aa838_stage_a_draws = 0;
++    uint32_t aa838_odd_frames_logged = 0;
++    uint32_t placeholder_draws_in_frame = 0;
++    uint64_t placeholder_draws = 0;
++    uint64_t placeholder_frames = 0;
++    uint32_t placeholder_draws_logged = 0;
++    uint64_t skipped_presents = 0;
++    uint64_t stale_vertex_skips = 0;
++    uint32_t stale_vertex_logged = 0;
++  };
++  DebugSauloTelemetry debug_saulo_;
++  void DebugSauloPlaceholderDraw(const Shader* vertex_shader, const Shader* pixel_shader,
++                                 xenos::PrimitiveType prim_type, uint32_t index_count);
++  void DebugSauloStaleVertexBuffer(uint32_t vfetch_index, uint32_t address_dwords,
++                                   uint32_t size_dwords, const Shader* vertex_shader,
++                                   const Shader* pixel_shader);
++  void DebugSauloAa838Draw(uint64_t ps_hash, bool stage_a);
++  void DebugSauloEndFrame();
+   VkDescriptorSet current_graphics_descriptor_sets_[SpirvShaderTranslator::kDescriptorSetCount];
+   // Whether descriptor sets in current_graphics_descriptor_sets_ point to
+   // up-to-date data.
+diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
+index 0d5a27c..5bb38be 100644
+--- a/src/graphics/vulkan/command_processor.cpp
++++ b/src/graphics/vulkan/command_processor.cpp
+@@ -604,6 +604,81 @@ void VulkanCommandProcessor::ClearCaches() {
+   cache_clear_requested_ = true;
+ }
+ 
++// DEBUG_SAULO: temporary Steam Deck telemetry (issue #3); remove with patch 0092.
++namespace {
++constexpr uint32_t kDebugSauloLogLimit = 24;
++constexpr uint64_t kDebugSauloSummaryFrames = 600;
++uint64_t DebugSauloHash(const Shader* shader) { return shader ? shader->ucode_data_hash() : 0; }
++}  // namespace
++
++void VulkanCommandProcessor::DebugSauloPlaceholderDraw(const Shader* vertex_shader,
++                                                       const Shader* pixel_shader,
++                                                       xenos::PrimitiveType prim_type,
++                                                       uint32_t index_count) {
++  ++debug_saulo_.placeholder_draws;
++  if (!debug_saulo_.placeholder_draws_in_frame++) {
++    ++debug_saulo_.placeholder_frames;
++  }
++  if (debug_saulo_.placeholder_draws_logged < kDebugSauloLogLimit) {
++    ++debug_saulo_.placeholder_draws_logged;
++    REXGPU_INFO(
++        "DEBUG_SAULO placeholder draw skipped: frame {} VS {:016X} PS {:016X} prim {} count {}",
++        debug_saulo_.frame, DebugSauloHash(vertex_shader), DebugSauloHash(pixel_shader),
++        uint32_t(prim_type), index_count);
++  }
++}
++
++void VulkanCommandProcessor::DebugSauloStaleVertexBuffer(uint32_t vfetch_index,
++                                                         uint32_t address_dwords,
++                                                         uint32_t size_dwords,
++                                                         const Shader* vertex_shader,
++                                                         const Shader* pixel_shader) {
++  ++debug_saulo_.stale_vertex_skips;
++  if (debug_saulo_.stale_vertex_logged < kDebugSauloLogLimit) {
++    ++debug_saulo_.stale_vertex_logged;
++    REXGPU_INFO(
++        "DEBUG_SAULO stale vertex buffer: frame {} vfetch {} address 0x{:08X} size {} VS {:016X} "
++        "PS {:016X}",
++        debug_saulo_.frame, vfetch_index, address_dwords << 2, size_dwords << 2,
++        DebugSauloHash(vertex_shader), DebugSauloHash(pixel_shader));
++  }
++}
++
++void VulkanCommandProcessor::DebugSauloAa838Draw(uint64_t ps_hash, bool stage_a) {
++  if (ps_hash != kAa838InterleavedCopyPixelShader) {
++    return;
++  }
++  ++debug_saulo_.aa838_draws_in_frame;
++  if (stage_a && !debug_saulo_.aa838_stage_a_draws++) {
++    REXGPU_INFO("DEBUG_SAULO AA838 Stage A fix first applied at frame {}", debug_saulo_.frame);
++  }
++}
++
++void VulkanCommandProcessor::DebugSauloEndFrame() {
++  DebugSauloTelemetry& t = debug_saulo_;
++  if (t.aa838_draws_in_frame) {
++    ++t.aa838_frames;
++    if (t.aa838_draws_in_frame != 3 && t.aa838_odd_frames_logged < kDebugSauloLogLimit) {
++      ++t.aa838_odd_frames_logged;
++      REXGPU_INFO("DEBUG_SAULO AA838 frame {} has {} draws, expected 3", t.frame,
++                  t.aa838_draws_in_frame);
++    }
++  }
++  t.aa838_draws_in_frame = 0;
++  t.placeholder_draws_in_frame = 0;
++  ++t.frame;
++  uint64_t events = t.placeholder_draws + t.skipped_presents + t.stale_vertex_skips;
++  if (t.frame - t.summary_frame >= kDebugSauloSummaryFrames && events != t.summary_events) {
++    t.summary_frame = t.frame;
++    t.summary_events = events;
++    REXGPU_INFO(
++        "DEBUG_SAULO Vulkan summary: frame {} | placeholder draws {} in {} frames, presents "
++        "skipped {} | stale vertex buffers {} | AA838 frames {}, Stage A draws {}",
++        t.frame, t.placeholder_draws, t.placeholder_frames, t.skipped_presents,
++        t.stale_vertex_skips, t.aa838_frames, t.aa838_stage_a_draws);
++  }
++}
++
+ void VulkanCommandProcessor::InvalidateGpuMemory() {
+   if (shared_memory_) {
+     shared_memory_->InvalidateAllPages();
+@@ -2303,6 +2378,7 @@ void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontb
+           "Skipping Vulkan frame presentation due to async placeholder draw "
+           "usage in this frame");
+     }
++    ++debug_saulo_.skipped_presents;  // DEBUG_SAULO
+     EndSubmission(true);
+     return;
+   }
+@@ -3716,6 +3792,8 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+   }
+   aa838_stage_a_pending_ =
+       aa838_stage_a_fix_.OnDraw(pixel_shader ? pixel_shader->ucode_data_hash() : 0);
++  DebugSauloAa838Draw(pixel_shader ? pixel_shader->ucode_data_hash() : 0,  // DEBUG_SAULO
++                      aa838_stage_a_pending_);
+   reg::RB_DEPTHCONTROL normalized_depth_control = draw_util::GetNormalizedDepthControl(regs);
+ 
+   uint32_t ps_param_gen_pos = UINT32_MAX;
+@@ -3900,6 +3978,7 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+                                                 &pipeline_is_placeholder);
+   if (REXCVAR_GET(async_shader_compilation) && pipeline_is_placeholder) {
+     frame_used_async_placeholder_pipeline_ = true;
++    DebugSauloPlaceholderDraw(vertex_shader, pixel_shader, prim_type, index_count);  // DEBUG_SAULO
+     return true;
+   }
+   if (pipeline == VK_NULL_HANDLE || pipeline_layout_provider == nullptr) {
+@@ -4048,6 +4127,11 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t
+       }
+       VertexBufferState& state = vertex_buffer_states_[vfetch_index];
+       if (state.address == vfetch_constant.address && state.size == vfetch_constant.size) {
++        if (!shared_memory_->DebugSauloIsRangeValid(vfetch_constant.address << 2,  // DEBUG_SAULO
++                                                    vfetch_constant.size << 2)) {
++          DebugSauloStaleVertexBuffer(vfetch_index, vfetch_constant.address, vfetch_constant.size,
++                                      vertex_shader, pixel_shader);
++        }
+         vertex_buffers_in_sync_[vfetch_index >> 6] |= vfetch_bit;
+         continue;
+       }
+@@ -5374,6 +5458,7 @@ bool VulkanCommandProcessor::EndSubmission(bool is_swap) {
+     primitive_processor_->EndFrame();
+ 
+     aa838_stage_a_fix_.OnFrameEnd();
++    DebugSauloEndFrame();  // DEBUG_SAULO
+   }
+ 
+   if (submission_open_) {
+diff --git a/src/graphics/vulkan/texture_cache.cpp b/src/graphics/vulkan/texture_cache.cpp
+index 427fd03..84cdbbb 100644
+--- a/src/graphics/vulkan/texture_cache.cpp
++++ b/src/graphics/vulkan/texture_cache.cpp
+@@ -1236,6 +1236,17 @@ std::unique_ptr<TextureCache::Texture> VulkanTextureCache::CreateTexture(Texture
+     unsupported_format_features_used_[uint32_t(key.format)] |= kUnsupportedResourceBit;
+     return nullptr;
+   }
++  // DEBUG_SAULO: which packed YUV textures the game really creates (issue #3).
++  if (key.format == xenos::TextureFormat::k_Cr_Y1_Cb_Y0_REP ||
++      key.format == xenos::TextureFormat::k_Y1_Cr_Y0_Cb_REP) {
++    static uint32_t debug_saulo_yuv_logged = 0;
++    if (debug_saulo_yuv_logged < 16) {
++      ++debug_saulo_yuv_logged;
++      REXGPU_INFO("DEBUG_SAULO packed YUV texture: format {} {}x{} base 0x{:08X} host format {}",
++                  uint32_t(key.format), key.GetWidth(), key.GetHeight(), key.base_page << 12,
++                  uint32_t(formats[0]));
++    }
++  }
+ 
+   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
+   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();

@@ -18,9 +18,10 @@ into its own shared library (`libtmnt_turtles_in_time_reshelled_TMNT_r.so`). ReX
 completes on Windows but `dlopen` does not. The Linux-only patch `0082-posix-recompiled-module-library` makes the runtime
 look for `lib<name>.so` beside the executable first.
 
-Two Direct3D 12 fixes that a player can see have no Vulkan counterpart yet: the cyan turtle flicker (`0080`), and vertex
-buffers rewritten at the same address during a frame (`0079`), which can show as stale geometry. The Vulkan equivalents of
-`0040` and `0055` are deferred too; those two are performance work. All four are parity `vulkan-candidate` in
+The cyan turtle flicker fix (`0080`) has its Vulkan counterpart in `0091`, not yet confirmed on a Steam Deck. One
+Direct3D 12 fix that a player can see still has none: vertex buffers rewritten at the same address (`0079`), which can
+show as stale geometry; the temporary `0092` telemetry logs when that happens. The Vulkan equivalents of `0040` and
+`0055` are deferred too; those two are performance work. These three are parity `vulkan-candidate` in
 `patches/rexglue-sdk/patches.txt`.
 
 The AppImage FUSE fallback (the image unpacks itself and runs from there when it cannot be mounted) is part of the
